@@ -94,6 +94,7 @@ Current state:
 
 - `trackstash-bootstrap` already exposes `import-csv` as a thin wrapper so the workflow is usable today.
 - `trackstash-core` owns the reusable `CatalogImportService` implementation.
+- delete semantics are not yet first-class in shared storage contracts, so safe deletion should be specified in `trackstash-core` before catalog implementation begins.
 
 Target state:
 
@@ -118,7 +119,7 @@ Target state:
 
 - implement `summary` for quick catalog counts and readiness
 - implement `doctor` for integrity diagnostics
-- implement `delete-entity` with dependency-aware safety checks
+- implement `delete-entity` with dependency-aware safety checks after core delete contracts and rules are finalized
 - implement `repair-indexes` for derived index refresh and validation
 
 ### Planned delete rules
@@ -155,9 +156,32 @@ The first implementation should mirror the testing style already used in neighbo
 - command-level tests for exit codes and output payloads
 - focused tests around idempotency, warning emission, and repair safety
 
+## Progress To Date
+
+Completed planning work:
+
+- established `trackstash-catalog` as the long-term operational boundary for catalog workflows
+- documented command ownership relative to `trackstash-bootstrap` and `trackstash-core`
+- defined the initial command surface for import, diagnostics, delete, and repair flows
+- captured the first draft of delete dependency rules and owned-row cleanup expectations
+
+Pending core-first work before catalog delete implementation:
+
+- define shared delete contracts in `trackstash-core`
+- document entity dependency analysis behavior in core
+- decide which cleanup rows are owned deletes versus hard blockers in shared services
+- implement and test core delete analysis and transactional delete orchestration
+
+Catalog follow-up after core delete work lands:
+
+- wire a `delete-entity` CLI surface onto the shared core service
+- add text and JSON result envelopes for dependency analysis and delete outcomes
+- add integration tests covering dry-run, blocked delete, and successful owned cleanup scenarios
+
 ## Current Status
 
 Status: planning and documentation only.
 
 The repository was created to establish the module boundary before implementation begins.
-The next step is to scaffold the solution and move the operational command surface here in phases.
+The next implementation step for import and diagnostics is still project scaffolding.
+The next implementation step for deletion is core-first contract and service design, followed by catalog command wiring.

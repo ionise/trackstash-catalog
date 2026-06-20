@@ -66,6 +66,7 @@ Owns:
 - provider abstractions and reusable services
 - storage adapters and migration primitives
 - normalization and shared catalog orchestration helpers
+- shared delete dependency analysis and transactional delete orchestration for canonical entities
 
 Current shared catalog service:
 
@@ -89,6 +90,12 @@ Owns:
 - `TrackStash.Core.Storage.IUnitOfWork`
 - `TrackStash.Core.Storage` repository contracts for labels, artists, releases, and recordings
 - `TrackStash.Core.Services.CatalogImportService`
+
+Delete planning note:
+
+- `delete-entity` should not invent provider-specific deletion behavior in catalog.
+- shared delete contracts, dependency analysis, and owned-row cleanup rules should be defined in `trackstash-core` first.
+- catalog should then provide the operator-facing CLI over those shared services.
 
 Likely future dependencies:
 
@@ -201,6 +208,10 @@ Behavior:
 - delete entity-owned rows in the same transaction when safe
 - emit a summary of deleted owned rows and any blocking references found
 
+Implementation note:
+
+- the command should remain planned-only in `trackstash-catalog` until the corresponding core contracts and services exist.
+
 Non-goals for the first version:
 
 - automatic recursive deletion of other canonical entities
@@ -259,6 +270,8 @@ Future catalog-specific extensions may add:
 - batch identifiers and import session metadata
 
 ## 7. Delete Dependency Rules
+
+These rules should be finalized in `trackstash-core` as the shared source of truth before `trackstash-catalog` implements the delete command.
 
 The initial delete feature should distinguish between blocking dependencies and entity-owned rows.
 
@@ -322,6 +335,16 @@ For `recording`:
 - `embedding_document` rows where `entity_id` matches the recording id
 
 The first version should stay conservative and avoid deleting other canonical entities automatically.
+
+### 7.3 Core prerequisites before catalog implementation
+
+The following work should be completed in `trackstash-core` before catalog begins wiring the delete command:
+
+- define repository or service contracts for dependency analysis and delete execution
+- define result models for blocker reporting, owned-row cleanup summaries, and dry-run analysis
+- decide asymmetry rules for join-table cleanup, such as release-side cleanup versus recording-side blockers in `release_recording`
+- implement SQLite-backed integration tests for blocked and successful deletes
+- document delete behavior alongside the existing schema and storage contracts
 
 ## 8. Exit Codes
 
@@ -465,14 +488,29 @@ Deliverables:
 
 - `summary` command
 - initial `doctor` checks
-- initial `delete-entity` command
+- placeholder `delete-entity` command contract and output schema
 - clear findings model with severity and counts
 
 Success criteria:
 
 - operator can determine catalog health without raw SQL
 - failing integrity scenarios are reproducible in tests
-- delete attempts explain exactly which dependencies blocked the operation
+- delete command requirements are fully pinned to core contracts before CLI implementation starts
+
+### Phase 3a: Core-first delete foundation
+
+Deliverables:
+
+- shared delete contract design in `trackstash-core`
+- dependency analysis service in `trackstash-core`
+- transactional delete orchestration in `trackstash-core`
+- schema and contract documentation updates in `trackstash-core`
+
+Success criteria:
+
+- delete rules are defined once at the shared layer
+- SQLite-backed tests prove blocker detection and owned-row cleanup behavior
+- catalog can adopt the service without adding provider-specific delete logic
 
 ### Phase 4: Repair and enrichment
 
@@ -498,6 +536,12 @@ Minimum expectations:
 - dependency-analysis tests for delete blockers and owned-row cleanup
 - regression tests for unresolved-reference warnings and fail-fast behavior
 
+Catalog placeholder tests after core delete work lands:
+
+- CLI dry-run output for `delete-entity`
+- blocked delete output with grouped dependencies
+- successful delete output with owned-row cleanup counts
+
 Preferred layering:
 
 - small unit tests around request validation and formatting
@@ -516,5 +560,6 @@ Preferred layering:
 
 1. Scaffold the .NET solution and CLI project.
 2. Port the existing `import-csv` command surface from bootstrap into this module while continuing to reuse core services.
-3. Define the first `summary`, `doctor`, and `delete-entity` result schemas before implementation.
-4. Decide whether bootstrap keeps a compatibility import wrapper or redirects operators to catalog.
+3. Continue documenting delete rules in `trackstash-core` and define shared delete contracts there.
+4. Define the first `summary`, `doctor`, and placeholder `delete-entity` result schemas in catalog.
+5. Decide whether bootstrap keeps a compatibility import wrapper or redirects operators to catalog.
