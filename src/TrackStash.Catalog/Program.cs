@@ -377,20 +377,44 @@ static Task<int> RunApplyEntityAsync(
     IReadOnlyDictionary<string, string?> options,
     bool jsonMode)
 {
+    return RunApplyEntityCoreAsync(dbPath, options, jsonMode);
+}
+
+static async Task<int> RunApplyEntityCoreAsync(
+    string dbPath,
+    IReadOnlyDictionary<string, string?> options,
+    bool jsonMode)
+{
     var filePath = GetRequiredOption(options, "file");
+    if (!File.Exists(filePath))
+        throw new ArgumentException($"File not found: {filePath}");
+
     var dryRun = options.ContainsKey("dry-run");
-    var message = "Command scaffolded only. Desired-state apply/reconcile engine is not implemented yet.";
+    var yaml = File.ReadAllText(filePath);
+    var envelope = EntityYamlService.ParseSingleDocument(yaml);
+
+    var provider = new SqliteStorageProvider(dbPath);
+    var result = await EntityYamlService.ApplyAsync(
+        envelope,
+        provider,
+        providerName: "sqlite",
+        dbPath: dbPath,
+        dryRun: dryRun).ConfigureAwait(false);
 
     if (jsonMode)
     {
-        CommandOutput.WriteJson("apply-entity", ok: false, exitCode: 1, data: new
+        CommandOutput.WriteJson("apply-entity", ok: result.Success, exitCode: result.Success ? 0 : 1, data: new
         {
             databasePath = dbPath,
             file = filePath,
             dryRun,
-            implemented = false,
-            nextStep = "Add YAML-to-domain mapping and mode-specific transactional reconciliation.",
-        }, errors: [message]);
+            kind = result.Kind,
+            mode = result.Mode,
+            entityId = result.EntityId,
+            actions = result.Actions,
+            warnings = result.Warnings,
+            errors = result.Errors,
+        }, errors: result.Success ? null : result.Errors);
     }
     else
     {
@@ -398,15 +422,32 @@ static Task<int> RunApplyEntityAsync(
             ("database", dbPath),
             ("file", filePath),
             ("dryRun", dryRun),
-            ("implemented", false),
+            ("success", result.Success),
+            ("kind", result.Kind),
+            ("mode", result.Mode),
+            ("entityId", result.EntityId),
         ]);
-        Console.Error.WriteLine(message);
+
+        foreach (var action in result.Actions)
+            Console.WriteLine($"  action: {action}");
+        foreach (var warning in result.Warnings)
+            Console.Error.WriteLine($"  warning: {warning}");
+        foreach (var error in result.Errors)
+            Console.Error.WriteLine($"  error: {error}");
     }
 
-    return Task.FromResult(1);
+    return result.Success ? 0 : 1;
 }
 
 static Task<int> RunGetEntityAsync(
+    string dbPath,
+    IReadOnlyDictionary<string, string?> options,
+    bool jsonMode)
+{
+    return RunGetEntityCoreAsync(dbPath, options, jsonMode);
+}
+
+static async Task<int> RunGetEntityCoreAsync(
     string dbPath,
     IReadOnlyDictionary<string, string?> options,
     bool jsonMode)
@@ -418,33 +459,39 @@ static Task<int> RunGetEntityAsync(
     if (!validTypes.Contains(entityType))
         throw new ArgumentException($"--type must be one of: {string.Join(", ", validTypes)}");
 
-    var message = "Command scaffolded only. Entity lookup and YAML export are not implemented yet.";
+    if (!string.Equals(format, "yaml", StringComparison.OrdinalIgnoreCase))
+        throw new ArgumentException("--format currently supports only yaml.");
+
+    var provider = new SqliteStorageProvider(dbPath);
+    var envelope = await EntityYamlService.GetEntityAsync(entityType, entityId, provider, providerName: "sqlite", dbPath: dbPath).ConfigureAwait(false);
+    if (envelope is null)
+    {
+        if (jsonMode)
+            CommandOutput.WriteJson("get-entity", ok: false, exitCode: 1, data: new { databasePath = dbPath, entityType, entityId, format }, errors: ["Entity not found."]);
+        else
+            Console.Error.WriteLine("Entity not found.");
+        return 1;
+    }
+
+    var yaml = EntityYamlService.ToYaml(envelope);
 
     if (jsonMode)
     {
-        CommandOutput.WriteJson("get-entity", ok: false, exitCode: 1, data: new
+        CommandOutput.WriteJson("get-entity", ok: true, exitCode: 0, data: new
         {
             databasePath = dbPath,
             entityType,
             entityId,
             format,
-            implemented = false,
-            nextStep = "Add provider-backed entity retrieval and desired-state document emitter.",
-        }, errors: [message]);
+            content = yaml,
+        });
     }
     else
     {
-        CommandOutput.WriteText([
-            ("database", dbPath),
-            ("entityType", entityType),
-            ("entityId", entityId),
-            ("format", format),
-            ("implemented", false),
-        ]);
-        Console.Error.WriteLine(message);
+        Console.WriteLine(yaml);
     }
 
-    return Task.FromResult(1);
+    return 0;
 }
 
 static int UnknownCommand(string command)

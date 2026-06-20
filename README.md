@@ -77,6 +77,10 @@ Current commands:
 - `doctor`
 - `delete-entity`
 - `repair-indexes`
+- `template`
+- `validate-entity`
+- `apply-entity`
+- `get-entity`
 
 Notes:
 
@@ -213,14 +217,11 @@ trackstash-catalog validate-entity --file ./templates/entities/batch-example.v1.
 
 Purpose:
 
-- intended to apply desired-state entity YAML into a target catalog
+- apply desired-state entity YAML into a target catalog
+- support `replace`, `merge`, `create-only`, and `update-only` modes
+- support `--dry-run` planning output without committing writes
 
-Current status:
-
-- scaffolded command (recognized and argument-validated)
-- reconciliation engine is not implemented yet
-
-Usage (scaffold):
+Usage:
 
 ```bash
 trackstash-catalog apply-entity --catalog default --file ./templates/entities/label.v1.yaml --dry-run
@@ -230,14 +231,10 @@ trackstash-catalog apply-entity --catalog default --file ./templates/entities/la
 
 Purpose:
 
-- intended to retrieve one canonical entity and emit desired-state YAML
+- retrieve one canonical entity and emit desired-state YAML
+- supports `label`, `artist`, `release`, and `recording` entity types
 
-Current status:
-
-- scaffolded command (recognized and argument-validated)
-- provider-backed retrieval/export mapping is not implemented yet
-
-Usage (scaffold):
+Usage:
 
 ```bash
 trackstash-catalog get-entity --catalog default --type label --id lbl_example_virelith_records --format yaml

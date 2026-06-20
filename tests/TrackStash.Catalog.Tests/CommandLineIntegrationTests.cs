@@ -58,6 +58,89 @@ public sealed class CommandLineIntegrationTests
     }
 
     [Fact]
+    public async Task ApplyEntity_Label_DryRun_JsonMode_ReturnsExit0()
+    {
+        var dbPath = TempDb();
+        var yamlPath = Path.Combine(Path.GetTempPath(), $"catalog-apply-{Guid.NewGuid():N}.yaml");
+        try
+        {
+            var provider = new SqliteStorageProvider(dbPath);
+            await provider.Migrations.ApplyPendingMigrationsAsync();
+
+            File.WriteAllText(yamlPath, """
+                apiVersion: catalog.trackstash/v1
+                kind: Label
+                mode: replace
+                metadata:
+                  id: lbl_cli_apply_test
+                spec:
+                  id: lbl_cli_apply_test
+                  name: CLI Apply Label
+                  normalizedName: cli apply label
+                """);
+
+            var result = await RunCatalogCliAsync($"apply-entity --db-path \"{dbPath}\" --file \"{yamlPath}\" --dry-run --output json");
+
+            Assert.Equal(0, result.ExitCode);
+
+            using var doc = JsonDocument.Parse(result.StdOut);
+            var root = doc.RootElement;
+            Assert.True(GetProperty(root, "ok").GetBoolean());
+            var data = GetProperty(root, "data");
+            Assert.True(GetProperty(data, "dryRun").GetBoolean());
+            Assert.Equal("lbl_cli_apply_test", GetProperty(data, "entityId").GetString());
+        }
+        finally
+        {
+            DeleteIfExists(dbPath);
+            DeleteIfExists(yamlPath);
+        }
+    }
+
+    [Fact]
+    public async Task GetEntity_Label_JsonMode_ReturnsYamlContentAndExit0()
+    {
+        var dbPath = TempDb();
+        try
+        {
+            var provider = new SqliteStorageProvider(dbPath);
+            await provider.Migrations.ApplyPendingMigrationsAsync();
+
+            var label = new TrackStash.Core.Storage.Label
+            {
+                Id = "lbl_get_entity_test",
+                Name = "Get Entity Label",
+                NormalizedName = "get entity label",
+                SortName = "Get Entity Label",
+                UpdatedUtc = DateTimeOffset.UtcNow,
+            };
+
+            await using (var uow = await provider.BeginUnitOfWorkAsync())
+            {
+                await uow.Labels.UpsertAsync(label);
+                await uow.CommitAsync();
+            }
+
+            var result = await RunCatalogCliAsync($"get-entity --db-path \"{dbPath}\" --type label --id lbl_get_entity_test --output json");
+
+            Assert.Equal(0, result.ExitCode);
+
+            using var doc = JsonDocument.Parse(result.StdOut);
+            var root = doc.RootElement;
+            Assert.True(GetProperty(root, "ok").GetBoolean());
+
+            var yaml = GetProperty(GetProperty(root, "data"), "content").GetString();
+            Assert.NotNull(yaml);
+            Assert.Contains("kind: Label", yaml);
+            Assert.Contains("id: lbl_get_entity_test", yaml);
+        }
+        finally
+        {
+            DeleteIfExists(dbPath);
+        }
+    }
+
+    [Fact]
     public async Task Doctor_WithInitializedDb_JsonMode_ReturnsOkAndExit0()
     {
         var dbPath = TempDb();
