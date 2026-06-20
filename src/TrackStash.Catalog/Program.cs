@@ -30,6 +30,10 @@ static async Task<int> RunAsync(string[] args)
             "delete-entity" => await RunDeleteEntityAsync(catalog, config, options, jsonMode).ConfigureAwait(false),
             "doctor"        => await RunDoctorAsync(catalog, config, jsonMode).ConfigureAwait(false),
             "repair-indexes" => await RunRepairIndexesAsync(catalog, config, options, jsonMode).ConfigureAwait(false),
+            "template"      => await RunTemplateAsync(options, jsonMode).ConfigureAwait(false),
+            "validate-entity" => await RunValidateEntityAsync(options, jsonMode).ConfigureAwait(false),
+            "apply-entity"  => await RunApplyEntityAsync(config, options, jsonMode).ConfigureAwait(false),
+            "get-entity"    => await RunGetEntityAsync(config, options, jsonMode).ConfigureAwait(false),
             _               => UnknownCommand(command),
         };
     }
@@ -299,6 +303,146 @@ static async Task<int> RunRepairIndexesAsync(
     return 0;
 }
 
+static Task<int> RunTemplateAsync(
+    IReadOnlyDictionary<string, string?> options,
+    bool jsonMode)
+{
+    var kind = GetRequiredOption(options, "kind").ToLowerInvariant();
+    var validKinds = new[] { "label", "artist", "release", "recording" };
+    if (!validKinds.Contains(kind))
+        throw new ArgumentException($"--kind must be one of: {string.Join(", ", validKinds)}");
+
+    var templatePath = $"templates/entities/{kind}.v1.yaml";
+    var message = "Command scaffolded only. Template emission is not implemented yet.";
+
+    if (jsonMode)
+    {
+        CommandOutput.WriteJson("template", ok: false, exitCode: 1, data: new
+        {
+            kind,
+            templatePath,
+            implemented = false,
+            nextStep = "Wire filesystem template loading and optional inline emission.",
+        }, errors: [message]);
+    }
+    else
+    {
+        CommandOutput.WriteText([
+            ("kind", kind),
+            ("templatePath", templatePath),
+            ("implemented", false),
+        ]);
+        Console.Error.WriteLine(message);
+    }
+
+    return Task.FromResult(1);
+}
+
+static Task<int> RunValidateEntityAsync(
+    IReadOnlyDictionary<string, string?> options,
+    bool jsonMode)
+{
+    var filePath = GetRequiredOption(options, "file");
+    var message = "Command scaffolded only. YAML parsing and schema validation are not implemented yet.";
+
+    if (jsonMode)
+    {
+        CommandOutput.WriteJson("validate-entity", ok: false, exitCode: 1, data: new
+        {
+            file = filePath,
+            implemented = false,
+            nextStep = "Add YAML document parser and v1 contract validator.",
+        }, errors: [message]);
+    }
+    else
+    {
+        CommandOutput.WriteText([
+            ("file", filePath),
+            ("implemented", false),
+        ]);
+        Console.Error.WriteLine(message);
+    }
+
+    return Task.FromResult(1);
+}
+
+static Task<int> RunApplyEntityAsync(
+    CatalogConfig config,
+    IReadOnlyDictionary<string, string?> options,
+    bool jsonMode)
+{
+    var dbPath = RequireDbPath(config);
+    var filePath = GetRequiredOption(options, "file");
+    var dryRun = options.ContainsKey("dry-run");
+    var message = "Command scaffolded only. Desired-state apply/reconcile engine is not implemented yet.";
+
+    if (jsonMode)
+    {
+        CommandOutput.WriteJson("apply-entity", ok: false, exitCode: 1, data: new
+        {
+            databasePath = dbPath,
+            file = filePath,
+            dryRun,
+            implemented = false,
+            nextStep = "Add YAML-to-domain mapping and mode-specific transactional reconciliation.",
+        }, errors: [message]);
+    }
+    else
+    {
+        CommandOutput.WriteText([
+            ("database", dbPath),
+            ("file", filePath),
+            ("dryRun", dryRun),
+            ("implemented", false),
+        ]);
+        Console.Error.WriteLine(message);
+    }
+
+    return Task.FromResult(1);
+}
+
+static Task<int> RunGetEntityAsync(
+    CatalogConfig config,
+    IReadOnlyDictionary<string, string?> options,
+    bool jsonMode)
+{
+    var dbPath = RequireDbPath(config);
+    var entityType = GetRequiredOption(options, "type").ToLowerInvariant();
+    var entityId = GetRequiredOption(options, "id");
+    var format = GetOption(options, "format") ?? "yaml";
+    var validTypes = new[] { "label", "artist", "release", "recording" };
+    if (!validTypes.Contains(entityType))
+        throw new ArgumentException($"--type must be one of: {string.Join(", ", validTypes)}");
+
+    var message = "Command scaffolded only. Entity lookup and YAML export are not implemented yet.";
+
+    if (jsonMode)
+    {
+        CommandOutput.WriteJson("get-entity", ok: false, exitCode: 1, data: new
+        {
+            databasePath = dbPath,
+            entityType,
+            entityId,
+            format,
+            implemented = false,
+            nextStep = "Add provider-backed entity retrieval and desired-state document emitter.",
+        }, errors: [message]);
+    }
+    else
+    {
+        CommandOutput.WriteText([
+            ("database", dbPath),
+            ("entityType", entityType),
+            ("entityId", entityId),
+            ("format", format),
+            ("implemented", false),
+        ]);
+        Console.Error.WriteLine(message);
+    }
+
+    return Task.FromResult(1);
+}
+
 static int UnknownCommand(string command)
 {
     Console.Error.WriteLine($"Unknown command: {command}");
@@ -364,4 +508,8 @@ static void PrintUsage()
     Console.WriteLine("  trackstash-catalog delete-entity --db-path <path> --type <label|artist|release|recording> --id <id> [--deleted-by <name>] [--reason <text>] [--output json]");
     Console.WriteLine("  trackstash-catalog doctor        --db-path <path> [--output json]");
     Console.WriteLine("  trackstash-catalog repair-indexes --db-path <path> [--dry-run] [--output json]");
+    Console.WriteLine("  trackstash-catalog template      --kind <label|artist|release|recording> [--output json]");
+    Console.WriteLine("  trackstash-catalog validate-entity --file <path.yaml> [--output json]");
+    Console.WriteLine("  trackstash-catalog apply-entity  --db-path <path> --file <path.yaml> [--dry-run] [--output json]");
+    Console.WriteLine("  trackstash-catalog get-entity    --db-path <path> --type <label|artist|release|recording> --id <id> [--format yaml] [--output json]");
 }
