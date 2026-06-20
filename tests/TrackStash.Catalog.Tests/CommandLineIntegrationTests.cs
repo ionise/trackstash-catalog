@@ -8,6 +8,56 @@ namespace TrackStash.Catalog.Tests;
 public sealed class CommandLineIntegrationTests
 {
     [Fact]
+    public async Task Template_Label_TextMode_ReturnsYamlAndExit0()
+    {
+        var result = await RunCatalogCliAsync("template --kind label");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("apiVersion: catalog.trackstash/v1", result.StdOut);
+        Assert.Contains("kind: Label", result.StdOut);
+    }
+
+    [Fact]
+    public async Task ValidateEntity_WithValidTemplate_JsonMode_ReturnsExit0()
+    {
+        var root = Path.GetDirectoryName(GetCatalogProjectPath())!;
+        var filePath = Path.Combine(root, "..", "..", "templates", "entities", "label.v1.yaml");
+        filePath = Path.GetFullPath(filePath);
+
+        var result = await RunCatalogCliAsync($"validate-entity --file \"{filePath}\" --output json");
+
+        Assert.Equal(0, result.ExitCode);
+
+        using var doc = JsonDocument.Parse(result.StdOut);
+        var rootJson = doc.RootElement;
+        Assert.True(GetProperty(rootJson, "ok").GetBoolean());
+        Assert.True(GetProperty(GetProperty(rootJson, "data"), "isValid").GetBoolean());
+    }
+
+    [Fact]
+    public async Task ValidateEntity_WithInvalidYaml_JsonMode_ReturnsExit1()
+    {
+        var yamlPath = Path.Combine(Path.GetTempPath(), $"catalog-invalid-{Guid.NewGuid():N}.yaml");
+        try
+        {
+            File.WriteAllText(yamlPath, "kind: Label\nspec: [unterminated");
+
+            var result = await RunCatalogCliAsync($"validate-entity --file \"{yamlPath}\" --output json");
+
+            Assert.Equal(1, result.ExitCode);
+
+            using var doc = JsonDocument.Parse(result.StdOut);
+            var rootJson = doc.RootElement;
+            Assert.False(GetProperty(rootJson, "ok").GetBoolean());
+            Assert.False(GetProperty(GetProperty(rootJson, "data"), "isValid").GetBoolean());
+        }
+        finally
+        {
+            DeleteIfExists(yamlPath);
+        }
+    }
+
+    [Fact]
     public async Task Doctor_WithInitializedDb_JsonMode_ReturnsOkAndExit0()
     {
         var dbPath = TempDb();

@@ -1,5 +1,6 @@
 using TrackStash.Catalog;
 using TrackStash.Catalog.Config;
+using TrackStash.Catalog.Entities;
 using TrackStash.Catalog.Output;
 using TrackStash.Core.Storage;
 using TrackStash.Core.Sqlite;
@@ -18,24 +19,21 @@ static async Task<int> RunAsync(string[] args)
     var command = args[0].ToLowerInvariant();
     var options = ParseOptions(args, 1);
     var config = ConfigResolver.Resolve(options);
-    var target = ResolveCatalogTarget(config);
-    var providerFactory = ResolveProviderFactory(target.Provider);
-    var catalog = new CatalogCommands(providerFactory, target.Provider);
     var jsonMode = CommandOutput.IsJsonMode(config.Output.Format);
 
     try
     {
         return command switch
         {
-            "import-csv"    => await RunImportCsvAsync(catalog, target.DatabasePath, options, jsonMode).ConfigureAwait(false),
-            "summary"       => await RunSummaryAsync(catalog, target.DatabasePath, jsonMode).ConfigureAwait(false),
-            "delete-entity" => await RunDeleteEntityAsync(catalog, target.DatabasePath, options, jsonMode).ConfigureAwait(false),
-            "doctor"        => await RunDoctorAsync(catalog, target.DatabasePath, jsonMode).ConfigureAwait(false),
-            "repair-indexes" => await RunRepairIndexesAsync(catalog, target.DatabasePath, options, jsonMode).ConfigureAwait(false),
+            "import-csv"    => await RunImportCsvAsync(CreateCatalogCommands(config, out var importTarget), importTarget.DatabasePath, options, jsonMode).ConfigureAwait(false),
+            "summary"       => await RunSummaryAsync(CreateCatalogCommands(config, out var summaryTarget), summaryTarget.DatabasePath, jsonMode).ConfigureAwait(false),
+            "delete-entity" => await RunDeleteEntityAsync(CreateCatalogCommands(config, out var deleteTarget), deleteTarget.DatabasePath, options, jsonMode).ConfigureAwait(false),
+            "doctor"        => await RunDoctorAsync(CreateCatalogCommands(config, out var doctorTarget), doctorTarget.DatabasePath, jsonMode).ConfigureAwait(false),
+            "repair-indexes" => await RunRepairIndexesAsync(CreateCatalogCommands(config, out var repairTarget), repairTarget.DatabasePath, options, jsonMode).ConfigureAwait(false),
             "template"      => await RunTemplateAsync(options, jsonMode).ConfigureAwait(false),
             "validate-entity" => await RunValidateEntityAsync(options, jsonMode).ConfigureAwait(false),
-            "apply-entity"  => await RunApplyEntityAsync(target.DatabasePath, options, jsonMode).ConfigureAwait(false),
-            "get-entity"    => await RunGetEntityAsync(target.DatabasePath, options, jsonMode).ConfigureAwait(false),
+            "apply-entity"  => await RunApplyEntityAsync(ResolveCatalogTarget(config).DatabasePath, options, jsonMode).ConfigureAwait(false),
+            "get-entity"    => await RunGetEntityAsync(ResolveCatalogTarget(config).DatabasePath, options, jsonMode).ConfigureAwait(false),
             _               => UnknownCommand(command),
         };
     }
@@ -309,30 +307,24 @@ static Task<int> RunTemplateAsync(
     if (!validKinds.Contains(kind))
         throw new ArgumentException($"--kind must be one of: {string.Join(", ", validKinds)}");
 
-    var templatePath = $"templates/entities/{kind}.v1.yaml";
-    var message = "Command scaffolded only. Template emission is not implemented yet.";
+    var templatePath = ResolveTemplatePath(kind);
+    var templateContent = File.ReadAllText(templatePath);
 
     if (jsonMode)
     {
-        CommandOutput.WriteJson("template", ok: false, exitCode: 1, data: new
+        CommandOutput.WriteJson("template", ok: true, exitCode: 0, data: new
         {
             kind,
             templatePath,
-            implemented = false,
-            nextStep = "Wire filesystem template loading and optional inline emission.",
-        }, errors: [message]);
+            content = templateContent,
+        });
     }
     else
     {
-        CommandOutput.WriteText([
-            ("kind", kind),
-            ("templatePath", templatePath),
-            ("implemented", false),
-        ]);
-        Console.Error.WriteLine(message);
+        Console.WriteLine(templateContent);
     }
 
-    return Task.FromResult(1);
+    return Task.FromResult(0);
 }
 
 static Task<int> RunValidateEntityAsync(
@@ -340,27 +332,44 @@ static Task<int> RunValidateEntityAsync(
     bool jsonMode)
 {
     var filePath = GetRequiredOption(options, "file");
-    var message = "Command scaffolded only. YAML parsing and schema validation are not implemented yet.";
+    if (!File.Exists(filePath))
+        throw new ArgumentException($"File not found: {filePath}");
+
+    var yaml = File.ReadAllText(filePath);
+    var result = EntityYamlValidator.Validate(yaml);
 
     if (jsonMode)
     {
-        CommandOutput.WriteJson("validate-entity", ok: false, exitCode: 1, data: new
+        CommandOutput.WriteJson("validate-entity", ok: result.IsValid, exitCode: result.IsValid ? 0 : 1, data: new
         {
             file = filePath,
-            implemented = false,
-            nextStep = "Add YAML document parser and v1 contract validator.",
-        }, errors: [message]);
+            documentCount = result.DocumentCount,
+            isValid = result.IsValid,
+            errorCount = result.ErrorCount,
+            warningCount = result.WarningCount,
+            issues = result.Issues.Select(i => new
+            {
+                severity = i.Severity,
+                path = i.Path,
+                message = i.Message,
+            }),
+        });
     }
     else
     {
         CommandOutput.WriteText([
             ("file", filePath),
-            ("implemented", false),
+            ("documentCount", result.DocumentCount),
+            ("isValid", result.IsValid),
+            ("errorCount", result.ErrorCount),
+            ("warningCount", result.WarningCount),
         ]);
-        Console.Error.WriteLine(message);
+
+        foreach (var issue in result.Issues)
+            Console.Error.WriteLine($"  {issue.Severity}: {issue.Path} - {issue.Message}");
     }
 
-    return Task.FromResult(1);
+    return Task.FromResult(result.IsValid ? 0 : 1);
 }
 
 static Task<int> RunApplyEntityAsync(
@@ -516,6 +525,13 @@ static TrackStash.Core.Storage.IStorageProviderFactory ResolveProviderFactory(st
         _ => throw new ArgumentException($"Unsupported provider: {provider}"),
     };
 
+static CatalogCommands CreateCatalogCommands(CatalogConfig config, out ResolvedCatalogTarget target)
+{
+    target = ResolveCatalogTarget(config);
+    var providerFactory = ResolveProviderFactory(target.Provider);
+    return new CatalogCommands(providerFactory, target.Provider);
+}
+
 static void PrintUsage()
 {
     Console.WriteLine("Usage:");
@@ -528,6 +544,34 @@ static void PrintUsage()
     Console.WriteLine("  trackstash-catalog validate-entity --file <path.yaml> [--output json]");
     Console.WriteLine("  trackstash-catalog apply-entity  [--catalog <name>] [--db-path <path>] --file <path.yaml> [--dry-run] [--output json]");
     Console.WriteLine("  trackstash-catalog get-entity    [--catalog <name>] [--db-path <path>] --type <label|artist|release|recording> --id <id> [--format yaml] [--output json]");
+}
+
+static string ResolveTemplatePath(string kind)
+{
+    var relative = Path.Combine("templates", "entities", $"{kind}.v1.yaml");
+
+    var cwdCandidate = Path.Combine(Directory.GetCurrentDirectory(), relative);
+    if (File.Exists(cwdCandidate))
+        return cwdCandidate;
+
+    var dir = new DirectoryInfo(AppContext.BaseDirectory);
+    while (dir is not null)
+    {
+        var candidate = Path.Combine(dir.FullName, relative);
+        if (File.Exists(candidate))
+            return candidate;
+
+        if (string.Equals(dir.Name, "trackstash-catalog", StringComparison.OrdinalIgnoreCase))
+        {
+            candidate = Path.Combine(dir.FullName, relative);
+            if (File.Exists(candidate))
+                return candidate;
+        }
+
+        dir = dir.Parent;
+    }
+
+    throw new ArgumentException($"Template not found for kind '{kind}'. Expected at {relative}.");
 }
 
 internal sealed record ResolvedCatalogTarget(

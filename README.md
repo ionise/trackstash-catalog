@@ -178,6 +178,71 @@ See `docs/entity-templates/README.md` for:
 - mode semantics (`replace`, `merge`, `create-only`, `update-only`)
 - full-schema field coverage notes and export/import expectations
 
+## Entity Command Usage
+
+The entity-oriented command set is intended to support template generation, validation, export, and desired-state apply workflows.
+
+### `template`
+
+Purpose:
+
+- emit a starter YAML entity template for a requested kind
+
+Usage:
+
+```bash
+trackstash-catalog template --kind label
+trackstash-catalog template --kind recording --output json
+```
+
+### `validate-entity`
+
+Purpose:
+
+- parse and validate YAML entity documents against the v1 contract
+- return structured validation issues and exit non-zero on invalid input
+
+Usage:
+
+```bash
+trackstash-catalog validate-entity --file ./templates/entities/label.v1.yaml
+trackstash-catalog validate-entity --file ./templates/entities/batch-example.v1.yaml --output json
+```
+
+### `apply-entity`
+
+Purpose:
+
+- intended to apply desired-state entity YAML into a target catalog
+
+Current status:
+
+- scaffolded command (recognized and argument-validated)
+- reconciliation engine is not implemented yet
+
+Usage (scaffold):
+
+```bash
+trackstash-catalog apply-entity --catalog default --file ./templates/entities/label.v1.yaml --dry-run
+```
+
+### `get-entity`
+
+Purpose:
+
+- intended to retrieve one canonical entity and emit desired-state YAML
+
+Current status:
+
+- scaffolded command (recognized and argument-validated)
+- provider-backed retrieval/export mapping is not implemented yet
+
+Usage (scaffold):
+
+```bash
+trackstash-catalog get-entity --catalog default --type label --id lbl_example_virelith_records --format yaml
+```
+
 Likely later commands:
 
 - `import-beatport`
