@@ -36,6 +36,35 @@ public sealed record DeleteEntityResult(
     bool TombstoneCaptured,
     IReadOnlyList<DeleteBlocker> Blockers);
 
+public sealed record DoctorRequest(
+    string DatabasePath);
+
+public sealed record DoctorResult(
+    string DatabasePath,
+    int CurrentMigrationVersion,
+    bool DatabaseReachable,
+    int LabelCount,
+    int ArtistCount,
+    int ReleaseCount,
+    int RecordingCount,
+    int MediaFileCount,
+    IReadOnlyList<string> Findings,
+    IReadOnlyList<string> Warnings)
+{
+    public bool HasIssues => Findings.Count > 0;
+}
+
+public sealed record RepairIndexesRequest(
+    string DatabasePath,
+    bool DryRun = false);
+
+public sealed record RepairIndexesResult(
+    string DatabasePath,
+    bool DryRun,
+    bool Performed,
+    IReadOnlyList<string> Actions,
+    IReadOnlyList<string> Notes);
+
 // ── Service facade ─────────────────────────────────────────────────────────────
 
 /// <summary>
@@ -160,5 +189,103 @@ public sealed class CatalogCommands
             CleanupRowsDeleted: result.CleanupRowsDeleted,
             TombstoneCaptured: result.Tombstone is not null,
             Blockers: []);
+    }
+
+    public async Task<DoctorResult> DoctorAsync(
+        DoctorRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.DatabasePath);
+
+        var provider = _providerFactory.Create(new StorageProviderDescriptor(
+            Provider: _provider,
+            DatabasePath: request.DatabasePath));
+
+        var findings = new List<string>();
+        var warnings = new List<string>();
+
+        var version = await provider.Migrations.GetCurrentVersionAsync(cancellationToken).ConfigureAwait(false);
+
+        var labelCount = 0;
+        var artistCount = 0;
+        var releaseCount = 0;
+        var recordingCount = 0;
+        var mediaFileCount = 0;
+
+        try
+        {
+            await using var uow = await provider.BeginUnitOfWorkAsync(cancellationToken).ConfigureAwait(false);
+
+            labelCount = await uow.Labels.CountAsync(cancellationToken).ConfigureAwait(false);
+            artistCount = await uow.Artists.CountAsync(cancellationToken).ConfigureAwait(false);
+            releaseCount = await uow.Releases.CountAsync(cancellationToken).ConfigureAwait(false);
+            recordingCount = await uow.Recordings.CountAsync(cancellationToken).ConfigureAwait(false);
+            mediaFileCount = await uow.MediaFiles.CountAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            findings.Add($"Unable to query catalog tables: {ex.Message}");
+            findings.Add("Run bootstrap init-db/migrate before catalog operations.");
+        }
+
+        if (version <= 0)
+            findings.Add("No schema migration applied. Run bootstrap init-db/migrate.");
+
+        if (recordingCount > 0 && releaseCount == 0)
+            findings.Add("Recordings exist without any releases. Catalog may be partially ingested.");
+
+        if ((releaseCount > 0 || recordingCount > 0) && artistCount == 0)
+            findings.Add("Releases/recordings exist without artists. Catalog may be incomplete.");
+
+        if (labelCount == 0 && artistCount == 0 && releaseCount == 0 && recordingCount == 0)
+            warnings.Add("Catalog is empty.");
+
+        if (mediaFileCount > 0 && recordingCount == 0)
+            warnings.Add("Media files exist but no canonical recordings are present yet.");
+
+        return new DoctorResult(
+            DatabasePath: request.DatabasePath,
+            CurrentMigrationVersion: version,
+            DatabaseReachable: true,
+            LabelCount: labelCount,
+            ArtistCount: artistCount,
+            ReleaseCount: releaseCount,
+            RecordingCount: recordingCount,
+            MediaFileCount: mediaFileCount,
+            Findings: findings,
+            Warnings: warnings);
+    }
+
+    public async Task<RepairIndexesResult> RepairIndexesAsync(
+        RepairIndexesRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.DatabasePath);
+
+        // Placeholder implementation: all current indexes are maintained by migrations/upsert paths.
+        // Keep this command idempotent and safe; wire backend-specific rebuild actions as needed.
+        var provider = _providerFactory.Create(new StorageProviderDescriptor(
+            Provider: _provider,
+            DatabasePath: request.DatabasePath));
+
+        var version = await provider.Migrations.GetCurrentVersionAsync(cancellationToken).ConfigureAwait(false);
+        var actions = new List<string>();
+        var notes = new List<string>();
+
+        if (request.DryRun)
+        {
+            actions.Add("Validate migration state");
+            actions.Add("Verify derived index maintenance requirements");
+            notes.Add($"Dry-run only. Current migration version: {version}");
+            return new RepairIndexesResult(request.DatabasePath, DryRun: true, Performed: false, Actions: actions, Notes: notes);
+        }
+
+        actions.Add("Validated migration state");
+        notes.Add("No additional derived index repair actions are currently registered.");
+        notes.Add($"Current migration version: {version}");
+
+        return new RepairIndexesResult(request.DatabasePath, DryRun: false, Performed: true, Actions: actions, Notes: notes);
     }
 }

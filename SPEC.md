@@ -1,6 +1,6 @@
-# trackstash-catalog Specification (Draft)
+# trackstash-catalog Specification
 
-Status: draft
+Status: active
 Last updated: 2026-06-20
 
 ## 1. Purpose
@@ -91,11 +91,11 @@ Owns:
 - `TrackStash.Core.Storage` repository contracts for labels, artists, releases, and recordings
 - `TrackStash.Core.Services.CatalogImportService`
 
-Delete planning note:
+Delete implementation note:
 
-- `delete-entity` should not invent provider-specific deletion behavior in catalog.
-- shared delete contracts, dependency analysis, and owned-row cleanup rules should be defined in `trackstash-core` first.
-- catalog should then provide the operator-facing CLI over those shared services.
+- `delete-entity` is implemented in catalog as an operator-facing CLI over shared core delete contracts/services.
+- provider-specific delete behavior remains in core adapters.
+- catalog command handlers remain orchestration-focused.
 
 Likely future dependencies:
 
@@ -155,12 +155,11 @@ Purpose:
 
 - provide a concise operational view of catalog state
 
-Initial payload ideas:
+Current payload:
 
-- counts for labels, artists, releases, recordings
-- alias and relationship counts
+- counts for labels, artists, releases, recordings, and media files
 - database/provider readiness
-- latest migration version if available through provider capabilities
+- current migration version
 
 Behavior:
 
@@ -174,7 +173,13 @@ Purpose:
 
 - detect integrity issues and suspicious catalog states
 
-Initial checks:
+Current checks:
+
+- schema/migration readiness and table query availability
+- consistency heuristics from aggregate counts
+- empty-catalog and suspicious-shape warnings
+
+Planned deeper checks:
 
 - orphaned relationships
 - duplicate-normalized names that should be reviewed
@@ -210,7 +215,7 @@ Behavior:
 
 Implementation note:
 
-- the command should remain planned-only in `trackstash-catalog` until the corresponding core contracts and services exist.
+- command is implemented and backed by shared delete services in `trackstash-core`.
 
 Non-goals for the first version:
 
@@ -223,7 +228,13 @@ Purpose:
 
 - rebuild or validate derived index structures used by search, matching, or embeddings
 
-Initial scope:
+Current scope:
+
+- idempotent maintenance entry point for index-repair lifecycle
+- dry-run reporting of planned maintenance actions
+- migration/readiness validation before backend-specific actions are added
+
+Planned scope:
 
 - refresh derived lookup tables or materialized search keys if those are added
 - revalidate index completeness after import or schema evolution
@@ -271,7 +282,7 @@ Future catalog-specific extensions may add:
 
 ## 7. Delete Dependency Rules
 
-These rules should be finalized in `trackstash-core` as the shared source of truth before `trackstash-catalog` implements the delete command.
+These rules are implemented in shared core delete services and should continue to evolve in `trackstash-core` as the shared source of truth.
 
 The initial delete feature should distinguish between blocking dependencies and entity-owned rows.
 
@@ -338,27 +349,28 @@ The first version should stay conservative and avoid deleting other canonical en
 
 ### 7.3 Core prerequisites before catalog implementation
 
-The following work should be completed in `trackstash-core` before catalog begins wiring the delete command:
+Completed foundation work in `trackstash-core`:
 
-- define repository or service contracts for dependency analysis and delete execution
-- define result models for blocker reporting, owned-row cleanup summaries, and dry-run analysis
-- decide asymmetry rules for join-table cleanup, such as release-side cleanup versus recording-side blockers in `release_recording`
-- implement SQLite-backed integration tests for blocked and successful deletes
-- document delete behavior alongside the existing schema and storage contracts
+- shared dependency analysis and delete execution contracts
+- result models for blockers and cleanup reporting
+- SQLite-backed tests for blocked and successful deletes
+
+Remaining evolution work:
+
+- extend rules as new relationship tables are introduced
+- keep delete behavior documentation aligned with schema changes
 
 ## 8. Exit Codes
 
-Initial proposal:
+Current implementation:
 
 - `0`: success
-- `1`: unexpected unhandled failure
+- `1`: command failure or command-defined non-success result
 - `2`: invalid arguments or configuration
-- `3`: provider initialization failure
-- `4`: import failure
-- `5`: diagnostics found blocking issues
-- `6`: repair failure
 
-This may later split `doctor` findings into warning vs error exit-code tiers.
+Planned evolution:
+
+- optional richer command-specific exit-code tiers for automation
 
 ## 9. Configuration Specification
 
@@ -418,27 +430,27 @@ sequenceDiagram
     CLI-->>CLI: Emit output + exit code
 ```
 
-### 9.3 `doctor` Sequence (Planned)
+### 9.3 `doctor` Sequence
 
 ```mermaid
 sequenceDiagram
     participant CLI as trackstash-catalog
     participant SP as IStorageProvider
-    participant DIAG as CatalogDiagnosticsService
+    participant CMD as CatalogCommands
 
     CLI->>SP: Construct provider
-    CLI->>DIAG: RunChecksAsync()
-    DIAG-->>CLI: findings, severity, samples
+    CLI->>CMD: DoctorAsync(request)
+    CMD-->>CLI: findings, warnings, counts
     CLI-->>CLI: Emit report + exit code
 ```
 
-### 10.4 `delete-entity` Sequence (Planned)
+### 10.4 `delete-entity` Sequence
 
 ```mermaid
 sequenceDiagram
     participant CLI as trackstash-catalog
     participant SP as IStorageProvider
-    participant DEL as CatalogDeleteService
+    participant DEL as IEntityDeleteService
 
     CLI->>SP: Construct provider
     CLI->>DEL: AnalyzeDependenciesAsync(type, id)

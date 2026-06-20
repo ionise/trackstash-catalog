@@ -68,17 +68,20 @@ Related module docs:
 - media-file writeback and tag mutation
 - low-level repository and provider contract definitions
 
-## Planned Command Surface
+## Command Surface
 
-The initial CLI surface should stay narrow and operationally useful.
-
-Planned first commands:
+Current commands:
 
 - `import-csv`
 - `summary`
 - `doctor`
 - `delete-entity`
 - `repair-indexes`
+
+Notes:
+
+- `doctor` currently focuses on readiness and consistency heuristics using provider-agnostic contracts.
+- `repair-indexes` currently provides an idempotent maintenance entry point and dry-run reporting; backend-specific rebuild actions can be registered as catalog adds derived index structures.
 
 Likely later commands:
 
@@ -92,9 +95,9 @@ Likely later commands:
 
 Current state:
 
-- `trackstash-bootstrap` already exposes `import-csv` as a thin wrapper so the workflow is usable today.
-- `trackstash-core` owns the reusable `CatalogImportService` implementation.
-- delete semantics are not yet first-class in shared storage contracts, so safe deletion should be specified in `trackstash-core` before catalog implementation begins.
+- `trackstash-bootstrap` may expose compatibility wrappers, while `trackstash-catalog` is the primary operational CLI for catalog workflows.
+- `trackstash-core` owns reusable storage contracts and services used by catalog commands.
+- delete semantics are implemented in shared storage contracts/services and surfaced through `trackstash-catalog delete-entity`.
 
 Target state:
 
@@ -158,30 +161,22 @@ The first implementation should mirror the testing style already used in neighbo
 
 ## Progress To Date
 
-Completed planning work:
+Implemented:
 
-- established `trackstash-catalog` as the long-term operational boundary for catalog workflows
-- documented command ownership relative to `trackstash-bootstrap` and `trackstash-core`
-- defined the initial command surface for import, diagnostics, delete, and repair flows
-- captured the first draft of delete dependency rules and owned-row cleanup expectations
+- CLI scaffold with shared config resolution and text/json output envelopes
+- `import-csv`, `summary`, `doctor`, `delete-entity`, and `repair-indexes` command handlers
+- provider-agnostic catalog command orchestration via `IStorageProviderFactory`
+- integration coverage for import, summary, delete, and command-level CLI behavior
 
-Pending core-first work before catalog delete implementation:
+Still evolving:
 
-- define shared delete contracts in `trackstash-core`
-- document entity dependency analysis behavior in core
-- decide which cleanup rows are owned deletes versus hard blockers in shared services
-- implement and test core delete analysis and transactional delete orchestration
-
-Catalog follow-up after core delete work lands:
-
-- wire a `delete-entity` CLI surface onto the shared core service
-- add text and JSON result envelopes for dependency analysis and delete outcomes
-- add integration tests covering dry-run, blocked delete, and successful owned cleanup scenarios
+- richer `doctor` checks for deeper orphan/relationship diagnostics as shared query contracts grow
+- backend-specific `repair-indexes` actions for future derived index materializations
+- additional provider registrations beyond sqlite
 
 ## Current Status
 
-Status: planning and documentation only.
+Status: active implementation with core operational commands in place.
 
-The repository was created to establish the module boundary before implementation begins.
-The next implementation step for import and diagnostics is still project scaffolding.
-The next implementation step for deletion is core-first contract and service design, followed by catalog command wiring.
+`trackstash-catalog` is scaffolded, tested, and usable for import, summary, doctor diagnostics, delete, and repair entry-point workflows.
+Ongoing work is focused on expanding diagnostics depth, repair actions, and additional storage provider support.

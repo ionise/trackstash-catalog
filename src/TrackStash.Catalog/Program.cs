@@ -28,8 +28,8 @@ static async Task<int> RunAsync(string[] args)
             "import-csv"    => await RunImportCsvAsync(catalog, config, options, jsonMode).ConfigureAwait(false),
             "summary"       => await RunSummaryAsync(catalog, config, jsonMode).ConfigureAwait(false),
             "delete-entity" => await RunDeleteEntityAsync(catalog, config, options, jsonMode).ConfigureAwait(false),
-            "doctor"        => await RunNotImplementedAsync("doctor", jsonMode).ConfigureAwait(false),
-            "repair-indexes" => await RunNotImplementedAsync("repair-indexes", jsonMode).ConfigureAwait(false),
+            "doctor"        => await RunDoctorAsync(catalog, config, jsonMode).ConfigureAwait(false),
+            "repair-indexes" => await RunRepairIndexesAsync(catalog, config, options, jsonMode).ConfigureAwait(false),
             _               => UnknownCommand(command),
         };
     }
@@ -211,14 +211,92 @@ static async Task<int> RunDeleteEntityAsync(
     return result.Success ? 0 : 1;
 }
 
-static Task<int> RunNotImplementedAsync(string command, bool jsonMode)
+static async Task<int> RunDoctorAsync(
+    CatalogCommands catalog,
+    CatalogConfig config,
+    bool jsonMode)
 {
-    var message = $"Command not yet implemented: {command}";
+    var dbPath = RequireDbPath(config);
+    var result = await catalog.DoctorAsync(new DoctorRequest(dbPath)).ConfigureAwait(false);
+
     if (jsonMode)
-        CommandOutput.WriteJson(command, ok: false, exitCode: 1, data: null, errors: [message]);
+    {
+        CommandOutput.WriteJson("doctor", ok: !result.HasIssues, exitCode: result.HasIssues ? 1 : 0, data: new
+        {
+            databasePath = result.DatabasePath,
+            databaseReachable = result.DatabaseReachable,
+            currentMigrationVersion = result.CurrentMigrationVersion,
+            counts = new
+            {
+                labels = result.LabelCount,
+                artists = result.ArtistCount,
+                releases = result.ReleaseCount,
+                recordings = result.RecordingCount,
+                mediaFiles = result.MediaFileCount,
+            },
+            findings = result.Findings,
+            warnings = result.Warnings,
+        });
+    }
     else
-        Console.Error.WriteLine(message);
-    return Task.FromResult(1);
+    {
+        CommandOutput.WriteText([
+            ("database", result.DatabasePath),
+            ("databaseReachable", result.DatabaseReachable),
+            ("migrationVersion", result.CurrentMigrationVersion),
+            ("labels", result.LabelCount),
+            ("artists", result.ArtistCount),
+            ("releases", result.ReleaseCount),
+            ("recordings", result.RecordingCount),
+            ("mediaFiles", result.MediaFileCount),
+        ]);
+
+        foreach (var finding in result.Findings)
+            Console.Error.WriteLine($"  finding: {finding}");
+
+        foreach (var warning in result.Warnings)
+            Console.Error.WriteLine($"  warning: {warning}");
+    }
+
+    return result.HasIssues ? 1 : 0;
+}
+
+static async Task<int> RunRepairIndexesAsync(
+    CatalogCommands catalog,
+    CatalogConfig config,
+    IReadOnlyDictionary<string, string?> options,
+    bool jsonMode)
+{
+    var dbPath = RequireDbPath(config);
+    var dryRun = options.ContainsKey("dry-run");
+
+    var result = await catalog.RepairIndexesAsync(new RepairIndexesRequest(dbPath, dryRun)).ConfigureAwait(false);
+
+    if (jsonMode)
+    {
+        CommandOutput.WriteJson("repair-indexes", ok: true, exitCode: 0, data: new
+        {
+            databasePath = result.DatabasePath,
+            dryRun = result.DryRun,
+            performed = result.Performed,
+            actions = result.Actions,
+            notes = result.Notes,
+        });
+    }
+    else
+    {
+        CommandOutput.WriteText([
+            ("database", result.DatabasePath),
+            ("dryRun", result.DryRun),
+            ("performed", result.Performed),
+        ]);
+        foreach (var action in result.Actions)
+            Console.WriteLine($"  action: {action}");
+        foreach (var note in result.Notes)
+            Console.WriteLine($"  note: {note}");
+    }
+
+    return 0;
 }
 
 static int UnknownCommand(string command)
@@ -285,5 +363,5 @@ static void PrintUsage()
     Console.WriteLine("  trackstash-catalog summary       --db-path <path> [--output json]");
     Console.WriteLine("  trackstash-catalog delete-entity --db-path <path> --type <label|artist|release|recording> --id <id> [--deleted-by <name>] [--reason <text>] [--output json]");
     Console.WriteLine("  trackstash-catalog doctor        --db-path <path> [--output json]");
-    Console.WriteLine("  trackstash-catalog repair-indexes --db-path <path> [--output json]");
+    Console.WriteLine("  trackstash-catalog repair-indexes --db-path <path> [--dry-run] [--output json]");
 }
