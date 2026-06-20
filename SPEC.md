@@ -620,6 +620,7 @@ Preferred layering:
 - When `repair-indexes` lands, which derived structures belong in core versus catalog?
 - When Beatport import arrives, should the source mapping layer live directly here or in a dedicated ingestion package?
 - Should `delete-entity` treat embedding documents as owned rows everywhere, or should some models require a separate rebuild flow first?
+- Should catalog target logical catalog names (for example `--catalog default`) instead of direct `--db-path`, with core resolving the physical backend/connection via a registry?
 
 ## 14. Immediate Next Steps
 
