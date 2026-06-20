@@ -1,0 +1,15 @@
+# Build outputs
+**/bin/
+**/obj/
+
+# User/editor artifacts
+*.user
+*.rsuser
+*.suo
+.vs/
+
+# Test output
+TestResults/
+coverage/
+*.coverage
+*.trx
