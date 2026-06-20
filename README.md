@@ -83,6 +83,83 @@ Notes:
 - `doctor` currently focuses on readiness and consistency heuristics using provider-agnostic contracts.
 - `repair-indexes` currently provides an idempotent maintenance entry point and dry-run reporting; backend-specific rebuild actions can be registered as catalog adds derived index structures.
 
+## Catalog Target Resolution
+
+Catalog commands can now target a logical catalog name instead of requiring a direct database path.
+
+Default behavior:
+
+- selected catalog defaults to `default`
+- `--catalog <name>` selects a specific logical catalog
+- `--db-path` is still supported as a compatibility override
+
+Examples:
+
+```bash
+trackstash-catalog summary --catalog default
+trackstash-catalog summary --catalog house --output json
+trackstash-catalog import-csv --catalog archive --file ./tracks.csv
+```
+
+### Config File Shape
+
+You can define catalog mappings in config (YAML):
+
+```yaml
+catalog: default
+provider: sqlite
+sqlite:
+    dbPath: /fallback/default.db
+
+catalogs:
+    default:
+        provider: sqlite
+        sqlite:
+            dbPath: /data/trackstash-default.db
+    house:
+        provider: sqlite
+        sqlite:
+            dbPath: /data/trackstash-house.db
+```
+
+Resolution behavior:
+
+- `catalogs.<name>.provider` overrides top-level `provider`
+- `catalogs.<name>.sqlite.dbPath` overrides top-level `sqlite.dbPath`
+- if catalog mapping is missing, top-level provider/path are used as fallback
+
+### Environment Variables
+
+Global/default:
+
+- `TRACKSTASH_CATALOG` (selected logical catalog)
+- `TRACKSTASH_PROVIDER`
+- `TRACKSTASH_SQLITE_DB_PATH`
+
+Per-catalog mapping:
+
+- `TRACKSTASH_CATALOG_<NAME>_PROVIDER`
+- `TRACKSTASH_CATALOG_<NAME>_SQLITE_DB_PATH`
+
+Example:
+
+```bash
+export TRACKSTASH_CATALOG=house
+export TRACKSTASH_CATALOG_HOUSE_PROVIDER=sqlite
+export TRACKSTASH_CATALOG_HOUSE_SQLITE_DB_PATH=/data/trackstash-house.db
+```
+
+Catalog names in env variables are normalized to lowercase with `_` converted to `-`.
+
+### Precedence
+
+Effective target is resolved in this order:
+
+1. CLI options (`--catalog`, `--provider`, `--db-path`)
+2. environment variables
+3. config file
+4. defaults
+
 ## Entity Templates (v1)
 
 `trackstash-catalog` now includes full-schema desired-state YAML templates for canonical entities:

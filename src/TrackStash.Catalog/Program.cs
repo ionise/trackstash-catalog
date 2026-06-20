@@ -1,6 +1,7 @@
 using TrackStash.Catalog;
 using TrackStash.Catalog.Config;
 using TrackStash.Catalog.Output;
+using TrackStash.Core.Storage;
 using TrackStash.Core.Sqlite;
 
 var exitCode = await RunAsync(args).ConfigureAwait(false);
@@ -17,23 +18,24 @@ static async Task<int> RunAsync(string[] args)
     var command = args[0].ToLowerInvariant();
     var options = ParseOptions(args, 1);
     var config = ConfigResolver.Resolve(options);
-    var providerFactory = ResolveProviderFactory(config.Provider);
-    var catalog = new CatalogCommands(providerFactory, config.Provider);
+    var target = ResolveCatalogTarget(config);
+    var providerFactory = ResolveProviderFactory(target.Provider);
+    var catalog = new CatalogCommands(providerFactory, target.Provider);
     var jsonMode = CommandOutput.IsJsonMode(config.Output.Format);
 
     try
     {
         return command switch
         {
-            "import-csv"    => await RunImportCsvAsync(catalog, config, options, jsonMode).ConfigureAwait(false),
-            "summary"       => await RunSummaryAsync(catalog, config, jsonMode).ConfigureAwait(false),
-            "delete-entity" => await RunDeleteEntityAsync(catalog, config, options, jsonMode).ConfigureAwait(false),
-            "doctor"        => await RunDoctorAsync(catalog, config, jsonMode).ConfigureAwait(false),
-            "repair-indexes" => await RunRepairIndexesAsync(catalog, config, options, jsonMode).ConfigureAwait(false),
+            "import-csv"    => await RunImportCsvAsync(catalog, target.DatabasePath, options, jsonMode).ConfigureAwait(false),
+            "summary"       => await RunSummaryAsync(catalog, target.DatabasePath, jsonMode).ConfigureAwait(false),
+            "delete-entity" => await RunDeleteEntityAsync(catalog, target.DatabasePath, options, jsonMode).ConfigureAwait(false),
+            "doctor"        => await RunDoctorAsync(catalog, target.DatabasePath, jsonMode).ConfigureAwait(false),
+            "repair-indexes" => await RunRepairIndexesAsync(catalog, target.DatabasePath, options, jsonMode).ConfigureAwait(false),
             "template"      => await RunTemplateAsync(options, jsonMode).ConfigureAwait(false),
             "validate-entity" => await RunValidateEntityAsync(options, jsonMode).ConfigureAwait(false),
-            "apply-entity"  => await RunApplyEntityAsync(config, options, jsonMode).ConfigureAwait(false),
-            "get-entity"    => await RunGetEntityAsync(config, options, jsonMode).ConfigureAwait(false),
+            "apply-entity"  => await RunApplyEntityAsync(target.DatabasePath, options, jsonMode).ConfigureAwait(false),
+            "get-entity"    => await RunGetEntityAsync(target.DatabasePath, options, jsonMode).ConfigureAwait(false),
             _               => UnknownCommand(command),
         };
     }
@@ -57,11 +59,10 @@ static async Task<int> RunAsync(string[] args)
 
 static async Task<int> RunImportCsvAsync(
     CatalogCommands catalog,
-    CatalogConfig config,
+    string dbPath,
     IReadOnlyDictionary<string, string?> options,
     bool jsonMode)
 {
-    var dbPath  = RequireDbPath(config);
     var csvPath = GetRequiredOption(options, "file");
     var dryRun  = options.ContainsKey("dry-run");
     var failFast = options.ContainsKey("fail-fast");
@@ -117,10 +118,9 @@ static async Task<int> RunImportCsvAsync(
 
 static async Task<int> RunSummaryAsync(
     CatalogCommands catalog,
-    CatalogConfig config,
+    string dbPath,
     bool jsonMode)
 {
-    var dbPath = RequireDbPath(config);
     var result = await catalog.SummaryAsync(dbPath).ConfigureAwait(false);
 
     if (jsonMode)
@@ -157,11 +157,10 @@ static async Task<int> RunSummaryAsync(
 
 static async Task<int> RunDeleteEntityAsync(
     CatalogCommands catalog,
-    CatalogConfig config,
+    string dbPath,
     IReadOnlyDictionary<string, string?> options,
     bool jsonMode)
 {
-    var dbPath = RequireDbPath(config);
     var entityType = GetRequiredOption(options, "type");
     var entityId   = GetRequiredOption(options, "id");
     var deletedBy  = GetOption(options, "deleted-by");
@@ -217,10 +216,9 @@ static async Task<int> RunDeleteEntityAsync(
 
 static async Task<int> RunDoctorAsync(
     CatalogCommands catalog,
-    CatalogConfig config,
+    string dbPath,
     bool jsonMode)
 {
-    var dbPath = RequireDbPath(config);
     var result = await catalog.DoctorAsync(new DoctorRequest(dbPath)).ConfigureAwait(false);
 
     if (jsonMode)
@@ -267,11 +265,10 @@ static async Task<int> RunDoctorAsync(
 
 static async Task<int> RunRepairIndexesAsync(
     CatalogCommands catalog,
-    CatalogConfig config,
+    string dbPath,
     IReadOnlyDictionary<string, string?> options,
     bool jsonMode)
 {
-    var dbPath = RequireDbPath(config);
     var dryRun = options.ContainsKey("dry-run");
 
     var result = await catalog.RepairIndexesAsync(new RepairIndexesRequest(dbPath, dryRun)).ConfigureAwait(false);
@@ -367,11 +364,10 @@ static Task<int> RunValidateEntityAsync(
 }
 
 static Task<int> RunApplyEntityAsync(
-    CatalogConfig config,
+    string dbPath,
     IReadOnlyDictionary<string, string?> options,
     bool jsonMode)
 {
-    var dbPath = RequireDbPath(config);
     var filePath = GetRequiredOption(options, "file");
     var dryRun = options.ContainsKey("dry-run");
     var message = "Command scaffolded only. Desired-state apply/reconcile engine is not implemented yet.";
@@ -402,11 +398,10 @@ static Task<int> RunApplyEntityAsync(
 }
 
 static Task<int> RunGetEntityAsync(
-    CatalogConfig config,
+    string dbPath,
     IReadOnlyDictionary<string, string?> options,
     bool jsonMode)
 {
-    var dbPath = RequireDbPath(config);
     var entityType = GetRequiredOption(options, "type").ToLowerInvariant();
     var entityId = GetRequiredOption(options, "id");
     var format = GetOption(options, "format") ?? "yaml";
@@ -450,11 +445,32 @@ static int UnknownCommand(string command)
     return 2;
 }
 
-static string RequireDbPath(CatalogConfig config)
+static ResolvedCatalogTarget ResolveCatalogTarget(CatalogConfig config)
 {
-    if (string.IsNullOrWhiteSpace(config.Sqlite.DbPath))
-        throw new ArgumentException("--db-path is required (or set sqlite.dbPath in config file / TRACKSTASH_SQLITE_DB_PATH env var).");
-    return config.Sqlite.DbPath;
+    var catalogName = string.IsNullOrWhiteSpace(config.Catalog)
+        ? "default"
+        : config.Catalog.Trim();
+
+    CatalogTargetConfig? mappedTarget = null;
+    if (config.Catalogs is not null)
+        config.Catalogs.TryGetValue(catalogName, out mappedTarget);
+
+    var provider = mappedTarget?.Provider;
+    if (string.IsNullOrWhiteSpace(provider))
+        provider = config.Provider;
+
+    var dbPath = mappedTarget?.Sqlite?.DbPath;
+    if (string.IsNullOrWhiteSpace(dbPath))
+        dbPath = config.Sqlite.DbPath;
+
+    if (string.IsNullOrWhiteSpace(dbPath))
+        throw new ArgumentException(
+            $"No database path resolved for catalog '{catalogName}'. Provide --catalog with a mapped config entry, or set --db-path / TRACKSTASH_SQLITE_DB_PATH.");
+
+    return new ResolvedCatalogTarget(
+        CatalogName: catalogName,
+        Provider: provider!,
+        DatabasePath: dbPath);
 }
 
 static Dictionary<string, string?> ParseOptions(string[] args, int startIndex)
@@ -503,13 +519,18 @@ static TrackStash.Core.Storage.IStorageProviderFactory ResolveProviderFactory(st
 static void PrintUsage()
 {
     Console.WriteLine("Usage:");
-    Console.WriteLine("  trackstash-catalog import-csv    --db-path <path> --file <path.csv> [--dry-run] [--fail-fast] [--output json]");
-    Console.WriteLine("  trackstash-catalog summary       --db-path <path> [--output json]");
-    Console.WriteLine("  trackstash-catalog delete-entity --db-path <path> --type <label|artist|release|recording> --id <id> [--deleted-by <name>] [--reason <text>] [--output json]");
-    Console.WriteLine("  trackstash-catalog doctor        --db-path <path> [--output json]");
-    Console.WriteLine("  trackstash-catalog repair-indexes --db-path <path> [--dry-run] [--output json]");
+    Console.WriteLine("  trackstash-catalog import-csv    [--catalog <name>] [--db-path <path>] --file <path.csv> [--dry-run] [--fail-fast] [--output json]");
+    Console.WriteLine("  trackstash-catalog summary       [--catalog <name>] [--db-path <path>] [--output json]");
+    Console.WriteLine("  trackstash-catalog delete-entity [--catalog <name>] [--db-path <path>] --type <label|artist|release|recording> --id <id> [--deleted-by <name>] [--reason <text>] [--output json]");
+    Console.WriteLine("  trackstash-catalog doctor        [--catalog <name>] [--db-path <path>] [--output json]");
+    Console.WriteLine("  trackstash-catalog repair-indexes [--catalog <name>] [--db-path <path>] [--dry-run] [--output json]");
     Console.WriteLine("  trackstash-catalog template      --kind <label|artist|release|recording> [--output json]");
     Console.WriteLine("  trackstash-catalog validate-entity --file <path.yaml> [--output json]");
-    Console.WriteLine("  trackstash-catalog apply-entity  --db-path <path> --file <path.yaml> [--dry-run] [--output json]");
-    Console.WriteLine("  trackstash-catalog get-entity    --db-path <path> --type <label|artist|release|recording> --id <id> [--format yaml] [--output json]");
+    Console.WriteLine("  trackstash-catalog apply-entity  [--catalog <name>] [--db-path <path>] --file <path.yaml> [--dry-run] [--output json]");
+    Console.WriteLine("  trackstash-catalog get-entity    [--catalog <name>] [--db-path <path>] --type <label|artist|release|recording> --id <id> [--format yaml] [--output json]");
 }
+
+internal sealed record ResolvedCatalogTarget(
+    string CatalogName,
+    string Provider,
+    string DatabasePath);
