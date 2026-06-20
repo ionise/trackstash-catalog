@@ -1,0 +1,48 @@
+apiVersion: catalog.trackstash/v1
+kind: Artist
+mode: replace
+metadata:
+  id: art_example_bozra_bozra
+spec:
+  id: art_example_bozra_bozra
+  name: Bozra Bozra
+  normalizedName: bozra bozra
+  sortName: Bozra Bozra
+
+  sourcePayloadJson: |
+    {
+      "source": "manual",
+      "notes": "example artist payload"
+    }
+
+  createdUtc: 2026-06-20T00:00:00Z
+  updatedUtc: 2026-06-20T00:00:00Z
+
+  aliases:
+    - value: BOZRA
+      normalizedValue: bozra
+      isPrimary: true
+
+  externalRefs:
+    - source: beatport
+      externalId: "998877"
+      isPrimary: true
+      lastSeenUtc: 2026-06-20T00:00:00Z
+      payloadJson: |
+        {
+          "url": "https://www.beatport.com/artist/bozra-bozra/998877"
+        }
+
+  embeddingDocuments:
+    - modelName: text-embedding-3-large
+      modelVersion: "1"
+      dimensions: 3072
+      documentHash: sha256:replace-me
+      documentText: Bozra Bozra producer profile.
+      vectorDataBase64: null
+      sourcePayloadJson: |
+        {
+          "generatedBy": "example"
+        }
+      createdUtc: 2026-06-20T00:00:00Z
+      updatedUtc: 2026-06-20T00:00:00Z

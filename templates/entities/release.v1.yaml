@@ -1,0 +1,68 @@
+apiVersion: catalog.trackstash/v1
+kind: Release
+mode: replace
+metadata:
+  id: rel_example_virelith_sessions
+spec:
+  id: rel_example_virelith_sessions
+
+  # Release table supports both name and title.
+  name: Virelith Sessions
+  normalizedName: virelith sessions
+  title: Virelith Sessions
+
+  sourcePayloadJson: |
+    {
+      "source": "manual",
+      "notes": "example release payload"
+    }
+
+  createdUtc: 2026-06-20T00:00:00Z
+  updatedUtc: 2026-06-20T00:00:00Z
+
+  externalRefs:
+    - source: beatport
+      externalId: "445566"
+      isPrimary: true
+      lastSeenUtc: 2026-06-20T00:00:00Z
+      payloadJson: |
+        {
+          "url": "https://www.beatport.com/release/virelith-sessions/445566"
+        }
+
+  artistCredits:
+    - artistId: art_example_bozra_bozra
+      # Optional resolver hint for CLI wrappers/frontends.
+      artistRef:
+        byName: Bozra Bozra
+      creditName: Bozra Bozra
+      position: 1
+
+  labelLinks:
+    - labelId: lbl_example_virelith_records
+      labelRef:
+        byName: Virelith Records
+      isPrimary: true
+      role: primary
+
+  # release_recording links can be authored from release side.
+  recordings:
+    - recordingId: rec_example_signal_drift_original_mix
+      recordingRef:
+        byTitle: Signal Drift
+      discNumber: 1
+      trackNumber: 1
+
+  embeddingDocuments:
+    - modelName: text-embedding-3-large
+      modelVersion: "1"
+      dimensions: 3072
+      documentHash: sha256:replace-me
+      documentText: Virelith Sessions release document.
+      vectorDataBase64: null
+      sourcePayloadJson: |
+        {
+          "generatedBy": "example"
+        }
+      createdUtc: 2026-06-20T00:00:00Z
+      updatedUtc: 2026-06-20T00:00:00Z

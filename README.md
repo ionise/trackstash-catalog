@@ -83,6 +83,24 @@ Notes:
 - `doctor` currently focuses on readiness and consistency heuristics using provider-agnostic contracts.
 - `repair-indexes` currently provides an idempotent maintenance entry point and dry-run reporting; backend-specific rebuild actions can be registered as catalog adds derived index structures.
 
+## Entity Templates (v1)
+
+`trackstash-catalog` now includes full-schema desired-state YAML templates for canonical entities:
+
+- `templates/entities/label.v1.yaml`
+- `templates/entities/artist.v1.yaml`
+- `templates/entities/release.v1.yaml`
+- `templates/entities/recording.v1.yaml`
+- `templates/entities/batch-example.v1.yaml`
+
+These templates are intended to be a common interchange contract for CLI workflows, bash scripts, and PowerShell cmdlets.
+
+See `docs/entity-templates/README.md` for:
+
+- `validate-entity`, `apply-entity --dry-run`, and apply flow
+- mode semantics (`replace`, `merge`, `create-only`, `update-only`)
+- full-schema field coverage notes and export/import expectations
+
 Likely later commands:
 
 - `import-beatport`

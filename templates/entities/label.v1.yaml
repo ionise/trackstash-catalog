@@ -1,0 +1,51 @@
+apiVersion: catalog.trackstash/v1
+kind: Label
+mode: replace
+metadata:
+  id: lbl_example_virelith_records
+spec:
+  id: lbl_example_virelith_records
+  name: Virelith Records
+  normalizedName: virelith records
+  sortName: Virelith Records
+
+  # JSON payload from upstream source systems (optional)
+  sourcePayloadJson: |
+    {
+      "source": "manual",
+      "notes": "example label payload"
+    }
+
+  # Storage-managed fields (optional in input, useful in export/reimport)
+  createdUtc: 2026-06-20T00:00:00Z
+  updatedUtc: 2026-06-20T00:00:00Z
+
+  aliases:
+    - value: Virelith
+      normalizedValue: virelith
+      isPrimary: true
+
+  externalRefs:
+    - source: beatport
+      externalId: "12345"
+      isPrimary: true
+      lastSeenUtc: 2026-06-20T00:00:00Z
+      payloadJson: |
+        {
+          "url": "https://www.beatport.com/label/virelith-records/12345"
+        }
+
+  # Optional associated embedding records for full export/import parity.
+  embeddingDocuments:
+    - modelName: text-embedding-3-large
+      modelVersion: "1"
+      dimensions: 3072
+      documentHash: sha256:replace-me
+      documentText: Virelith Records electronic music label.
+      vectorDataBase64: null
+      sourcePayloadJson: |
+        {
+          "generatedBy": "example"
+        }
+      createdUtc: 2026-06-20T00:00:00Z
+      updatedUtc: 2026-06-20T00:00:00Z

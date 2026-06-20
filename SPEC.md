@@ -280,6 +280,59 @@ Future catalog-specific extensions may add:
 - source-specific provenance columns
 - batch identifiers and import session metadata
 
+## 6a. Desired-State Entity YAML Contract (v1)
+
+In addition to flat CSV import, catalog should support desired-state YAML entities as a reusable interchange contract.
+
+Template artifacts:
+
+- `templates/entities/label.v1.yaml`
+- `templates/entities/artist.v1.yaml`
+- `templates/entities/release.v1.yaml`
+- `templates/entities/recording.v1.yaml`
+- `templates/entities/batch-example.v1.yaml`
+
+Reference docs:
+
+- `docs/entity-templates/README.md`
+
+Proposed command surface:
+
+- `validate-entity --file <path>`
+- `apply-entity --file <path> [--dry-run]`
+- `template --kind <Label|Artist|Release|Recording>`
+- `get-entity --type <label|artist|release|recording> --id <id> --output yaml`
+
+### 6a.1 Envelope
+
+Every document uses:
+
+- `apiVersion: catalog.trackstash/v1`
+- `kind: Label|Artist|Release|Recording`
+- `mode: replace|merge|create-only|update-only`
+- `metadata.id` (optional)
+- `spec` (entity payload)
+
+### 6a.2 Mode Semantics
+
+- `replace`: full desired-state reconciliation. Upsert entity and reconcile owned collections/relationships to exactly match file content.
+- `merge`: additive upsert. Apply provided rows but do not remove omitted existing rows.
+- `create-only`: insert semantics; fail if entity already exists.
+- `update-only`: update semantics; fail if entity does not exist.
+
+`replace` should remain default for deterministic behavior and idempotent replay.
+
+### 6a.3 Relationship Reconciliation
+
+For aggregate entities (`Release`, `Recording`), the desired state should deterministically reconcile:
+
+- artist credits
+- release-label links
+- release-recording links
+- recording-to-recording relationships
+
+In `replace` mode this should be transactional and set-based (insert missing, update changed, remove extra).
+
 ## 7. Delete Dependency Rules
 
 These rules are implemented in shared core delete services and should continue to evolve in `trackstash-core` as the shared source of truth.

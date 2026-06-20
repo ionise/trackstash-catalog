@@ -1,0 +1,73 @@
+apiVersion: catalog.trackstash/v1
+kind: Recording
+mode: replace
+metadata:
+  id: rec_example_signal_drift_original_mix
+spec:
+  id: rec_example_signal_drift_original_mix
+
+  # Recording table supports both name and title.
+  name: Signal Drift (Original Mix)
+  normalizedName: signal drift original mix
+  title: Signal Drift
+  mixName: Original Mix
+  isrc: TST000000001
+
+  sourcePayloadJson: |
+    {
+      "source": "manual",
+      "notes": "example recording payload"
+    }
+
+  createdUtc: 2026-06-20T00:00:00Z
+  updatedUtc: 2026-06-20T00:00:00Z
+
+  externalRefs:
+    - source: beatport
+      externalId: "112233"
+      isPrimary: true
+      lastSeenUtc: 2026-06-20T00:00:00Z
+      payloadJson: |
+        {
+          "url": "https://www.beatport.com/track/signal-drift/112233"
+        }
+
+  artistCredits:
+    - artistId: art_example_bozra_bozra
+      artistRef:
+        byName: Bozra Bozra
+      creditName: Bozra Bozra
+      role: primary
+      position: 1
+
+  releaseLinks:
+    - releaseId: rel_example_virelith_sessions
+      releaseRef:
+        byTitle: Virelith Sessions
+      discNumber: 1
+      trackNumber: 1
+
+  relationships:
+    - relatedRecordingId: rec_example_signal_drift_radio_edit
+      relatedRecordingRef:
+        byTitle: Signal Drift
+      relationshipType: edit_of
+      source: manual
+      confidence: 0.9
+      notes: Example relationship for template coverage.
+      createdUtc: 2026-06-20T00:00:00Z
+      updatedUtc: 2026-06-20T00:00:00Z
+
+  embeddingDocuments:
+    - modelName: text-embedding-3-large
+      modelVersion: "1"
+      dimensions: 3072
+      documentHash: sha256:replace-me
+      documentText: Signal Drift original mix recording document.
+      vectorDataBase64: null
+      sourcePayloadJson: |
+        {
+          "generatedBy": "example"
+        }
+      createdUtc: 2026-06-20T00:00:00Z
+      updatedUtc: 2026-06-20T00:00:00Z

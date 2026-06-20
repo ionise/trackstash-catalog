@@ -1,0 +1,60 @@
+apiVersion: catalog.trackstash/v1
+kind: Label
+mode: replace
+metadata:
+  id: lbl_example_virelith_records
+spec:
+  id: lbl_example_virelith_records
+  name: Virelith Records
+  normalizedName: virelith records
+  sortName: Virelith Records
+---
+apiVersion: catalog.trackstash/v1
+kind: Artist
+mode: replace
+metadata:
+  id: art_example_bozra_bozra
+spec:
+  id: art_example_bozra_bozra
+  name: Bozra Bozra
+  normalizedName: bozra bozra
+  sortName: Bozra Bozra
+---
+apiVersion: catalog.trackstash/v1
+kind: Release
+mode: replace
+metadata:
+  id: rel_example_virelith_sessions
+spec:
+  id: rel_example_virelith_sessions
+  name: Virelith Sessions
+  normalizedName: virelith sessions
+  title: Virelith Sessions
+  artistCredits:
+    - artistId: art_example_bozra_bozra
+      position: 1
+  labelLinks:
+    - labelId: lbl_example_virelith_records
+      isPrimary: true
+      role: primary
+---
+apiVersion: catalog.trackstash/v1
+kind: Recording
+mode: replace
+metadata:
+  id: rec_example_signal_drift_original_mix
+spec:
+  id: rec_example_signal_drift_original_mix
+  name: Signal Drift (Original Mix)
+  normalizedName: signal drift original mix
+  title: Signal Drift
+  mixName: Original Mix
+  isrc: TST000000001
+  artistCredits:
+    - artistId: art_example_bozra_bozra
+      role: primary
+      position: 1
+  releaseLinks:
+    - releaseId: rel_example_virelith_sessions
+      discNumber: 1
+      trackNumber: 1
