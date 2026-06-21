@@ -5,5 +5,5 @@ function ConvertTo-TrackStashSlug {
         [string]$Value
     )
 
-    throw [System.NotImplementedException]::new('ConvertTo-TrackStashSlug is scaffolded but not yet implemented.')
+    return (Resolve-TrackStashCatalogEntityIdentity -Value $Value).slug
 }

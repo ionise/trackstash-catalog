@@ -5,5 +5,9 @@ function Ensure-TrackStashArtifactDirectory {
         [string]$Path
     )
 
-    throw [System.NotImplementedException]::new('Ensure-TrackStashArtifactDirectory is scaffolded but not yet implemented.')
+    if (-not (Test-Path -LiteralPath $Path)) {
+        New-Item -ItemType Directory -Path $Path -Force | Out-Null
+    }
+
+    return $Path
 }

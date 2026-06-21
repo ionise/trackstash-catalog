@@ -4,8 +4,10 @@ function New-TrackStashRecordingYamlArtifact {
         [Parameter(Mandatory, ValueFromPipelineByPropertyName)]
         [string]$Name,
 
+        [string]$Id,
+
         [string]$RootPath = (Get-Location).Path
     )
 
-    throw [System.NotImplementedException]::new('New-TrackStashRecordingYamlArtifact is scaffolded but not yet implemented.')
+    return New-TrackStashEntityYamlArtifact -Kind recording -Name $Name -Id $Id -RootPath $RootPath
 }

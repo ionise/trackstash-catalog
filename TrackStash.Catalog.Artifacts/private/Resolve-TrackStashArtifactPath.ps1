@@ -11,5 +11,6 @@ function Resolve-TrackStashArtifactPath {
         [string]$RootPath = (Get-Location).Path
     )
 
-    throw [System.NotImplementedException]::new('Resolve-TrackStashArtifactPath is scaffolded but not yet implemented.')
+    $kindFolder = $Kind.ToLowerInvariant()
+    return (Join-Path (Join-Path $RootPath $kindFolder) "$Slug.yaml")
 }

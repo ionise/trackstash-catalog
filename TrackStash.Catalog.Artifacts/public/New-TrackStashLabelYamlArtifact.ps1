@@ -4,8 +4,10 @@ function New-TrackStashLabelYamlArtifact {
         [Parameter(Mandatory, ValueFromPipelineByPropertyName)]
         [string]$Name,
 
+        [string]$Id,
+
         [string]$RootPath = (Get-Location).Path
     )
 
-    throw [System.NotImplementedException]::new('New-TrackStashLabelYamlArtifact is scaffolded but not yet implemented.')
+    return New-TrackStashEntityYamlArtifact -Kind label -Name $Name -Id $Id -RootPath $RootPath
 }

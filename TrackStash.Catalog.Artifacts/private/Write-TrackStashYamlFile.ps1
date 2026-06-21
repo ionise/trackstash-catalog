@@ -8,5 +8,9 @@ function Write-TrackStashYamlFile {
         [string]$Content
     )
 
-    throw [System.NotImplementedException]::new('Write-TrackStashYamlFile is scaffolded but not yet implemented.')
+    if ($PSCmdlet.ShouldProcess($Path, 'Write YAML artifact')) {
+        Set-Content -LiteralPath $Path -Value $Content -Encoding utf8
+    }
+
+    return $Path
 }
