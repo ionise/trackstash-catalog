@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root=$(git rev-parse --show-toplevel)
+manifest_path="${TRACKSTASH_HOOK_MANIFEST_PATH:-$repo_root/TrackStash.Catalog.Artifacts/TrackStash.Catalog.Artifacts.psd1}"
+
+staged_module_files="${TRACKSTASH_HOOK_STAGED_MODULE_FILES:-}"
+if [[ -z "$staged_module_files" ]]; then
+    staged_module_files=$(git diff --cached --name-only --diff-filter=ACMRT -- \
+        ':(glob)TrackStash.Catalog.Artifacts/public/*.ps1' \
+        ':(glob)TrackStash.Catalog.Artifacts/private/*.ps1' \
+        ':(glob)TrackStash.Catalog.Artifacts/classes/*.ps1' \
+        ':(glob)TrackStash.Catalog.Artifacts/TrackStash.Catalog.Artifacts.psm1')
+fi
+
+if [[ -z "$staged_module_files" ]]; then
+    exit 0
+fi
+
+current_version=$(sed -n "s/^[[:space:]]*ModuleVersion = '\([^']*\)'/\1/p" "$manifest_path" | head -n 1)
+if [[ -z "$current_version" ]]; then
+    echo "Unable to read ModuleVersion from $manifest_path" >&2
+    exit 1
+fi
+
+if [[ ! "$current_version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+    echo "ModuleVersion must use major.minor.build format: $current_version" >&2
+    exit 1
+fi
+
+major=${BASH_REMATCH[1]}
+minor=${BASH_REMATCH[2]}
+build=${BASH_REMATCH[3]}
+new_version="$major.$minor.$((build + 1))"
+
+perl -0pi -e "s/(ModuleVersion = ')[^']*(')/\$1${new_version}\$2/" "$manifest_path"
+
+if [[ "${TRACKSTASH_HOOK_SKIP_STAGE:-0}" != "1" ]]; then
+    git add "$manifest_path"
+fi
+
+echo "Bumped TrackStash.Catalog.Artifacts ModuleVersion to $new_version" >&2

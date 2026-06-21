@@ -23,3 +23,7 @@ The current state is a module scaffold. Public cmdlet files, private helper file
 - Artifact generation should stay separate from catalog publish/apply.
 - Read/search commands should stay read-only.
 - Slug and normalized-name resolution should flow through catalog/core, not be duplicated in the module.
+
+## Versioning
+
+When staged changes touch the module's `public/`, `private/`, `classes/`, or `.psm1` files, the repo-local pre-commit hook increments the `ModuleVersion` build segment in `TrackStash.Catalog.Artifacts.psd1`.
