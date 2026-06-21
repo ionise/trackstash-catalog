@@ -8,7 +8,7 @@ It is intended to cover:
 - catalog commit/apply workflows
 - catalog read/search workflows
 
-The current state includes the first implemented artifact authoring and publish/apply cmdlets, with the remaining read/search surface still to be built out incrementally.
+The current state includes artifact authoring, publish/apply, and foundational read/search cmdlets.
 
 ## Layout
 
@@ -26,6 +26,16 @@ Implemented so far:
 - `New-TrackStashRecordingYamlArtifact`
 - `New-TrackStashCatalogYamlArtifacts`
 - `Publish-TrackStashCatalogArtifact`
+- `Get-TrackStashCatalogEntity`
+- `Find-TrackStashCatalogEntity`
+- `Search-TrackStashCatalogEntity`
+- `Get-TrackStashCatalogSummary`
+
+Implemented private template/yaml helpers:
+
+- `Get-TrackStashDefaultEntityTemplate`
+- `Merge-TrackStashTemplateData`
+- `ConvertTo-TrackStashYamlDocument`
 
 ## Notes
 

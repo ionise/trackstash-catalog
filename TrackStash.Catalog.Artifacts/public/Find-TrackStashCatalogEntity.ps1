@@ -10,6 +10,9 @@ implementation.
 .PARAMETER Kind
 Optional entity kind filter.
 
+.PARAMETER EntityType
+Alias for Kind.
+
 .PARAMETER Name
 Optional exact or partial name filter.
 
@@ -25,6 +28,7 @@ Optional reference filter.
 function Find-TrackStashCatalogEntity {
     [CmdletBinding()]
     param(
+        [Alias('EntityType')]
         [ValidateSet('label', 'artist', 'release', 'recording')]
         [string]$Kind,
         [string]$Name,
