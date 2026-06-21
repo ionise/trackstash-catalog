@@ -1,3 +1,17 @@
+<#
+.SYNOPSIS
+Creates YAML artifacts for multiple catalog entities.
+
+.DESCRIPTION
+This batch helper accepts objects with Kind and Name properties and dispatches
+to the appropriate single-entity artifact cmdlet.
+
+.PARAMETER InputObject
+Entity descriptor objects to convert into YAML artifacts.
+
+.PARAMETER RootPath
+Root folder where the artifact folder structure should be created.
+#>
 function New-TrackStashCatalogYamlArtifacts {
     [CmdletBinding()]
     param(

@@ -1,3 +1,14 @@
+<#
+.SYNOPSIS
+Invokes the catalog CLI.
+
+.DESCRIPTION
+Runs a catalog command either through the installed trackstash-catalog command
+or by falling back to dotnet run against the local project.
+
+.PARAMETER Arguments
+Arguments to pass to the catalog command.
+#>
 function Invoke-TrackStashCatalogCommand {
     [CmdletBinding()]
     param(

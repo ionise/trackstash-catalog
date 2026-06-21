@@ -1,3 +1,24 @@
+<#
+.SYNOPSIS
+Creates a YAML artifact for a catalog entity.
+
+.DESCRIPTION
+Builds the common YAML envelope used by the public artifact cmdlets and writes
+the file to the correct kind-specific folder using catalog-backed identity
+resolution.
+
+.PARAMETER Kind
+Entity kind name.
+
+.PARAMETER Name
+Display name used for identity resolution.
+
+.PARAMETER Id
+Optional explicit entity ID.
+
+.PARAMETER RootPath
+Root folder where the artifact folder structure should be created.
+#>
 function New-TrackStashEntityYamlArtifact {
     [CmdletBinding()]
     param(

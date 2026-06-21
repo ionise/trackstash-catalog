@@ -1,3 +1,23 @@
+<#
+.SYNOPSIS
+Validates and publishes catalog YAML artifacts.
+
+.DESCRIPTION
+Reads one or more YAML artifact files or directories, validates each artifact
+with the catalog CLI, and applies them through the catalog publish/apply path.
+
+.PARAMETER Path
+One file path or directory path containing YAML artifacts.
+
+.PARAMETER Catalog
+Optional catalog name to pass through to the catalog CLI.
+
+.PARAMETER DbPath
+Optional SQLite database path to pass through to the catalog CLI.
+
+.PARAMETER PassThru
+Returns a summary object for each successfully applied artifact.
+#>
 function Publish-TrackStashCatalogArtifact {
     [CmdletBinding(SupportsShouldProcess)]
     param(

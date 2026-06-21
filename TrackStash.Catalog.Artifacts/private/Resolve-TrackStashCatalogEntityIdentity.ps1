@@ -1,3 +1,14 @@
+<#
+.SYNOPSIS
+Resolves catalog identity details for a value.
+
+.DESCRIPTION
+Calls the catalog CLI to obtain the normalized name and slug for a display
+value so PowerShell can use the same identity rules as the catalog layer.
+
+.PARAMETER Value
+The source display value to resolve.
+#>
 function Resolve-TrackStashCatalogEntityIdentity {
     [CmdletBinding()]
     param(

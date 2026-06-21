@@ -1,3 +1,12 @@
+<#
+.SYNOPSIS
+Resolves the catalog command source.
+
+.DESCRIPTION
+Returns either the installed trackstash-catalog command or the local project
+path so the PowerShell module can invoke catalog consistently in development
+and installed environments.
+#>
 function Resolve-TrackStashCatalogProjectPath {
     [CmdletBinding()]
     param()
