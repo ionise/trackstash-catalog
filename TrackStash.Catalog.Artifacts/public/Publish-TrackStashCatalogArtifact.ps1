@@ -17,6 +17,12 @@ Optional SQLite database path to pass through to the catalog CLI.
 
 .PARAMETER PassThru
 Returns a summary object for each successfully applied artifact.
+
+.PARAMETER RetryCount
+Number of retries for transient SQLite lock errors.
+
+.PARAMETER RetryDelaySeconds
+Delay between retries when SQLite lock errors are encountered.
 #>
 function Publish-TrackStashCatalogArtifact {
     [CmdletBinding(SupportsShouldProcess)]
@@ -27,6 +33,12 @@ function Publish-TrackStashCatalogArtifact {
         [string]$Catalog,
 
         [string]$DbPath,
+
+        [ValidateRange(0, 20)]
+        [int]$RetryCount = 5,
+
+        [ValidateRange(0, 30)]
+        [int]$RetryDelaySeconds = 1,
 
         [switch]$PassThru
     )
@@ -97,15 +109,33 @@ function Publish-TrackStashCatalogArtifact {
                 $applyArgs += @('--db-path', $DbPath)
             }
 
-            $applyOutput = Invoke-TrackStashCatalogCommand -Arguments $applyArgs
-            $applyResult = ($applyOutput -join [Environment]::NewLine) | ConvertFrom-Json
-            if (-not $applyResult.Ok) {
+            $applyResult = $null
+            $lastErrors = @()
+            for ($attempt = 0; $attempt -le $RetryCount; $attempt++) {
+                $applyOutput = Invoke-TrackStashCatalogCommand -Arguments $applyArgs
+                $applyResult = ($applyOutput -join [Environment]::NewLine) | ConvertFrom-Json
+
+                if ($applyResult.Ok) {
+                    break
+                }
+
                 $errors = @($applyResult.Errors)
                 if ($errors.Count -eq 0) {
                     $errors = @("Apply failed for $artifactPath.")
                 }
+                $lastErrors = $errors
 
-                throw ($errors -join [Environment]::NewLine)
+                $isSqliteLock = ($errors -join ' ') -match 'SQLite Error 5|database is locked'
+                if (-not $isSqliteLock -or $attempt -ge $RetryCount) {
+                    break
+                }
+
+                Write-Verbose "SQLite lock detected for '$artifactPath'. Retry $($attempt + 1) of $RetryCount in ${RetryDelaySeconds}s..."
+                Start-Sleep -Seconds $RetryDelaySeconds
+            }
+
+            if (-not $applyResult.Ok) {
+                throw ($lastErrors -join [Environment]::NewLine)
             }
 
             $data = $applyResult.Data

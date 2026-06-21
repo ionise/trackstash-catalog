@@ -1,6 +1,6 @@
 @{
     RootModule = 'TrackStash.Catalog.Artifacts.psm1'
-    ModuleVersion = '0.1.4'
+    ModuleVersion = '0.1.5'
     GUID = 'ca6c2b35-a350-4c46-843b-674dd217ab53'
     Author = 'TrackStash'
     CompanyName = 'TrackStash'

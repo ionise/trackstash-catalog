@@ -1,4 +1,3 @@
-using Microsoft.Data.Sqlite;
 using TrackStash.Core.Identifiers;
 using TrackStash.Core.Normalization;
 using TrackStash.Core.Storage;
@@ -43,8 +42,6 @@ public static class EntityYamlService
     public static async Task<EntityApplyResult> ApplyAsync(
         EntityEnvelope envelope,
         IStorageProvider provider,
-        string providerName,
-        string dbPath,
         bool dryRun,
         CancellationToken cancellationToken = default)
     {
@@ -82,6 +79,10 @@ public static class EntityYamlService
             return new EntityApplyResult(false, kind, mode, finalId, dryRun, actions, warnings, errors);
 
         var doReplaceCleanup = string.Equals(mode, "replace", StringComparison.OrdinalIgnoreCase);
+        var entityDelete = uow.EntityDelete;
+
+        if (doReplaceCleanup && entityDelete is null)
+            throw new InvalidOperationException("replace mode requires IEntityDeleteService from the active storage provider.");
 
         try
         {
@@ -95,7 +96,7 @@ public static class EntityYamlService
                             actions.Add("replace-cleanup: label_alias");
                             actions.Add("replace-cleanup: label_external_ref");
                             if (!dryRun)
-                                await ReplaceCleanupAsync(providerName, dbPath, "label", finalId, cancellationToken).ConfigureAwait(false);
+                                await entityDelete!.DeleteOwnedRowsAsync("label", finalId, cancellationToken).ConfigureAwait(false);
                         }
 
                         actions.Add("upsert: label");
@@ -112,7 +113,7 @@ public static class EntityYamlService
                             actions.Add("replace-cleanup: artist_alias");
                             actions.Add("replace-cleanup: artist_external_ref");
                             if (!dryRun)
-                                await ReplaceCleanupAsync(providerName, dbPath, "artist", finalId, cancellationToken).ConfigureAwait(false);
+                                await entityDelete!.DeleteOwnedRowsAsync("artist", finalId, cancellationToken).ConfigureAwait(false);
                         }
 
                         actions.Add("upsert: artist");
@@ -130,7 +131,7 @@ public static class EntityYamlService
                             actions.Add("replace-cleanup: release_artist_credit");
                             actions.Add("replace-cleanup: release_label_link");
                             if (!dryRun)
-                                await ReplaceCleanupAsync(providerName, dbPath, "release", finalId, cancellationToken).ConfigureAwait(false);
+                                await entityDelete!.DeleteOwnedRowsAsync("release", finalId, cancellationToken).ConfigureAwait(false);
                         }
 
                         actions.Add("upsert: release");
@@ -152,7 +153,7 @@ public static class EntityYamlService
                             actions.Add("replace-cleanup: release_recording(by recording)");
                             actions.Add("replace-cleanup: recording_relationship(outgoing)");
                             if (!dryRun)
-                                await ReplaceCleanupAsync(providerName, dbPath, "recording", finalId, cancellationToken).ConfigureAwait(false);
+                                await entityDelete!.DeleteOwnedRowsAsync("recording", finalId, cancellationToken).ConfigureAwait(false);
                         }
 
                         actions.Add("upsert: recording");
@@ -181,28 +182,39 @@ public static class EntityYamlService
         string entityType,
         string entityId,
         IStorageProvider provider,
-        string providerName,
-        string dbPath,
         CancellationToken cancellationToken = default)
     {
         await using var uow = await provider.BeginUnitOfWorkAsync(cancellationToken).ConfigureAwait(false);
 
         return entityType.ToLowerInvariant() switch
         {
-            "label" => await GetLabelAsync(entityId, uow, providerName, dbPath, cancellationToken).ConfigureAwait(false),
-            "artist" => await GetArtistAsync(entityId, uow, providerName, dbPath, cancellationToken).ConfigureAwait(false),
-            "release" => await GetReleaseAsync(entityId, uow, providerName, dbPath, cancellationToken).ConfigureAwait(false),
-            "recording" => await GetRecordingAsync(entityId, uow, providerName, dbPath, cancellationToken).ConfigureAwait(false),
+            "label" => await GetLabelAsync(entityId, uow, cancellationToken).ConfigureAwait(false),
+            "artist" => await GetArtistAsync(entityId, uow, cancellationToken).ConfigureAwait(false),
+            "release" => await GetReleaseAsync(entityId, uow, cancellationToken).ConfigureAwait(false),
+            "recording" => await GetRecordingAsync(entityId, uow, cancellationToken).ConfigureAwait(false),
             _ => null,
         };
     }
 
-    private static async Task<EntityEnvelope?> GetLabelAsync(string id, IUnitOfWork uow, string providerName, string dbPath, CancellationToken cancellationToken)
+    private static async Task<EntityEnvelope?> GetLabelAsync(string id, IUnitOfWork uow, CancellationToken cancellationToken)
     {
         var label = await uow.Labels.GetByIdAsync(id, cancellationToken).ConfigureAwait(false);
         if (label is null) return null;
 
-        var (aliases, refs) = await ReadAliasesAndRefsAsync(providerName, dbPath, "label", id, cancellationToken).ConfigureAwait(false);
+        var aliases = label.Aliases.Select(a => new EntityAliasSpec
+        {
+            Value = a.Value,
+            NormalizedValue = a.NormalizedValue,
+            IsPrimary = a.IsPrimary,
+        }).ToList();
+        var refs = label.ExternalReferences.Select(r => new EntityRefSpec
+        {
+            Source = r.Source,
+            ExternalId = r.ExternalId,
+            IsPrimary = r.IsPrimary,
+            LastSeenUtc = r.LastSeenUtc,
+            PayloadJson = r.PayloadJson,
+        }).ToList();
         return new EntityEnvelope
         {
             Kind = "Label",
@@ -223,12 +235,25 @@ public static class EntityYamlService
         };
     }
 
-    private static async Task<EntityEnvelope?> GetArtistAsync(string id, IUnitOfWork uow, string providerName, string dbPath, CancellationToken cancellationToken)
+    private static async Task<EntityEnvelope?> GetArtistAsync(string id, IUnitOfWork uow, CancellationToken cancellationToken)
     {
         var artist = await uow.Artists.GetByIdAsync(id, cancellationToken).ConfigureAwait(false);
         if (artist is null) return null;
 
-        var (aliases, refs) = await ReadAliasesAndRefsAsync(providerName, dbPath, "artist", id, cancellationToken).ConfigureAwait(false);
+        var aliases = artist.Aliases.Select(a => new EntityAliasSpec
+        {
+            Value = a.Value,
+            NormalizedValue = a.NormalizedValue,
+            IsPrimary = a.IsPrimary,
+        }).ToList();
+        var refs = artist.ExternalReferences.Select(r => new EntityRefSpec
+        {
+            Source = r.Source,
+            ExternalId = r.ExternalId,
+            IsPrimary = r.IsPrimary,
+            LastSeenUtc = r.LastSeenUtc,
+            PayloadJson = r.PayloadJson,
+        }).ToList();
         return new EntityEnvelope
         {
             Kind = "Artist",
@@ -249,13 +274,31 @@ public static class EntityYamlService
         };
     }
 
-    private static async Task<EntityEnvelope?> GetReleaseAsync(string id, IUnitOfWork uow, string providerName, string dbPath, CancellationToken cancellationToken)
+    private static async Task<EntityEnvelope?> GetReleaseAsync(string id, IUnitOfWork uow, CancellationToken cancellationToken)
     {
         var release = await uow.Releases.GetByIdAsync(id, cancellationToken).ConfigureAwait(false);
         if (release is null) return null;
 
-        var refs = await ReadExternalRefsAsync(providerName, dbPath, "release", id, cancellationToken).ConfigureAwait(false);
-        var (credits, labels) = await ReadReleaseRelationsAsync(providerName, dbPath, id, cancellationToken).ConfigureAwait(false);
+        var refs = release.ExternalReferences.Select(r => new EntityRefSpec
+        {
+            Source = r.Source,
+            ExternalId = r.ExternalId,
+            IsPrimary = r.IsPrimary,
+            LastSeenUtc = r.LastSeenUtc,
+            PayloadJson = r.PayloadJson,
+        }).ToList();
+        var credits = release.ArtistCredits.Select(c => new ArtistCreditSpec
+        {
+            ArtistId = c.ArtistId,
+            CreditName = c.CreditName,
+            Position = c.Position,
+        }).ToList();
+        var labels = release.LabelLinks.Select(l => new LabelLinkSpec
+        {
+            LabelId = l.LabelId,
+            IsPrimary = l.IsPrimary,
+            Role = l.Role,
+        }).ToList();
 
         return new EntityEnvelope
         {
@@ -278,13 +321,42 @@ public static class EntityYamlService
         };
     }
 
-    private static async Task<EntityEnvelope?> GetRecordingAsync(string id, IUnitOfWork uow, string providerName, string dbPath, CancellationToken cancellationToken)
+    private static async Task<EntityEnvelope?> GetRecordingAsync(string id, IUnitOfWork uow, CancellationToken cancellationToken)
     {
         var recording = await uow.Recordings.GetByIdAsync(id, cancellationToken).ConfigureAwait(false);
         if (recording is null) return null;
 
-        var refs = await ReadExternalRefsAsync(providerName, dbPath, "recording", id, cancellationToken).ConfigureAwait(false);
-        var (credits, releaseLinks, relationships) = await ReadRecordingRelationsAsync(providerName, dbPath, id, cancellationToken).ConfigureAwait(false);
+        var refs = recording.ExternalReferences.Select(r => new EntityRefSpec
+        {
+            Source = r.Source,
+            ExternalId = r.ExternalId,
+            IsPrimary = r.IsPrimary,
+            LastSeenUtc = r.LastSeenUtc,
+            PayloadJson = r.PayloadJson,
+        }).ToList();
+        var credits = recording.ArtistCredits.Select(c => new ArtistCreditSpec
+        {
+            ArtistId = c.ArtistId,
+            CreditName = c.CreditName,
+            Role = c.Role,
+            Position = c.Position,
+        }).ToList();
+        var releaseLinks = recording.ReleaseLinks.Select(l => new ReleaseLinkSpec
+        {
+            ReleaseId = l.ReleaseId,
+            DiscNumber = l.DiscNumber,
+            TrackNumber = l.TrackNumber,
+        }).ToList();
+        var relationships = recording.Relationships.Select(r => new RelationshipSpec
+        {
+            RelatedRecordingId = r.RelatedRecordingId,
+            RelationshipType = r.RelationshipType,
+            Source = r.Source,
+            Confidence = r.Confidence,
+            Notes = r.Notes,
+            CreatedUtc = r.CreatedUtc,
+            UpdatedUtc = r.UpdatedUtc,
+        }).ToList();
 
         return new EntityEnvelope
         {
@@ -639,251 +711,6 @@ public static class EntityYamlService
         }
 
         throw new ArgumentException("Unable to resolve recording reference. Provide relatedRecordingId or relatedRecordingRef.byTitle for an existing recording.");
-    }
-
-    private static async Task ReplaceCleanupAsync(string providerName, string dbPath, string kind, string entityId, CancellationToken cancellationToken)
-    {
-        if (!string.Equals(providerName, "sqlite", StringComparison.OrdinalIgnoreCase))
-            throw new ArgumentException($"replace mode cleanup is currently implemented for sqlite only (provider={providerName}).");
-
-        await using var connection = new SqliteConnection($"Data Source={dbPath}");
-        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
-
-        await using var transaction = connection.BeginTransaction();
-
-        var commands = kind switch
-        {
-            "label" => new[]
-            {
-                "DELETE FROM label_alias WHERE label_id = @id",
-                "DELETE FROM label_external_ref WHERE label_id = @id",
-            },
-            "artist" => new[]
-            {
-                "DELETE FROM artist_alias WHERE artist_id = @id",
-                "DELETE FROM artist_external_ref WHERE artist_id = @id",
-            },
-            "release" => new[]
-            {
-                "DELETE FROM release_external_ref WHERE release_id = @id",
-                "DELETE FROM release_artist_credit WHERE release_id = @id",
-                "DELETE FROM release_label_link WHERE release_id = @id",
-            },
-            "recording" => new[]
-            {
-                "DELETE FROM recording_external_ref WHERE recording_id = @id",
-                "DELETE FROM recording_artist_credit WHERE recording_id = @id",
-                "DELETE FROM release_recording WHERE recording_id = @id",
-                "DELETE FROM recording_relationship WHERE from_recording_id = @id",
-            },
-            _ => Array.Empty<string>(),
-        };
-
-        foreach (var sql in commands)
-        {
-            await using var cmd = connection.CreateCommand();
-            cmd.Transaction = transaction;
-            cmd.CommandText = sql;
-            cmd.Parameters.AddWithValue("@id", entityId);
-            await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-        }
-
-        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-    }
-
-    private static async Task<(List<EntityAliasSpec> Aliases, List<EntityRefSpec> Refs)> ReadAliasesAndRefsAsync(
-        string providerName,
-        string dbPath,
-        string kind,
-        string entityId,
-        CancellationToken cancellationToken)
-    {
-        if (!string.Equals(providerName, "sqlite", StringComparison.OrdinalIgnoreCase))
-            return (new List<EntityAliasSpec>(), new List<EntityRefSpec>());
-
-        await using var connection = new SqliteConnection($"Data Source={dbPath}");
-        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
-
-        var aliases = new List<EntityAliasSpec>();
-        var refs = new List<EntityRefSpec>();
-
-        var aliasTable = kind == "label" ? "label_alias" : "artist_alias";
-        var idColumn = kind == "label" ? "label_id" : "artist_id";
-        await using (var aliasCmd = connection.CreateCommand())
-        {
-            aliasCmd.CommandText = $"SELECT value, normalized_value, is_primary FROM {aliasTable} WHERE {idColumn} = @id";
-            aliasCmd.Parameters.AddWithValue("@id", entityId);
-            await using var reader = await aliasCmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-            {
-                aliases.Add(new EntityAliasSpec
-                {
-                    Value = reader.GetString(0),
-                    NormalizedValue = reader.IsDBNull(1) ? null : reader.GetString(1),
-                    IsPrimary = !reader.IsDBNull(2) && reader.GetInt32(2) == 1,
-                });
-            }
-        }
-
-        refs = await ReadExternalRefsAsync(providerName, dbPath, kind, entityId, cancellationToken).ConfigureAwait(false);
-        return (aliases, refs);
-    }
-
-    private static async Task<List<EntityRefSpec>> ReadExternalRefsAsync(
-        string providerName,
-        string dbPath,
-        string kind,
-        string entityId,
-        CancellationToken cancellationToken)
-    {
-        if (!string.Equals(providerName, "sqlite", StringComparison.OrdinalIgnoreCase))
-            return new List<EntityRefSpec>();
-
-        await using var connection = new SqliteConnection($"Data Source={dbPath}");
-        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
-
-        var refs = new List<EntityRefSpec>();
-        var table = $"{kind}_external_ref";
-        var idColumn = $"{kind}_id";
-
-        await using var cmd = connection.CreateCommand();
-        cmd.CommandText = $"SELECT source, external_id, is_primary, last_seen_utc, payload_json FROM {table} WHERE {idColumn} = @id";
-        cmd.Parameters.AddWithValue("@id", entityId);
-
-        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-        {
-            refs.Add(new EntityRefSpec
-            {
-                Source = reader.GetString(0),
-                ExternalId = reader.GetString(1),
-                IsPrimary = !reader.IsDBNull(2) && reader.GetInt32(2) == 1,
-                LastSeenUtc = reader.IsDBNull(3) ? null : DateTimeOffset.Parse(reader.GetString(3)),
-                PayloadJson = reader.IsDBNull(4) ? null : reader.GetString(4),
-            });
-        }
-
-        return refs;
-    }
-
-    private static async Task<(List<ArtistCreditSpec> Credits, List<LabelLinkSpec> Labels)> ReadReleaseRelationsAsync(
-        string providerName,
-        string dbPath,
-        string releaseId,
-        CancellationToken cancellationToken)
-    {
-        if (!string.Equals(providerName, "sqlite", StringComparison.OrdinalIgnoreCase))
-            return (new List<ArtistCreditSpec>(), new List<LabelLinkSpec>());
-
-        await using var connection = new SqliteConnection($"Data Source={dbPath}");
-        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
-
-        var credits = new List<ArtistCreditSpec>();
-        await using (var cmd = connection.CreateCommand())
-        {
-            cmd.CommandText = "SELECT artist_id, credit_name, position FROM release_artist_credit WHERE release_id = @id ORDER BY COALESCE(position, 999999)";
-            cmd.Parameters.AddWithValue("@id", releaseId);
-            await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-            {
-                credits.Add(new ArtistCreditSpec
-                {
-                    ArtistId = reader.GetString(0),
-                    CreditName = reader.IsDBNull(1) ? null : reader.GetString(1),
-                    Position = reader.IsDBNull(2) ? null : reader.GetInt32(2),
-                });
-            }
-        }
-
-        var labels = new List<LabelLinkSpec>();
-        await using (var cmd = connection.CreateCommand())
-        {
-            cmd.CommandText = "SELECT label_id, is_primary, role FROM release_label_link WHERE release_id = @id";
-            cmd.Parameters.AddWithValue("@id", releaseId);
-            await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-            {
-                labels.Add(new LabelLinkSpec
-                {
-                    LabelId = reader.GetString(0),
-                    IsPrimary = !reader.IsDBNull(1) && reader.GetInt32(1) == 1,
-                    Role = reader.IsDBNull(2) ? null : reader.GetString(2),
-                });
-            }
-        }
-
-        return (credits, labels);
-    }
-
-    private static async Task<(List<ArtistCreditSpec> Credits, List<ReleaseLinkSpec> ReleaseLinks, List<RelationshipSpec> Relationships)> ReadRecordingRelationsAsync(
-        string providerName,
-        string dbPath,
-        string recordingId,
-        CancellationToken cancellationToken)
-    {
-        if (!string.Equals(providerName, "sqlite", StringComparison.OrdinalIgnoreCase))
-            return (new List<ArtistCreditSpec>(), new List<ReleaseLinkSpec>(), new List<RelationshipSpec>());
-
-        await using var connection = new SqliteConnection($"Data Source={dbPath}");
-        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
-
-        var credits = new List<ArtistCreditSpec>();
-        await using (var cmd = connection.CreateCommand())
-        {
-            cmd.CommandText = "SELECT artist_id, credit_name, role, position FROM recording_artist_credit WHERE recording_id = @id ORDER BY COALESCE(position, 999999)";
-            cmd.Parameters.AddWithValue("@id", recordingId);
-            await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-            {
-                credits.Add(new ArtistCreditSpec
-                {
-                    ArtistId = reader.GetString(0),
-                    CreditName = reader.IsDBNull(1) ? null : reader.GetString(1),
-                    Role = reader.IsDBNull(2) ? null : reader.GetString(2),
-                    Position = reader.IsDBNull(3) ? null : reader.GetInt32(3),
-                });
-            }
-        }
-
-        var releaseLinks = new List<ReleaseLinkSpec>();
-        await using (var cmd = connection.CreateCommand())
-        {
-            cmd.CommandText = "SELECT release_id, disc_number, track_number FROM release_recording WHERE recording_id = @id";
-            cmd.Parameters.AddWithValue("@id", recordingId);
-            await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-            {
-                releaseLinks.Add(new ReleaseLinkSpec
-                {
-                    ReleaseId = reader.GetString(0),
-                    DiscNumber = reader.IsDBNull(1) ? null : reader.GetInt32(1),
-                    TrackNumber = reader.IsDBNull(2) ? null : reader.GetInt32(2),
-                });
-            }
-        }
-
-        var relationships = new List<RelationshipSpec>();
-        await using (var cmd = connection.CreateCommand())
-        {
-            cmd.CommandText = "SELECT to_recording_id, relationship_type, source, confidence, notes, created_utc, updated_utc FROM recording_relationship WHERE from_recording_id = @id";
-            cmd.Parameters.AddWithValue("@id", recordingId);
-            await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-            {
-                relationships.Add(new RelationshipSpec
-                {
-                    RelatedRecordingId = reader.GetString(0),
-                    RelationshipType = reader.GetString(1),
-                    Source = reader.IsDBNull(2) ? null : reader.GetString(2),
-                    Confidence = reader.IsDBNull(3) ? null : reader.GetDecimal(3),
-                    Notes = reader.IsDBNull(4) ? null : reader.GetString(4),
-                    CreatedUtc = reader.IsDBNull(5) ? null : DateTimeOffset.Parse(reader.GetString(5)),
-                    UpdatedUtc = reader.IsDBNull(6) ? null : DateTimeOffset.Parse(reader.GetString(6)),
-                });
-            }
-        }
-
-        return (credits, releaseLinks, relationships);
     }
 
     private static string? FirstNonEmpty(params string?[] values)

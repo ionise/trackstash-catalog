@@ -352,8 +352,6 @@ public sealed class CatalogCommands
         var result = await EntityYamlService.ApplyAsync(
             envelope,
             provider,
-            providerName: _provider,
-            dbPath: request.DatabasePath,
             dryRun: request.DryRun,
             cancellationToken: cancellationToken).ConfigureAwait(false);
 
@@ -394,8 +392,6 @@ public sealed class CatalogCommands
             request.EntityType.ToLowerInvariant(),
             request.EntityId,
             provider,
-            providerName: _provider,
-            dbPath: request.DatabasePath,
             cancellationToken: cancellationToken).ConfigureAwait(false);
 
         if (envelope is null)
