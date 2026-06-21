@@ -182,6 +182,8 @@ See `docs/entity-templates/README.md` for:
 - mode semantics (`replace`, `merge`, `create-only`, `update-only`)
 - full-schema field coverage notes and export/import expectations
 
+See `docs/powershell-interface/README.md` for the proposed PowerShell module layout and cmdlet split for artifact authoring, catalog commit/apply, and read/search workflows.
+
 ## Entity Command Usage
 
 The entity-oriented command set is intended to support template generation, validation, export, and desired-state apply workflows.

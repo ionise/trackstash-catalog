@@ -322,6 +322,27 @@ Every document uses:
 
 `replace` should remain default for deterministic behavior and idempotent replay.
 
+### 6b. Proposed PowerShell Interface
+
+The PowerShell interface should live with the catalog project for now and follow this module pattern:
+
+- module directory named the same as the module
+- `README.md` at the module root with purpose and usage guidance
+- `.psd1` manifest at the module root
+- `.psm1` module file at the module root
+- one `.ps1` file per function
+- public functions in `public/`
+- private helpers in `private/`
+- classes in `classes/`
+
+Recommended cmdlet families:
+
+- artifact authoring: `New-TrackStashLabelYamlArtifact`, `New-TrackStashArtistYamlArtifact`, `New-TrackStashReleaseYamlArtifact`, `New-TrackStashRecordingYamlArtifact`
+- catalog commit/apply: `Publish-TrackStashCatalogArtifact`
+- read/search: `Get-TrackStashCatalogEntity`, `Find-TrackStashCatalogEntity`, `Search-TrackStashCatalogEntity`, `Get-TrackStashCatalogSummary`
+
+The artifact authoring cmdlets should create one YAML artifact per entity in a type-named directory with a slug-based filename. The commit/apply cmdlet should remain separate from artifact creation. Read/search cmdlets should remain read-only and suitable for interactive discovery as well as scripting.
+
 ### 6a.3 Relationship Reconciliation
 
 For aggregate entities (`Release`, `Recording`), the desired state should deterministically reconcile:
