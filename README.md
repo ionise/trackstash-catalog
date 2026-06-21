@@ -258,6 +258,11 @@ Current state:
 - `trackstash-core` owns reusable storage contracts and services used by catalog commands.
 - delete semantics are implemented in shared storage contracts/services and surfaced through `trackstash-catalog delete-entity`.
 
+## Roadmap Note
+
+Planned enhancement: image-aware catalog entity workflows built on core-owned contracts.
+`trackstash-catalog` should expose apply/get behavior for entity images (roles like logo/cover/publicity and release-context recording art), while schema, migration, and storage implementation remain in `trackstash-core` and provider adapters.
+
 Target state:
 
 - `trackstash-catalog` becomes the primary CLI and application boundary for `import-csv` and future catalog imports.
