@@ -14,6 +14,13 @@ foreach ($folder in @('classes', 'private', 'public')) {
 }
 
 Export-ModuleMember -Function @(
+    'New-TrackStashCatalogLabel',
+    'New-TrackStashCatalogArtist',
+    'New-TrackStashCatalogRelease',
+    'New-TrackStashCatalogRecording',
+    'ConvertTo-TrackStashCatalogYamlArtifact',
+    'Set-TrackStashCatalogEntity',
+    'Remove-TrackStashCatalogEntity',
     'New-TrackStashLabelYamlArtifact',
     'New-TrackStashArtistYamlArtifact',
     'New-TrackStashReleaseYamlArtifact',

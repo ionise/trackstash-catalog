@@ -1,6 +1,6 @@
 @{
     RootModule = 'TrackStash.Catalog.Artifacts.psm1'
-    ModuleVersion = '0.1.7'
+    ModuleVersion = '0.1.8'
     GUID = 'ca6c2b35-a350-4c46-843b-674dd217ab53'
     Author = 'TrackStash'
     CompanyName = 'TrackStash'
@@ -9,6 +9,13 @@
     PowerShellVersion = '7.0'
     CompatiblePSEditions = @('Core')
     FunctionsToExport = @(
+        'New-TrackStashCatalogLabel',
+        'New-TrackStashCatalogArtist',
+        'New-TrackStashCatalogRelease',
+        'New-TrackStashCatalogRecording',
+        'ConvertTo-TrackStashCatalogYamlArtifact',
+        'Set-TrackStashCatalogEntity',
+        'Remove-TrackStashCatalogEntity',
         'New-TrackStashLabelYamlArtifact',
         'New-TrackStashArtistYamlArtifact',
         'New-TrackStashReleaseYamlArtifact',
