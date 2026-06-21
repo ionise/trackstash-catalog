@@ -1,6 +1,7 @@
 using TrackStash.Core.Normalization;
 using TrackStash.Core.Services;
 using TrackStash.Core.Storage;
+using TrackStash.Catalog.Entities;
 
 namespace TrackStash.Catalog;
 
@@ -65,6 +66,38 @@ public sealed record RepairIndexesResult(
     bool Performed,
     IReadOnlyList<string> Actions,
     IReadOnlyList<string> Notes);
+
+public sealed record ApplyEntityRequest(
+    string DatabasePath,
+    string FilePath,
+    bool DryRun = false);
+
+public sealed record ApplyEntityResult(
+    string DatabasePath,
+    string FilePath,
+    bool DryRun,
+    bool Success,
+    string Kind,
+    string Mode,
+    string EntityId,
+    IReadOnlyList<string> Actions,
+    IReadOnlyList<string> Warnings,
+    IReadOnlyList<string> Errors);
+
+public sealed record GetEntityRequest(
+    string DatabasePath,
+    string EntityType,
+    string EntityId,
+    string Format = "yaml");
+
+public sealed record GetEntityResult(
+    string DatabasePath,
+    string EntityType,
+    string EntityId,
+    string Format,
+    bool Found,
+    string? Content,
+    string? ErrorMessage);
 
 public sealed record ResolveEntityIdentityRequest(
     string Value);
@@ -296,6 +329,96 @@ public sealed class CatalogCommands
         notes.Add($"Current migration version: {version}");
 
         return new RepairIndexesResult(request.DatabasePath, DryRun: false, Performed: true, Actions: actions, Notes: notes);
+    }
+
+    public async Task<ApplyEntityResult> ApplyEntityAsync(
+        ApplyEntityRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.DatabasePath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.FilePath);
+
+        if (!File.Exists(request.FilePath))
+            throw new ArgumentException($"File not found: {request.FilePath}");
+
+        var yaml = File.ReadAllText(request.FilePath);
+        var envelope = EntityYamlService.ParseSingleDocument(yaml);
+
+        var provider = _providerFactory.Create(new StorageProviderDescriptor(
+            Provider: _provider,
+            DatabasePath: request.DatabasePath));
+
+        var result = await EntityYamlService.ApplyAsync(
+            envelope,
+            provider,
+            providerName: _provider,
+            dbPath: request.DatabasePath,
+            dryRun: request.DryRun,
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+
+        return new ApplyEntityResult(
+            DatabasePath: request.DatabasePath,
+            FilePath: request.FilePath,
+            DryRun: request.DryRun,
+            Success: result.Success,
+            Kind: result.Kind,
+            Mode: result.Mode,
+            EntityId: result.EntityId,
+            Actions: result.Actions,
+            Warnings: result.Warnings,
+            Errors: result.Errors);
+    }
+
+    public async Task<GetEntityResult> GetEntityAsync(
+        GetEntityRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.DatabasePath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.EntityType);
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.EntityId);
+
+        var validTypes = new[] { "label", "artist", "release", "recording" };
+        if (!validTypes.Contains(request.EntityType.ToLowerInvariant()))
+            throw new ArgumentException($"--type must be one of: {string.Join(", ", validTypes)}");
+
+        if (!string.Equals(request.Format, "yaml", StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("--format currently supports only yaml.");
+
+        var provider = _providerFactory.Create(new StorageProviderDescriptor(
+            Provider: _provider,
+            DatabasePath: request.DatabasePath));
+
+        var envelope = await EntityYamlService.GetEntityAsync(
+            request.EntityType.ToLowerInvariant(),
+            request.EntityId,
+            provider,
+            providerName: _provider,
+            dbPath: request.DatabasePath,
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+
+        if (envelope is null)
+        {
+            return new GetEntityResult(
+                DatabasePath: request.DatabasePath,
+                EntityType: request.EntityType,
+                EntityId: request.EntityId,
+                Format: request.Format,
+                Found: false,
+                Content: null,
+                ErrorMessage: "Entity not found.");
+        }
+
+        var yaml = EntityYamlService.ToYaml(envelope);
+        return new GetEntityResult(
+            DatabasePath: request.DatabasePath,
+            EntityType: request.EntityType,
+            EntityId: request.EntityId,
+            Format: request.Format,
+            Found: true,
+            Content: yaml,
+            ErrorMessage: null);
     }
 
     public Task<ResolveEntityIdentityResult> ResolveEntityIdentityAsync(

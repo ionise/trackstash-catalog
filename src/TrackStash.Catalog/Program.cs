@@ -32,8 +32,8 @@ static async Task<int> RunAsync(string[] args)
             "repair-indexes" => await RunRepairIndexesAsync(CreateCatalogCommands(config, out var repairTarget), repairTarget.DatabasePath, options, jsonMode).ConfigureAwait(false),
             "template"      => await RunTemplateAsync(options, jsonMode).ConfigureAwait(false),
             "validate-entity" => await RunValidateEntityAsync(options, jsonMode).ConfigureAwait(false),
-            "apply-entity"  => await RunApplyEntityAsync(ResolveCatalogTarget(config).DatabasePath, options, jsonMode).ConfigureAwait(false),
-            "get-entity"    => await RunGetEntityAsync(ResolveCatalogTarget(config).DatabasePath, options, jsonMode).ConfigureAwait(false),
+            "apply-entity"  => await RunApplyEntityAsync(CreateCatalogCommands(config, out var applyTarget), applyTarget.DatabasePath, options, jsonMode).ConfigureAwait(false),
+            "get-entity"    => await RunGetEntityAsync(CreateCatalogCommands(config, out var getTarget), getTarget.DatabasePath, options, jsonMode).ConfigureAwait(false),
             "resolve-entity-identity" => await RunResolveEntityIdentityAsync(CreateCatalogCommandsForIdentity(config), options, jsonMode).ConfigureAwait(false),
             _               => UnknownCommand(command),
         };
@@ -373,34 +373,20 @@ static Task<int> RunValidateEntityAsync(
     return Task.FromResult(result.IsValid ? 0 : 1);
 }
 
-static Task<int> RunApplyEntityAsync(
-    string dbPath,
-    IReadOnlyDictionary<string, string?> options,
-    bool jsonMode)
-{
-    return RunApplyEntityCoreAsync(dbPath, options, jsonMode);
-}
-
-static async Task<int> RunApplyEntityCoreAsync(
+static async Task<int> RunApplyEntityAsync(
+    CatalogCommands catalog,
     string dbPath,
     IReadOnlyDictionary<string, string?> options,
     bool jsonMode)
 {
     var filePath = GetRequiredOption(options, "file");
-    if (!File.Exists(filePath))
-        throw new ArgumentException($"File not found: {filePath}");
-
     var dryRun = options.ContainsKey("dry-run");
-    var yaml = File.ReadAllText(filePath);
-    var envelope = EntityYamlService.ParseSingleDocument(yaml);
 
-    var provider = new SqliteStorageProvider(dbPath);
-    var result = await EntityYamlService.ApplyAsync(
-        envelope,
-        provider,
-        providerName: "sqlite",
-        dbPath: dbPath,
-        dryRun: dryRun).ConfigureAwait(false);
+    var result = await catalog.ApplyEntityAsync(
+        new ApplyEntityRequest(
+            DatabasePath: dbPath,
+            FilePath: filePath,
+            DryRun: dryRun)).ConfigureAwait(false);
 
     if (jsonMode)
     {
@@ -440,12 +426,49 @@ static async Task<int> RunApplyEntityCoreAsync(
     return result.Success ? 0 : 1;
 }
 
-static Task<int> RunGetEntityAsync(
+static async Task<int> RunGetEntityAsync(
+    CatalogCommands catalog,
     string dbPath,
     IReadOnlyDictionary<string, string?> options,
     bool jsonMode)
 {
-    return RunGetEntityCoreAsync(dbPath, options, jsonMode);
+    var entityType = GetRequiredOption(options, "type").ToLowerInvariant();
+    var entityId = GetRequiredOption(options, "id");
+    var format = GetOption(options, "format") ?? "yaml";
+
+    var result = await catalog.GetEntityAsync(
+        new GetEntityRequest(
+            DatabasePath: dbPath,
+            EntityType: entityType,
+            EntityId: entityId,
+            Format: format)).ConfigureAwait(false);
+
+    if (!result.Found)
+    {
+        if (jsonMode)
+            CommandOutput.WriteJson("get-entity", ok: false, exitCode: 1, data: new { databasePath = dbPath, entityType, entityId, format }, errors: ["Entity not found."]);
+        else
+            Console.Error.WriteLine("Entity not found.");
+        return 1;
+    }
+
+    if (jsonMode)
+    {
+        CommandOutput.WriteJson("get-entity", ok: true, exitCode: 0, data: new
+        {
+            databasePath = dbPath,
+            entityType,
+            entityId,
+            format,
+            content = result.Content,
+        });
+    }
+    else
+    {
+        Console.WriteLine(result.Content);
+    }
+
+    return 0;
 }
 
 static async Task<int> RunResolveEntityIdentityAsync(
@@ -472,53 +495,6 @@ static async Task<int> RunResolveEntityIdentityAsync(
             ("normalizedName", result.NormalizedName),
             ("slug", result.Slug),
         ]);
-    }
-
-    return 0;
-}
-
-static async Task<int> RunGetEntityCoreAsync(
-    string dbPath,
-    IReadOnlyDictionary<string, string?> options,
-    bool jsonMode)
-{
-    var entityType = GetRequiredOption(options, "type").ToLowerInvariant();
-    var entityId = GetRequiredOption(options, "id");
-    var format = GetOption(options, "format") ?? "yaml";
-    var validTypes = new[] { "label", "artist", "release", "recording" };
-    if (!validTypes.Contains(entityType))
-        throw new ArgumentException($"--type must be one of: {string.Join(", ", validTypes)}");
-
-    if (!string.Equals(format, "yaml", StringComparison.OrdinalIgnoreCase))
-        throw new ArgumentException("--format currently supports only yaml.");
-
-    var provider = new SqliteStorageProvider(dbPath);
-    var envelope = await EntityYamlService.GetEntityAsync(entityType, entityId, provider, providerName: "sqlite", dbPath: dbPath).ConfigureAwait(false);
-    if (envelope is null)
-    {
-        if (jsonMode)
-            CommandOutput.WriteJson("get-entity", ok: false, exitCode: 1, data: new { databasePath = dbPath, entityType, entityId, format }, errors: ["Entity not found."]);
-        else
-            Console.Error.WriteLine("Entity not found.");
-        return 1;
-    }
-
-    var yaml = EntityYamlService.ToYaml(envelope);
-
-    if (jsonMode)
-    {
-        CommandOutput.WriteJson("get-entity", ok: true, exitCode: 0, data: new
-        {
-            databasePath = dbPath,
-            entityType,
-            entityId,
-            format,
-            content = yaml,
-        });
-    }
-    else
-    {
-        Console.WriteLine(yaml);
     }
 
     return 0;
