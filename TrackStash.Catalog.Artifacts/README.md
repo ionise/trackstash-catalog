@@ -1,6 +1,6 @@
 # TrackStash.Catalog.Artifacts
 
-This module is the scaffold for the TrackStash catalog PowerShell interface.
+This module is the PowerShell interface for TrackStash catalog artifact authoring and discovery.
 
 It is intended to cover:
 
@@ -8,7 +8,7 @@ It is intended to cover:
 - catalog commit/apply workflows
 - catalog read/search workflows
 
-The current state is a module scaffold. Public cmdlet files, private helper files, and the module loader are in place so implementation can be filled in incrementally.
+The current state includes the first implemented artifact authoring and publish/apply cmdlets, with the remaining read/search surface still to be built out incrementally.
 
 ## Layout
 
@@ -17,6 +17,15 @@ The current state is a module scaffold. Public cmdlet files, private helper file
 - `public/` exported cmdlet stubs
 - `private/` internal helper stubs
 - `classes/` module types
+
+Implemented so far:
+
+- `New-TrackStashLabelYamlArtifact`
+- `New-TrackStashArtistYamlArtifact`
+- `New-TrackStashReleaseYamlArtifact`
+- `New-TrackStashRecordingYamlArtifact`
+- `New-TrackStashCatalogYamlArtifacts`
+- `Publish-TrackStashCatalogArtifact`
 
 ## Notes
 
