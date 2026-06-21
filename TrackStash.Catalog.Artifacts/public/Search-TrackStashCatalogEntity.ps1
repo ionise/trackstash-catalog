@@ -16,5 +16,14 @@ function Search-TrackStashCatalogEntity {
         [string]$Query
     )
 
-    throw [System.NotImplementedException]::new('Search-TrackStashCatalogEntity is scaffolded but not yet implemented.')
+    if ([string]::IsNullOrWhiteSpace($Query)) {
+        throw 'Query cannot be empty.'
+    }
+
+    # Fast path for explicit entity IDs.
+    if ($Query -match '^(lbl_|art_|rel_|rec_)') {
+        return @(Get-TrackStashCatalogEntity -Id $Query)
+    }
+
+    return Find-TrackStashCatalogEntity -Name $Query
 }

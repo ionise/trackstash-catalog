@@ -10,5 +10,17 @@ function Get-TrackStashCatalogSummary {
     [CmdletBinding()]
     param()
 
-    throw [System.NotImplementedException]::new('Get-TrackStashCatalogSummary is scaffolded but not yet implemented.')
+    $output = Invoke-TrackStashCatalogCommand -Arguments @('summary', '--output', 'json')
+    $result = ($output -join [Environment]::NewLine) | ConvertFrom-Json
+
+    if (-not $result.Ok) {
+        $errors = @($result.Errors)
+        if ($errors.Count -eq 0) {
+            $errors = @('Catalog summary request failed.')
+        }
+
+        throw ($errors -join [Environment]::NewLine)
+    }
+
+    return $result.Data
 }
