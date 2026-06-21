@@ -1,3 +1,4 @@
+using TrackStash.Core.Normalization;
 using TrackStash.Core.Services;
 using TrackStash.Core.Storage;
 
@@ -64,6 +65,14 @@ public sealed record RepairIndexesResult(
     bool Performed,
     IReadOnlyList<string> Actions,
     IReadOnlyList<string> Notes);
+
+public sealed record ResolveEntityIdentityRequest(
+    string Value);
+
+public sealed record ResolveEntityIdentityResult(
+    string Value,
+    string NormalizedName,
+    string Slug);
 
 // ── Service facade ─────────────────────────────────────────────────────────────
 
@@ -287,5 +296,19 @@ public sealed class CatalogCommands
         notes.Add($"Current migration version: {version}");
 
         return new RepairIndexesResult(request.DatabasePath, DryRun: false, Performed: true, Actions: actions, Notes: notes);
+    }
+
+    public Task<ResolveEntityIdentityResult> ResolveEntityIdentityAsync(
+        ResolveEntityIdentityRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.Value);
+
+        var identity = EntityNameNormalizer.NormalizeWithSlug(request.Value);
+        return Task.FromResult(new ResolveEntityIdentityResult(
+            Value: request.Value,
+            NormalizedName: identity.NormalizedName,
+            Slug: identity.Slug));
     }
 }

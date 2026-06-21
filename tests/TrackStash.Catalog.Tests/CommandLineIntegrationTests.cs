@@ -18,6 +18,23 @@ public sealed class CommandLineIntegrationTests
     }
 
     [Fact]
+    public async Task ResolveEntityIdentity_WithValue_JsonMode_ReturnsNormalizedNameAndSlug()
+    {
+        var result = await RunCatalogCliAsync("resolve-entity-identity --value \"Distinct'ive Records\" --output json");
+
+        Assert.Equal(0, result.ExitCode);
+
+        using var doc = JsonDocument.Parse(result.StdOut);
+        var root = doc.RootElement;
+        Assert.True(GetProperty(root, "ok").GetBoolean());
+
+        var data = GetProperty(root, "data");
+        Assert.Equal("Distinct'ive Records", GetProperty(data, "value").GetString());
+        Assert.Equal("distinctiverecords", GetProperty(data, "normalizedName").GetString());
+        Assert.Equal("distinctive-records", GetProperty(data, "slug").GetString());
+    }
+
+    [Fact]
     public async Task ValidateEntity_WithValidTemplate_JsonMode_ReturnsExit0()
     {
         var root = Path.GetDirectoryName(GetCatalogProjectPath())!;

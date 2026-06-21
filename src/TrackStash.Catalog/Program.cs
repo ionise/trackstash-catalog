@@ -34,6 +34,7 @@ static async Task<int> RunAsync(string[] args)
             "validate-entity" => await RunValidateEntityAsync(options, jsonMode).ConfigureAwait(false),
             "apply-entity"  => await RunApplyEntityAsync(ResolveCatalogTarget(config).DatabasePath, options, jsonMode).ConfigureAwait(false),
             "get-entity"    => await RunGetEntityAsync(ResolveCatalogTarget(config).DatabasePath, options, jsonMode).ConfigureAwait(false),
+            "resolve-entity-identity" => await RunResolveEntityIdentityAsync(CreateCatalogCommandsForIdentity(config), options, jsonMode).ConfigureAwait(false),
             _               => UnknownCommand(command),
         };
     }
@@ -447,6 +448,35 @@ static Task<int> RunGetEntityAsync(
     return RunGetEntityCoreAsync(dbPath, options, jsonMode);
 }
 
+static async Task<int> RunResolveEntityIdentityAsync(
+    CatalogCommands catalog,
+    IReadOnlyDictionary<string, string?> options,
+    bool jsonMode)
+{
+    var value = GetRequiredOption(options, "value");
+    var result = await catalog.ResolveEntityIdentityAsync(new ResolveEntityIdentityRequest(value)).ConfigureAwait(false);
+
+    if (jsonMode)
+    {
+        CommandOutput.WriteJson("resolve-entity-identity", ok: true, exitCode: 0, data: new
+        {
+            value = result.Value,
+            normalizedName = result.NormalizedName,
+            slug = result.Slug,
+        });
+    }
+    else
+    {
+        CommandOutput.WriteText([
+            ("value", result.Value),
+            ("normalizedName", result.NormalizedName),
+            ("slug", result.Slug),
+        ]);
+    }
+
+    return 0;
+}
+
 static async Task<int> RunGetEntityCoreAsync(
     string dbPath,
     IReadOnlyDictionary<string, string?> options,
@@ -579,6 +609,13 @@ static CatalogCommands CreateCatalogCommands(CatalogConfig config, out ResolvedC
     return new CatalogCommands(providerFactory, target.Provider);
 }
 
+static CatalogCommands CreateCatalogCommandsForIdentity(CatalogConfig config)
+{
+    var provider = string.IsNullOrWhiteSpace(config.Provider) ? "sqlite" : config.Provider;
+    var providerFactory = ResolveProviderFactory(provider);
+    return new CatalogCommands(providerFactory, provider);
+}
+
 static void PrintUsage()
 {
     Console.WriteLine("Usage:");
@@ -591,6 +628,7 @@ static void PrintUsage()
     Console.WriteLine("  trackstash-catalog validate-entity --file <path.yaml> [--output json]");
     Console.WriteLine("  trackstash-catalog apply-entity  [--catalog <name>] [--db-path <path>] --file <path.yaml> [--dry-run] [--output json]");
     Console.WriteLine("  trackstash-catalog get-entity    [--catalog <name>] [--db-path <path>] --type <label|artist|release|recording> --id <id> [--format yaml] [--output json]");
+    Console.WriteLine("  trackstash-catalog resolve-entity-identity --value <name> [--output json]");
 }
 
 static string ResolveTemplatePath(string kind)
