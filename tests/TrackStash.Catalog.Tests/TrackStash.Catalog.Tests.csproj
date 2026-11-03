@@ -20,6 +20,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\TrackStash.Catalog.Application\TrackStash.Catalog.Application.csproj" />
     <ProjectReference Include="..\..\src\TrackStash.Catalog\TrackStash.Catalog.csproj" />
     <ProjectReference Include="..\..\..\trackstash-core\src\TrackStash.Core\TrackStash.Core.csproj" />
     <ProjectReference Include="..\..\..\trackstash-core\src\TrackStash.Core.Sqlite\TrackStash.Core.Sqlite.csproj" />

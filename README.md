@@ -97,6 +97,16 @@ The [Catalog API design intent](docs/api-design.md) proposes a label-first ASP.N
 
 The plan covers labels/aliases/provider references first, then label relationships and safe lifecycle workflows. It leaves room for artists, releases, recordings (abstract tracks), genres/subgenres, and playlists without importing Beatport-specific identities or Library filesystem responsibilities. This is planning, not an implemented HTTP surface.
 
+### Shared Label Foundation
+
+[TrackStash.Catalog.Application](src/TrackStash.Catalog.Application/LabelService.cs) implements label query/detail/create/conditional-update use cases against core storage interfaces, with no SQLite dependency. Supply a configured `IStorageProvider`; callers cannot select a database through label requests.
+
+Queries return `{ items, total, page, pageSize }`, search names/aliases with shared strict normalization, preserve ambiguous candidates, and support stable sorting and pages up to 100. Updates require the last-read opaque version and distinguish missing labels from stale edits. Explicit field flags preserve omitted values and allow clearing nullable sort names.
+
+The SQLite adapter requires explicit migration to version 3 before use. Its aggregate-version triggers also invalidate tokens when existing CLI/import workflows change a label, alias, or provider reference. Existing unconditional CLI writes retain their behavior. No HTTP endpoints or new CLI commands are included yet.
+
+See the [implemented contract and remaining decisions](docs/api-design.md#implemented-foundation) for details.
+
 ## Command Surface
 
 Current commands:

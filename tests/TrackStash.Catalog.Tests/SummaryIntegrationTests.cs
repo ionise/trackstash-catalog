@@ -26,7 +26,7 @@ public sealed class SummaryIntegrationTests
             Assert.Equal(0, result.ReleaseCount);
             Assert.Equal(0, result.RecordingCount);
             Assert.Equal(0, result.MediaFileCount);
-            Assert.Equal(1, result.CurrentMigrationVersion);
+            Assert.Equal(await provider.Migrations.GetCurrentVersionAsync(), result.CurrentMigrationVersion);
         }
         finally { if (File.Exists(dbPath)) File.Delete(dbPath); }
     }

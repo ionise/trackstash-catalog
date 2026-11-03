@@ -180,7 +180,7 @@ public sealed class CommandLineIntegrationTests
             var data = GetProperty(root, "data");
             Assert.Equal(dbPath, GetProperty(data, "databasePath").GetString());
             Assert.True(GetProperty(data, "databaseReachable").GetBoolean());
-            Assert.Equal(1, GetProperty(data, "currentMigrationVersion").GetInt32());
+            Assert.Equal(await provider.Migrations.GetCurrentVersionAsync(), GetProperty(data, "currentMigrationVersion").GetInt32());
 
             var warnings = GetProperty(data, "warnings").EnumerateArray().Select(e => e.GetString()).ToArray();
             Assert.Contains("Catalog is empty.", warnings);
