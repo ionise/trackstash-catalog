@@ -91,11 +91,38 @@ Bootstrap a separate catalog database through the existing migrations when the s
 
 Seeding does not update media tags or establish file/release links automatically. A subsequent reviewed mapping stage is required for those relationships.
 
-## Planned HTTP API and Clients
+## Label HTTP API and Planned Clients
 
-The [Catalog API design intent](docs/api-design.md) proposes a label-first ASP.NET Core host in this module, shared catalog application services, a React-admin GUI, and a PowerShell HTTP client. SQLite remains a storage adapter, not an API dependency.
+The [Catalog API design intent](docs/api-design.md) describes the implemented label-first ASP.NET Core host and shared application services, plus planned React-admin and PowerShell HTTP clients. SQLite remains a storage adapter, not part of the public API contract.
 
-The plan covers labels/aliases/provider references first, then label relationships and safe lifecycle workflows. It leaves room for artists, releases, recordings (abstract tracks), genres/subgenres, and playlists without importing Beatport-specific identities or Library filesystem responsibilities. This is planning, not an implemented HTTP surface.
+The host supports label list/read/create/edit and alias/provider-reference reads. Relationships, safe lifecycle workflows, GUI, and PowerShell HTTP client remain future work. The resource boundary leaves room for artists, releases, recordings (abstract tracks), genres/subgenres, and playlists without importing Beatport-specific identities or Library filesystem responsibilities.
+
+### Running the API Locally
+
+From this module directory, configure an existing canonical catalog migrated to version 3 or later:
+
+```bash
+export CatalogApi__DatabasePath="/absolute/path/to/Trackstash.Catalog.db"
+export CatalogApi__ApiKey="$(openssl rand -hex 32)"
+dotnet run --project src/TrackStash.Catalog.Api
+```
+
+The generated key stays in the shell environment, not source control. Configure clients with the same key via their secret/environment facilities; never paste it into tracked files or URLs. A .NET user secret named `CatalogApi:ApiKey` is another option when running in Development. Do not select the scanner inventory database.
+
+The host listens on `http://localhost:5187` (both loopback addresses when available). Change the port with `CatalogApi__Port`. General URL overrides do not enable remote hosting, and custom Kestrel endpoint configuration is rejected. The startup storage check refuses incompatible/uninitialized label storage without applying migrations or seeding.
+
+Every request, including OpenAPI, requires `Authorization: Bearer <key>`. Keys must have at least 32 characters and no whitespace. Browser `Origin` headers are rejected until an explicit GUI origin policy is added. Do not deploy behind a proxy or expose over LAN; remote access, TLS, per-user permissions, and key lifecycle management need a separate design.
+
+From another shell configured with the same key:
+
+```bash
+curl -H "Authorization: Bearer $CatalogApi__ApiKey" \
+  'http://localhost:5187/api/v1/labels?page=1&pageSize=25'
+curl -H "Authorization: Bearer $CatalogApi__ApiKey" \
+  'http://localhost:5187/openapi/v1.json'
+```
+
+The [HTTP request examples](src/TrackStash.Catalog.Api/TrackStash.Catalog.Api.http) cover all six operations and error paths. Reads/creates/edits of a single label return a quoted opaque `ETag`. Send that exact value in `If-Match` when editing with `application/merge-patch+json`; missing headers return 428, stale versions 412. Do not retry POST automatically: create idempotency is not implemented.
 
 ### Shared Label Foundation
 
@@ -103,7 +130,7 @@ The plan covers labels/aliases/provider references first, then label relationshi
 
 Queries return `{ items, total, page, pageSize }`, search names/aliases with shared strict normalization, preserve ambiguous candidates, and support stable sorting and pages up to 100. Updates require the last-read opaque version and distinguish missing labels from stale edits. Explicit field flags preserve omitted values and allow clearing nullable sort names.
 
-The SQLite adapter requires explicit migration to version 3 before use. Its aggregate-version triggers also invalidate tokens when existing CLI/import workflows change a label, alias, or provider reference. Existing unconditional CLI writes retain their behavior. No HTTP endpoints or new CLI commands are included yet.
+The SQLite adapter requires explicit migration to version 3 before use. Its aggregate-version triggers also invalidate tokens when existing CLI/import workflows change a label, alias, or provider reference. Existing unconditional CLI writes retain their behavior; the new HTTP host uses `ILabelService`. No new CLI commands are included yet.
 
 See the [implemented contract and remaining decisions](docs/api-design.md#implemented-foundation) for details.
 

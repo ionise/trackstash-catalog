@@ -1,6 +1,6 @@
 # Catalog API Design Intent
 
-Status: shared label application/storage foundation implemented; HTTP host and API clients remain planned.
+Status: shared label foundation and loopback-only HTTP host implemented with OpenAPI and integration tests. GUI and PowerShell HTTP clients remain planned.
 
 ## Purpose and Scope
 
@@ -24,7 +24,7 @@ Keep the initial host inside this module:
 src/
   TrackStash.Catalog/               Existing CLI
   TrackStash.Catalog.Application/   Shared label use cases
-  TrackStash.Catalog.Api/           Proposed ASP.NET Core HTTP host
+  TrackStash.Catalog.Api/           ASP.NET Core HTTP host
 TrackStash.Catalog.Client/          Proposed PowerShell HTTP client
 ```
 
@@ -55,16 +55,18 @@ Use `/api/v1` as the initial route prefix. Proposed label representation:
 {
   "id": "564a50ecfffd44b1ace563a8321c5168",
   "name": "Mango Alley",
-  "normalizedName": "mangoalley",
   "sortName": "Mango Alley",
+  "version": "opaque-storage-version",
   "createdUtc": "2026-11-03T06:00:00Z",
-  "updatedUtc": "2026-11-03T06:00:00Z"
+  "updatedUtc": "2026-11-03T06:00:00Z",
+  "aliases": [],
+  "externalReferences": []
 }
 ```
 
 - `id` is assigned by the server, immutable, and independent of name/provider.
-- Reuse the canonical GUID generator. Reconcile existing 32/36-character serialization differences before freezing the HTTP contract; initially propose the current helper's lowercase 32-character form for API output.
-- `normalizedName` and timestamps are server-owned. Use `EntityNameNormalizer`, not client-specific normalization.
+- New IDs use the canonical generator's lowercase 32-character GUID form. Existing IDs (including legacy strings or hyphenated GUIDs) are addressed and returned verbatim, not rewritten.
+- Normalization and timestamps are server-owned. Use `EntityNameNormalizer`, not client-specific normalization. Normalized names are query filters, not editable fields or detail-response properties.
 - Expose explicit response/request DTOs rather than serializing storage models directly.
 - Name similarity is a review signal, not an automatic merge. Identical names may represent distinct provider identities.
 - Aliases, external references, and relationships have dedicated resource operations; updating a name must not implicitly replace these collections.
@@ -72,7 +74,7 @@ Use `/api/v1` as the initial route prefix. Proposed label representation:
 
 ## Proposed Operations and Delivery Order
 
-### First vertical slice
+### First vertical slice (HTTP implemented; clients pending)
 
 | Method | Route | Intent |
 | --- | --- | --- |
@@ -110,13 +112,13 @@ See core's [label schema](../../trackstash-core/docs/label-schema.md) for the ex
 
 ## List and Search Contract
 
-Proposed request:
+Implemented request:
 
 ```http
 GET /api/v1/labels?q=univack&page=1&pageSize=25&sort=name&order=asc
 ```
 
-Proposed response:
+Implemented response:
 
 ```json
 {
@@ -127,7 +129,7 @@ Proposed response:
 }
 ```
 
-- Default page size 25; proposed maximum 100. Reject invalid pagination rather than silently reinterpret it.
+- Default page size 25; maximum 100. Reject invalid pagination rather than silently reinterpret it.
 - Return total matching count before pagination. Use deterministic sorting with ID as a tie-breaker; allowlist supported sort/filter fields.
 - Initial search covers canonical names and aliases. Exact GUID/provider-reference lookup should use explicit filters, not depend on fuzzy search.
 - Define comparison/search semantics at the service boundary so provider-specific collations do not silently change behavior.
@@ -138,7 +140,7 @@ Proposed response:
 ## Mutation, Concurrency, and Errors
 
 - `POST` returns `201 Created`, `Location`, resource, and ETag. Reads return `200` and an opaque ETag.
-- Proposed updates use JSON Merge Patch (`application/merge-patch+json`) with an explicit editable-field allowlist. Omitted values remain unchanged; null clears nullable fields; name cannot be cleared.
+- Updates use JSON Merge Patch (`application/merge-patch+json`) with an explicit editable-field allowlist. Omitted values remain unchanged; null clears nullable fields; name cannot be cleared.
 - Require `If-Match` for updates/deletes and related aggregate mutations: missing precondition -> `428`; stale version -> `412`. Define an adapter-neutral persisted version with atomic compare-and-write; timestamps alone are not sufficient.
 - Alias/reference/relationship changes must invalidate the affected aggregate version consistently. Resolve cross-label version ownership before relationship editing ships.
 - Use `400` for invalid requests, `404` for missing resources, `409` for domain conflicts/deletion blockers, `401`/`403` for access failures.
@@ -155,6 +157,24 @@ Proposed response:
 - API host must not automatically migrate production databases on startup. Migrations remain an explicit bootstrap/deployment operation.
 - Generate OpenAPI from the implementation; cover request/response shapes, pagination, Problem Details, and ETag headers with contract tests.
 - Keep schema/API version evolution additive where possible; breaking HTTP changes require a version/migration policy.
+
+### Implemented Local HTTP Contract
+
+[The API host](../src/TrackStash.Catalog.Api/CatalogApiHost.cs) uses .NET 8 minimal endpoints and the shared `ILabelService`. Only the composition root selects the SQLite adapter; handlers and request/response types do not access SQL or accept database paths. [Startup instructions](../README.md#running-the-api-locally) describe environment/user-secret configuration.
+
+- The six first-slice routes above are implemented under `/api/v1`. Child collections are read-only arrays. Single-label detail/create/update returns `ETag`; POST also returns a relative `Location`. All responses use `Cache-Control: no-store`; conditional GET is not implemented.
+- List query parameters are exactly `q`, `page`, `pageSize`, `sort`, `order`, `normalizedName`, `source`, and `externalId`. Unknown/repeated parameters and invalid values return 400. Sorting and matching follow the shared foundation below.
+- Request property names are case-sensitive. Create accepts only `name` and optional `sortName`; patch accepts the same allowlist and rejects empty patches. Unknown, duplicate, or wrongly typed properties are rejected. Bodies are JSON objects limited to 16 KiB. JSON uses standard numeric typing, not string-to-number coercion.
+- `ETag` is the quoted Base64 encoding of the UTF-8 opaque storage version. Clients must treat the whole header as opaque. PATCH requires exactly one strong quoted `If-Match`; weak tags, wildcards, lists, and malformed/noncanonical encodings return 400. A valid but outdated token returns 412; a missing precondition returns 428. A missing resource with a valid precondition returns 404.
+- Error responses use `application/problem+json` with `status`, `title`, `type`, `instance`, `code`, and `traceId`; validation errors include an `errors` field dictionary where a field can be identified. Stable codes include `validation_failed`, `invalid_json`, `unsupported_media_type`, `body_too_large`, `label_not_found`, `identity_conflict`, `precondition_required`, `stale_version`, `unauthorized`, `loopback_required`, `origin_not_allowed`, `http_error`, and `internal_error`. Unexpected exceptions are logged server-side and sanitized in responses.
+- Every route, including `/openapi/v1.json`, requires the configured bearer key. Local HTTP is an initial development policy, not production authentication. Key comparison uses fixed-time hash comparison. Keys must be at least 32 non-whitespace characters and belong in environment/user secrets, never committed configuration. The host does not issue/store keys.
+- Kestrel binds loopback on port 5187 by default (`CatalogApi:Port` override). It rejects custom Kestrel endpoint configuration and remote peer addresses. No forwarded-header/proxy support or CORS is enabled; any browser `Origin` header is rejected. GUI integration must add an explicit origin policy, not disable bearer authentication.
+- `CatalogApi:DatabasePath` must select an existing absolute canonical catalog path. Startup verifies label query readiness without seeding/migrating. The API must not be pointed at the scanner inventory database. The live catalog is not touched by automated tests.
+- OpenAPI is generated from endpoints and explicit DTOs at `/openapi/v1.json`, including paging fields, bearer security, merge-patch content type, errors, and concurrency headers. Swagger generation uses Swashbuckle for the existing .NET 8 target; no interactive UI or public documentation route is exposed.
+
+[HTTP integration tests](../tests/TrackStash.Catalog.Tests/LabelApiTests.cs) exercise temporary databases, access failures, malformed inputs, paging, identity preservation, legacy-write invalidation, competing edits, child reads, sanitized failures, OpenAPI, and refusal to migrate at startup. A real Kestrel loopback smoke test also verified all six operations. The [`.http` examples](../src/TrackStash.Catalog.Api/TrackStash.Catalog.Api.http) are the manual request harness.
+
+Remaining work includes CLI adoption of the service interface, GUI/PowerShell clients, browser-origin configuration, authenticated remote deployment, and create idempotency. Do not automatically retry POST until the latter has a persisted design.
 
 ### PowerShell HTTP Client
 
@@ -199,7 +219,7 @@ The [core contracts](../../trackstash-core/src/TrackStash.Core/Storage/LabelQuer
 - Queries preserve all same-name or same-provider-reference candidates; they never select one as an identity decision. Legacy single-result lookup methods remain unchanged and must not be used to infer identity in the new surface.
 - New service-created labels receive lowercase 32-character GUIDs. Existing IDs are returned and addressed verbatim, not rewritten or coerced. Create only accepts name/sort name, trims the name, computes normalization, and sets timestamps. The repository's create-only operation returns false on ID conflict without touching the existing aggregate; the service reports `Conflict`.
 - `LabelUpdate` explicitly distinguishes an omitted field from a supplied value using `SetName`/`SetSortName`. Name cannot be null/blank; sort name can be cleared with null. Empty patches and values without their Set flag are invalid. An update never inserts a missing label and preserves IDs, creation time, payloads, aliases, references, and omitted fields.
-- Successful updates return fresh detail and version. Missing and stale updates return distinct results without changes. Invalid input raises an argument exception with a parameter/message; provider failures propagate. HTTP validation/Problem Details mapping is still future work.
+- Successful updates return fresh detail and version. Missing and stale updates return distinct results without changes. Invalid input raises an argument exception with a parameter/message; provider failures propagate to the HTTP error handler.
 - Detail projects aliases and references without raw provider payloads. Version is an opaque aggregate token, not a timestamp or public numeric counter.
 
 SQLite migration **3, `label-aggregate-version`**, backfills existing labels without changing their IDs or metadata. Database triggers refresh opaque tokens for label insertion/scalar updates and alias/reference insertion/update/deletion, including existing upserts, YAML replace cleanup, and restore. Conditional updates compare ID and version in the UPDATE statement, not an earlier application-level read. A rolled-back edit also rolls back its token. Restore generates a new token so pre-deletion edits cannot be replayed.
@@ -208,7 +228,7 @@ Legacy upserts remain unconditional for compatibility; they invalidate tokens bu
 
 Apply migrations explicitly through the existing bootstrap workflow before using the new code against an existing catalog. Only temporary databases were migrated during implementation; the live catalog and scanner databases were not changed.
 
-[Storage tests](../../trackstash-core/tests/TrackStash.Core.Tests/LabelRepositoryTests.cs) and [application tests](../tests/TrackStash.Catalog.Tests/LabelServiceTests.cs) cover the foundation, including competing writers. HTTP DTOs, ETag encoding, authentication, browser-origin rules, and transport-specific GUID compatibility remain undecided/unimplemented.
+[Storage tests](../../trackstash-core/tests/TrackStash.Core.Tests/LabelRepositoryTests.cs) and [application tests](../tests/TrackStash.Catalog.Tests/LabelServiceTests.cs) cover the foundation, including competing writers. The local HTTP mapping is now specified and tested above; remote deployment and client integration remain future work.
 
 ### Pre-foundation Inventory
 
@@ -254,16 +274,16 @@ The foundation above implements this minimum before adding controllers:
 
 The storage implementation preserves same-name labels and exposes candidate ambiguity rather than inferring identity from text. Relationship editing, child mutations, merges, and deletion endpoints remain outside this increment. Existing deletion/restore currently derives tombstone content from `source_payload_json`, not a full relational snapshot; verify and correct that limitation before offering safe lifecycle endpoints.
 
-### Contract Decisions Still Requiring Resolution
+### Contract Decisions Resolved for the Initial Host
 
-The earlier HTTP examples remain proposals. Settle these before implementing the write surface:
+The initial host resolves these choices as described above:
 
-- Canonical GUID output and accepted legacy ID forms, without changing stored IDs.
-- Search matching semantics, sortable fields, page limits, and ambiguous provider-reference results.
-- JSON Merge Patch allowlist/null handling and aggregate revision scope across writers.
-- Development authentication, credential handling, browser-origin policy, and conditions for remote deployment.
+- New canonical GUID output and verbatim legacy IDs, without changing stored IDs.
+- Shared search semantics, sortable fields, page limits, and all ambiguous provider-reference candidates.
+- Strict JSON Merge Patch allowlist/null handling and aggregate revisions across existing writers.
+- Loopback-only development hosting with a bearer key and no browser origins. Remote deployment is not supported.
 
-Recommended defaults remain the label-first contract above. Resolve access requirements explicitly rather than quietly ship an unauthenticated editable API.
+Future GUI/remote access requires a separate explicit access policy. The initial host does not ship an unauthenticated mode.
 
 ### Source and Test Anchors
 
@@ -294,4 +314,4 @@ Paths above are relative to this document's directory. Existing catalog tests co
 
 Tests must cover pagination totals/stable sorting, validation, normalization, immutable IDs, create/reapply identity behavior, stale edits, transactional rollback, missing resources, aliases/provider-reference ambiguity, safe deletion, and client error handling. Add relationship direction/cycle and merge-redirect tests with those capabilities. Verify UI and PowerShell behavior, not just repository methods.
 
-Before implementing the HTTP host, settle its remaining open choices above rather than assuming storage services provide transport/access policy. Planning does not authorize changes to existing catalog data, media files, or running Library jobs.
+Before expanding the host to browser clients or remote deployment, settle their access policies rather than assuming the local bearer-key policy is sufficient. Planning does not authorize changes to existing catalog data, media files, or running Library jobs.

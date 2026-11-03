@@ -11,6 +11,7 @@
     <PackageReference Include="coverlet.collector" Version="6.0.2" />
     <PackageReference Include="Microsoft.DATA.Sqlite" Version="10.0.9" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageReference Include="Microsoft.AspNetCore.TestHost" Version="8.0.22" />
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
   </ItemGroup>
@@ -21,6 +22,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\TrackStash.Catalog.Application\TrackStash.Catalog.Application.csproj" />
+    <ProjectReference Include="..\..\src\TrackStash.Catalog.Api\TrackStash.Catalog.Api.csproj" />
     <ProjectReference Include="..\..\src\TrackStash.Catalog\TrackStash.Catalog.csproj" />
     <ProjectReference Include="..\..\..\trackstash-core\src\TrackStash.Core\TrackStash.Core.csproj" />
     <ProjectReference Include="..\..\..\trackstash-core\src\TrackStash.Core.Sqlite\TrackStash.Core.Sqlite.csproj" />

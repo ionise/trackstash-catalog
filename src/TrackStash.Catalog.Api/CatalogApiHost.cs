@@ -1,0 +1,114 @@
+using System.Reflection;
+using System.Text.Json.Serialization;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.OpenApi.Models;
+using TrackStash.Catalog.Api.Middleware;
+using TrackStash.Catalog.Application;
+using TrackStash.Core.Sqlite;
+using TrackStash.Core.Storage;
+
+namespace TrackStash.Catalog.Api;
+
+public static class CatalogApiHost
+{
+    public static WebApplication Build(string[] args, Action<WebApplicationBuilder>? configure = null)
+    {
+        var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+        {
+            Args = args, ApplicationName = typeof(CatalogApiHost).Assembly.FullName,
+        });
+        configure?.Invoke(builder);
+        var key = builder.Configuration["CatalogApi:ApiKey"];
+        if (string.IsNullOrWhiteSpace(key) || key.Length < 32 || key.Any(char.IsWhiteSpace))
+            throw new InvalidOperationException("Set CatalogApi:ApiKey to a secret of at least 32 characters without whitespace.");
+        var port = builder.Configuration.GetValue("CatalogApi:Port", 5187);
+        if (port is < 1 or > 65535)
+            throw new InvalidOperationException("CatalogApi:Port must be between 1 and 65535.");
+        if (builder.Configuration.GetSection("Kestrel:Endpoints").Exists())
+            throw new InvalidOperationException("Custom Kestrel endpoints are not supported. Use CatalogApi:Port; this host is loopback-only.");
+        builder.WebHost.ConfigureKestrel(options =>
+        {
+            options.ListenLocalhost(port);
+            options.Limits.MaxRequestBodySize = 16 * 1024;
+        });
+        builder.Services.AddSingleton<IStorageProviderFactory, SqliteStorageProviderFactory>();
+        builder.Services.AddSingleton<IStorageProvider>(services =>
+        {
+            var path = builder.Configuration["CatalogApi:DatabasePath"];
+            if (string.IsNullOrWhiteSpace(path) || !Path.IsPathFullyQualified(path) || !File.Exists(path))
+                throw new InvalidOperationException("CatalogApi:DatabasePath must name an existing, absolute catalog database path.");
+            return services.GetRequiredService<IStorageProviderFactory>()
+                .Create(new StorageProviderDescriptor("sqlite", DatabasePath: path));
+        });
+        builder.Services.TryAddScoped<ILabelService, LabelService>();
+        builder.Services.AddHostedService<CatalogReadinessCheck>();
+        builder.Services.ConfigureHttpJsonOptions(options =>
+        {
+            options.SerializerOptions.PropertyNameCaseInsensitive = false;
+            options.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
+        });
+        builder.Services.AddExceptionHandler<ApiExceptionHandler>();
+        builder.Services.AddProblemDetails();
+        builder.Services.AddEndpointsApiExplorer();
+        builder.Services.AddSwaggerGen(options =>
+        {
+            options.SwaggerDoc("v1", new OpenApiInfo { Title = "TrackStash Catalog", Version = "v1" });
+            options.MapType<Microsoft.AspNetCore.Mvc.ProblemDetails>(() => new OpenApiSchema
+            {
+                Type = "object",
+                Required = new HashSet<string> { "status", "title", "code", "traceId" },
+                Properties = new Dictionary<string, OpenApiSchema>
+                {
+                    ["type"] = new() { Type = "string" },
+                    ["title"] = new() { Type = "string" },
+                    ["status"] = new() { Type = "integer" },
+                    ["detail"] = new() { Type = "string", Nullable = true },
+                    ["instance"] = new() { Type = "string" },
+                    ["code"] = new() { Type = "string", Description = "Stable API error code." },
+                    ["traceId"] = new() { Type = "string", Description = "Correlation identifier for server logs." },
+                    ["errors"] = new()
+                    {
+                        Type = "object", AdditionalProperties = new OpenApiSchema
+                        {
+                            Type = "array", Items = new OpenApiSchema { Type = "string" },
+                        },
+                    },
+                },
+            });
+            options.MapType<UpdateLabelRequest>(() => new OpenApiSchema
+            {
+                Type = "object", AdditionalPropertiesAllowed = false,
+                Properties = new Dictionary<string, OpenApiSchema>
+                {
+                    ["name"] = new() { Type = "string", Nullable = false, MinLength = 1 },
+                    ["sortName"] = new() { Type = "string", Nullable = true },
+                },
+            });
+            options.IncludeXmlComments(Path.Combine(AppContext.BaseDirectory, $"{Assembly.GetExecutingAssembly().GetName().Name}.xml"));
+            options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+            {
+                Type = SecuritySchemeType.Http, Scheme = "bearer",
+                Description = "Local catalog API key. Configure it out of source control.",
+            });
+            options.AddSecurityRequirement(new OpenApiSecurityRequirement
+            {
+                [new OpenApiSecurityScheme { Reference = new OpenApiReference { Type = ReferenceType.SecurityScheme, Id = "Bearer" } }] = [],
+            });
+            options.OperationFilter<LabelOperationFilter>();
+        });
+        var app = builder.Build();
+        // Resolve configuration before accepting requests; no migrations or seeding run here.
+        _ = app.Services.GetRequiredService<IStorageProvider>();
+        app.UseExceptionHandler();
+        app.UseMiddleware<LocalAccessMiddleware>(key);
+        app.UseStatusCodePages(async context =>
+        {
+            var status = context.HttpContext.Response.StatusCode;
+            var code = status switch { 415 => "unsupported_media_type", 413 => "body_too_large", _ => "http_error" };
+            await ApiErrors.WriteAsync(context.HttpContext, status, code, "Request could not be completed");
+        });
+        app.UseSwagger(options => options.RouteTemplate = "openapi/{documentName}.json");
+        app.MapLabels();
+        return app;
+    }
+}

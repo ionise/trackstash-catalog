@@ -1,7 +1,7 @@
 # trackstash-catalog Specification
 
 Status: active
-Last updated: 2026-06-20
+Last updated: 2026-11-03
 
 ## 1. Purpose
 
@@ -36,6 +36,7 @@ In scope for the first delivery phases:
 - `delete-entity` for dependency-aware safe deletion
 - `repair-indexes` for derived index repair and rebuild workflows
 - integration coverage against temporary SQLite databases
+- loopback-only bearer-key HTTP host for label query/read/create/edit and child inspection
 
 Out of scope for the first delivery phases:
 
@@ -82,13 +83,13 @@ Owns:
 - repair and maintenance operations
 - read-oriented catalog inspection workflows
 
-### 3.4 Planned HTTP Host and API Clients
+### 3.4 HTTP Host and Planned API Clients
 
-The [Catalog API design intent](docs/api-design.md) extends catalog with a proposed `TrackStash.Catalog.Api` HTTP host and incrementally extracted shared application services. It does not replace the existing local CLI or artifact workflows.
+The [Catalog API design intent](docs/api-design.md) extends catalog with the implemented `TrackStash.Catalog.Api` HTTP host and `TrackStash.Catalog.Application` label services. It does not replace the existing local CLI or artifact workflows.
 
-Start with label list/read/create/edit and alias/provider-reference inspection. Add relationship and lifecycle operations only as their domain contracts and persistence become available. React-admin and a PowerShell HTTP module consume the same API; HTTP handlers and the local CLI share application services rather than calling each other.
+Label list/read/create/edit and alias/provider-reference inspection are implemented, including OpenAPI and temporary-database HTTP tests. The initial host is loopback-only, requires a configured bearer key for every route, and rejects browser origins; it does not migrate at startup. Add relationship and lifecycle operations only as their domain contracts and persistence become available. Planned React-admin and PowerShell clients will consume the same API. HTTP handlers use `ILabelService`; existing local CLI workflows remain unchanged and can adopt the shared services incrementally.
 
-Public contracts remain storage-provider independent. Future artists, releases, recordings, genre taxonomies, and playlists should follow the same identity and service boundaries. The API plan is authoritative for proposed HTTP behavior; the command sections below describe CLI behavior.
+Public contracts remain storage-provider independent. Future artists, releases, recordings, genre taxonomies, and playlists should follow the same identity and service boundaries. The API document distinguishes implemented HTTP behavior from future plans; the command sections below describe CLI behavior.
 
 ## 4. Dependencies and Contracts
 

@@ -1,0 +1,50 @@
+@baseUrl = http://localhost:5187
+# Set apiKey locally in your HTTP client's secret/environment variables, not in this file.
+@labelId = replace-with-label-id
+@etag = "replace-with-etag-from-response"
+
+### Authenticated OpenAPI
+GET {{baseUrl}}/openapi/v1.json
+Authorization: Bearer {{apiKey}}
+
+### Search labels
+GET {{baseUrl}}/api/v1/labels?q=records&page=1&pageSize=25&sort=name&order=asc
+Authorization: Bearer {{apiKey}}
+
+### Read label and capture its ETag
+GET {{baseUrl}}/api/v1/labels/{{labelId}}
+Authorization: Bearer {{apiKey}}
+
+### Create (do not automatically retry POST)
+POST {{baseUrl}}/api/v1/labels
+Authorization: Bearer {{apiKey}}
+Content-Type: application/json
+
+{"name":"Example Records","sortName":"Example"}
+
+### Conditional edit (paste the full quoted ETag above)
+PATCH {{baseUrl}}/api/v1/labels/{{labelId}}
+Authorization: Bearer {{apiKey}}
+Content-Type: application/merge-patch+json
+If-Match: {{etag}}
+
+{"sortName":null}
+
+### Alias inspection
+GET {{baseUrl}}/api/v1/labels/{{labelId}}/aliases
+Authorization: Bearer {{apiKey}}
+
+### Provider-reference inspection
+GET {{baseUrl}}/api/v1/labels/{{labelId}}/external-references
+Authorization: Bearer {{apiKey}}
+
+### Missing label: 404 Problem Details
+GET {{baseUrl}}/api/v1/labels/nonexistent
+Authorization: Bearer {{apiKey}}
+
+### Missing precondition: 428 Problem Details
+PATCH {{baseUrl}}/api/v1/labels/{{labelId}}
+Authorization: Bearer {{apiKey}}
+Content-Type: application/merge-patch+json
+
+{"name":"Edited Example"}

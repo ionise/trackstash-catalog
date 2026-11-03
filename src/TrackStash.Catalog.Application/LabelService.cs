@@ -14,7 +14,7 @@ public sealed record LabelDetail(
 public enum LabelWriteStatus { Created, Updated, NotFound, Stale, Conflict }
 public sealed record LabelWriteResult(LabelWriteStatus Status, LabelDetail? Label = null);
 
-public sealed class LabelService
+public sealed class LabelService : ILabelService
 {
     private readonly IStorageProvider _storage;
 
