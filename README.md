@@ -68,6 +68,35 @@ Related module docs:
 - media-file writeback and tag mutation
 - low-level repository and provider contract definitions
 
+## Recording Identity Direction
+
+Use the canonical `Recording` entity for a track/master identity, independently of owned files. A recording may have no media files, may later acquire multiple file representations, and may appear on multiple releases. Remasters have separate recording IDs linked through `remaster_of`; a provider track ID or ISRC is supporting evidence, not the canonical identity.
+
+The agreed policies live in core:
+
+- [Recording identity, portable IDs, and remaster dates](../trackstash-core/docs/recording-schema.md#recording-identity-policy)
+- [Identity resolution evidence and backfill safeguards](../trackstash-core/docs/media-matching-schema.md#identity-resolution-policy)
+
+Catalog workflows should preserve assigned recording GUIDs and release memberships, including entries for music not owned locally. Proposed duplicate merges must retain resolvable retired IDs. Matching should produce reviewable file-to-recording decisions; the tagging layer should write `trackstash_recording_id` and appropriate standard date tags, not catalog command handlers.
+
+These policies are a target for integration, not a statement that the live scanner database or current admission scripts already implement canonical recording links, redirects, or recording-ID tag writeback.
+
+## Beatport-Backed Label Seeding
+
+For an initial canonical label catalog, prefer existing Beatport track -> release -> label relationships over unverified media-file label strings. Give each distinct Beatport label ID a canonical GUID and retain the provider ID in `label_external_ref`, with source-table provenance in the payload. Deduplicate observations of the same provider ID across cache/corpus tables.
+
+Use the shared `EntityNameNormalizer.NormalizeStrict` and `NormalizeLoose` helpers to expose name collisions and review candidates. Different provider IDs with identical names must not be silently merged; loose-name or embedding similarity is candidate evidence only. Keep possible imprints/parent labels separate until reviewed. Preserve observed names as aliases.
+
+Bootstrap a separate catalog database through the existing migrations when the source is a scanner database with a different schema. Import through `validate-entity` and `apply-entity`, retaining the assigned GUIDs in reusable entity artifacts. Validate and preview each entity individually: the current validator accepts multi-document YAML, but the apply path expects a single entity document per file.
+
+Seeding does not update media tags or establish file/release links automatically. A subsequent reviewed mapping stage is required for those relationships.
+
+## Planned HTTP API and Clients
+
+The [Catalog API design intent](docs/api-design.md) proposes a label-first ASP.NET Core host in this module, shared catalog application services, a React-admin GUI, and a PowerShell HTTP client. SQLite remains a storage adapter, not an API dependency.
+
+The plan covers labels/aliases/provider references first, then label relationships and safe lifecycle workflows. It leaves room for artists, releases, recordings (abstract tracks), genres/subgenres, and playlists without importing Beatport-specific identities or Library filesystem responsibilities. This is planning, not an implemented HTTP surface.
+
 ## Command Surface
 
 Current commands:

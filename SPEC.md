@@ -82,6 +82,14 @@ Owns:
 - repair and maintenance operations
 - read-oriented catalog inspection workflows
 
+### 3.4 Planned HTTP Host and API Clients
+
+The [Catalog API design intent](docs/api-design.md) extends catalog with a proposed `TrackStash.Catalog.Api` HTTP host and incrementally extracted shared application services. It does not replace the existing local CLI or artifact workflows.
+
+Start with label list/read/create/edit and alias/provider-reference inspection. Add relationship and lifecycle operations only as their domain contracts and persistence become available. React-admin and a PowerShell HTTP module consume the same API; HTTP handlers and the local CLI share application services rather than calling each other.
+
+Public contracts remain storage-provider independent. Future artists, releases, recordings, genre taxonomies, and playlists should follow the same identity and service boundaries. The API plan is authoritative for proposed HTTP behavior; the command sections below describe CLI behavior.
+
 ## 4. Dependencies and Contracts
 
 `trackstash-catalog` should depend on:

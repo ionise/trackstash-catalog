@@ -2,6 +2,16 @@
 
 This document captures the proposed PowerShell interface for catalog authoring and catalog discovery workflows.
 
+## HTTP Client Direction
+
+The [Catalog API plan](../api-design.md) adds a separate proposed `TrackStash.Catalog.Client` module for HTTP access. The existing `TrackStash.Catalog.Artifacts` module remains responsible for offline YAML authoring; it is not being renamed or replaced.
+
+Start the HTTP client with label list/read/create/edit commands and alias/provider-reference inspection. Add relationship, delete-preview, and merge-review commands as those API operations are implemented. The client must use the API, not direct storage access or CLI subprocesses, and must not duplicate normalization or identity rules.
+
+Return pipeline-friendly objects, preserve concurrency metadata, support explicit connections and pagination with `-All`, surface structured errors, and implement `SupportsShouldProcess` on mutations. `-WhatIf` suppresses mutation requests; detailed previews use explicit API preview operations.
+
+The artifact layout and implementation order below apply to the offline authoring workflow. The HTTP client follows the label-first delivery sequence in the API plan. Future artifact publishing over HTTP requires an explicit API contract; it must not be assumed to exist.
+
 ## Scope
 
 This interface is intended to live with `trackstash-catalog` and should remain focused on canonical catalog data:
