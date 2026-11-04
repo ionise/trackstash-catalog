@@ -7,6 +7,8 @@
 @mergeEtag = "replace-with-etag-from-merge-preview"
 @assetId = replace-with-asset-id
 @artworkEntryId = replace-with-gallery-entry-id
+@backupJobId = replace-with-job-id
+@backupId = replace-with-backup-id
 
 ### Authenticated OpenAPI
 GET {{baseUrl}}/openapi/v1.json
@@ -154,4 +156,23 @@ Content-Type: application/json
 
 ### After apply: retired read redirects 308; retired writes are rejected with canonicalId
 GET {{baseUrl}}/api/v1/labels/{{retiredLabelId}}
+Authorization: Bearer {{apiKey}}
+### List saved catalog/artwork ZIPs
+GET {{baseUrl}}/api/v1/backups
+Authorization: Bearer {{apiKey}}
+
+### Start backup (202 with job Location; no request body)
+POST {{baseUrl}}/api/v1/backup-jobs
+Authorization: Bearer {{apiKey}}
+
+### Inspect job (replace ID from accepted response)
+GET {{baseUrl}}/api/v1/backup-jobs/{{backupJobId}}
+Authorization: Bearer {{apiKey}}
+
+### Export existing verified archive (replace ID from list or completed job)
+GET {{baseUrl}}/api/v1/backups/{{backupId}}/download
+Authorization: Bearer {{apiKey}}
+
+### Missing backup returns Problem Details
+GET {{baseUrl}}/api/v1/backups/not-found/download
 Authorization: Bearer {{apiKey}}

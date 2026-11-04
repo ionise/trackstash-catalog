@@ -20,6 +20,8 @@ Build the frontend **before** building/publishing the API. The API project copie
 
 The app supports:
 
+- **System → Backup** in the sidebar: create a verified timestamped catalog/artwork ZIP on the server, follow progress, refresh saved archives and download the same ZIP. The newest 10 verified backups per catalog are retained. Save File-capable browsers stream downloads; other browsers have a 128 MiB in-memory limit. See [backup operations](../../docs/catalog-backups.md). No GUI restore or arbitrary browser-supplied server paths. The original `/backups` admin URL still works; an empty list is normal before the first backup. Restart the API after updating its backend, not just rebuilding the GUI.
+
 - Search canonical names/aliases, sort by name/sort name/ID, and page results (10, 25, 50, or 100).
 - Inspect stable IDs, timestamps, aliases, and provider references.
 - Label detail has a responsive identity header, preferred logo, biography, country name with a local flag when recognised, external-link icons, and a conditional Favourite toggle. Edit is in the header. The **Details** tab, to the right of Artists, contains the additional artwork gallery, personal notes/review status, and Record details (IDs, aliases, timestamps and link verification sources). These sections do not clutter the other tabs.

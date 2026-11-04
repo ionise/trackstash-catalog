@@ -25,6 +25,7 @@ static async Task<int> RunAsync(string[] args)
     {
         return command switch
         {
+            "backup" or "verify-backup" or "restore-backup" => await RunBackupAsync(command, config, options, jsonMode),
             "import-csv"    => await RunImportCsvAsync(CreateCatalogCommands(config, out var importTarget), importTarget.DatabasePath, options, jsonMode).ConfigureAwait(false),
             "summary"       => await RunSummaryAsync(CreateCatalogCommands(config, out var summaryTarget), summaryTarget.DatabasePath, jsonMode).ConfigureAwait(false),
             "delete-entity" => await RunDeleteEntityAsync(CreateCatalogCommands(config, out var deleteTarget), deleteTarget.DatabasePath, options, jsonMode).ConfigureAwait(false),
@@ -54,6 +55,35 @@ static async Task<int> RunAsync(string[] args)
             Console.Error.WriteLine($"Unexpected error: {ex.Message}");
         return 1;
     }
+}
+
+static async Task<int> RunBackupAsync(string command, CatalogConfig config,
+    IReadOnlyDictionary<string, string?> options, bool jsonMode)
+{
+    var target = command == "backup" ? ResolveCatalogTarget(config)
+        : new ResolvedCatalogTarget("backup", "sqlite", Path.GetFullPath(GetRequiredOption(options, "file")));
+    if (!string.Equals(target.Provider, "sqlite", StringComparison.OrdinalIgnoreCase))
+        throw new ArgumentException("Catalog backups currently support SQLite only.");
+    var service = new CatalogBackupService(new SqliteCatalogSnapshotSource(target.DatabasePath),
+        new ManagedArtworkStore(GetOption(options, "artwork-root")), GetOption(options, "backup-root"));
+    object result;
+    switch (command)
+    {
+        case "backup":
+            result = await service.CreateAsync();
+            break;
+        case "verify-backup":
+            result = await service.VerifyAsync(GetRequiredOption(options, "file"));
+            break;
+        default:
+            var destination = GetRequiredOption(options, "destination");
+            await service.RestoreAsync(GetRequiredOption(options, "file"), destination);
+            result = new { destination, database = Path.Combine(destination, "catalog.db"), artworkRoot = Path.Combine(destination, "artwork") };
+            break;
+    }
+    if (jsonMode) CommandOutput.WriteJson(command, ok: true, exitCode: 0, data: result);
+    else Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(result, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+    return 0;
 }
 
 static async Task<int> RunImportCsvAsync(
@@ -595,6 +625,9 @@ static CatalogCommands CreateCatalogCommandsForIdentity(CatalogConfig config)
 static void PrintUsage()
 {
     Console.WriteLine("Usage:");
+    Console.WriteLine("  trackstash-catalog backup [--db-path <path>] [--artwork-root <path>] [--backup-root <path>] [--output json]");
+    Console.WriteLine("  trackstash-catalog verify-backup --file <backup.zip> [--backup-root <path>] [--output json]");
+    Console.WriteLine("  trackstash-catalog restore-backup --file <backup.zip> --destination <new-directory> [--backup-root <path>] [--output json]");
     Console.WriteLine("  trackstash-catalog import-csv    [--catalog <name>] [--db-path <path>] --file <path.csv> [--dry-run] [--fail-fast] [--output json]");
     Console.WriteLine("  trackstash-catalog summary       [--catalog <name>] [--db-path <path>] [--output json]");
     Console.WriteLine("  trackstash-catalog delete-entity [--catalog <name>] [--db-path <path>] --type <label|artist|release|recording> --id <id> [--deleted-by <name>] [--reason <text>] [--output json]");

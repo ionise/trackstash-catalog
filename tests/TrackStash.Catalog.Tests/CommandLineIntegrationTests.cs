@@ -8,6 +8,44 @@ namespace TrackStash.Catalog.Tests;
 public sealed class CommandLineIntegrationTests
 {
     [Fact]
+    public async Task Backup_VerifyAndRestore_RunThroughNativeCliWithoutRequiringLiveDatabaseForRestore()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"catalog-cli-backup-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var database = Path.Combine(directory, "catalog.db");
+            await new SqliteStorageProvider(database).Migrations.ApplyPendingMigrationsAsync();
+            var backupRoot = Path.Combine(directory, "backups");
+            var created = await RunCatalogCliAsync($"backup --db-path \"{database}\" --backup-root \"{backupRoot}\" --output json");
+            Assert.True(created.ExitCode == 0, created.StdErr + created.StdOut);
+            var archive = Assert.Single(Directory.GetFiles(backupRoot, "*.zip"));
+            var shared = new TrackStash.Core.Storage.CatalogBackupService(new SqliteCatalogSnapshotSource(database),
+                new TrackStash.Core.Storage.ManagedArtworkStore(Path.Combine(directory, "artwork")), backupRoot);
+            var info = Assert.Single(await shared.ListAsync());
+            await using (var lease = await shared.OpenDownloadAsync(info.Id))
+            {
+                var busy = await RunCatalogCliAsync($"backup --db-path \"{database}\" --backup-root \"{backupRoot}\" --output json");
+                Assert.Equal(1, busy.ExitCode);
+                Assert.Contains("Another backup", busy.StdOut);
+            }
+            var verify = await RunCatalogCliAsync($"verify-backup --file \"{archive}\" --backup-root \"{backupRoot}\" --output json");
+            Assert.True(verify.ExitCode == 0, verify.StdErr + verify.StdOut);
+            var destination = Path.Combine(directory, "restored");
+            var restore = await RunCatalogCliAsync($"restore-backup --file \"{archive}\" --destination \"{destination}\" --backup-root \"{backupRoot}\" --output json");
+            Assert.True(restore.ExitCode == 0, restore.StdErr + restore.StdOut);
+            Assert.True(File.Exists(Path.Combine(destination, "catalog.db")));
+            var refuse = await RunCatalogCliAsync($"restore-backup --file \"{archive}\" --destination \"{destination}\" --backup-root \"{backupRoot}\" --output json");
+            Assert.Equal(1, refuse.ExitCode);
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Template_Label_TextMode_ReturnsYamlAndExit0()
     {
         var result = await RunCatalogCliAsync("template --kind label");

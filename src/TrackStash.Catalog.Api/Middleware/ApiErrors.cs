@@ -44,6 +44,10 @@ internal sealed class ApiExceptionHandler(ILogger<ApiExceptionHandler> logger) :
     {
         var (status, code, title, detail, field) = exception switch
         {
+            BackupBusyException => (409, "backup_busy", "Backup storage is busy", (string?)"Wait for the current backup or download to finish, then retry.", (string?)null),
+            IOException or InvalidDataException or JsonException when context.Request.Path.StartsWithSegments("/api/v1/backups")
+                => (409, "backup_unavailable", "Backup storage unavailable",
+                    (string?)"A saved archive could not be read or verified. Check server logs and the configured backup storage.", (string?)null),
             ArtworkUnavailableException => (409, "artwork_unavailable", "Artwork unavailable",
                 (string?)"The stored image is missing, damaged or unsupported. Check artwork storage and restore its backup if needed.", (string?)null),
             RetiredLabelException => (409, "label_retired", "Label is retired", (string?)"Review the canonical label before writing.", (string?)null),
@@ -55,7 +59,7 @@ internal sealed class ApiExceptionHandler(ILogger<ApiExceptionHandler> logger) :
                 "Check the supplied field value.", MapField(argument.ParamName)),
             _ => (500, "internal_error", "An unexpected error occurred", null, null),
         };
-        if (status >= 500 || exception is ArtworkUnavailableException)
+        if (status >= 500 || exception is ArtworkUnavailableException || code == "backup_unavailable")
             logger.LogError(exception, "Catalog API request failed; trace {TraceId}", context.TraceIdentifier);
         else
             logger.LogWarning("Catalog API rejected request with {Code}; trace {TraceId}", code, context.TraceIdentifier);

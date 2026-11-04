@@ -1,5 +1,9 @@
 # Catalog API Design Intent
 
+## Catalog backup operations
+
+The authenticated loopback API exposes `GET /api/v1/backups`, `POST /api/v1/backup-jobs` (empty body, 202 with Location), `GET /api/v1/backup-jobs/{id}`, and `GET /api/v1/backups/{id}/download` (verified streamed ZIP attachment). Backup destination is server-configured, not accepted from browser input. Jobs use the shared native service and continue independently of the initiating HTTP request; process-local job progress resets on restart but filesystem ZIPs remain discoverable. Concurrent operations return busy failures; missing resources return 404. See [catalog backups](catalog-backups.md) for archive format, newest-10 retention, download/restore boundaries and CLI operations.
+
 Status: shared label foundation, reviewed pairwise label merges, loopback-only HTTP host, and React-admin label GUI implemented with OpenAPI, integration tests, and browser tests. PowerShell HTTP client remains planned.
 
 ## Purpose and Scope

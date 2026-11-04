@@ -1,9 +1,37 @@
-import { Admin, Resource, memoryStore } from 'react-admin'
+import { useState } from 'react'
+import { Admin, Layout, Menu, Resource, memoryStore, useSidebarState } from 'react-admin'
+import type { LayoutProps } from 'react-admin'
+import { ListItemIcon, ListItemText, MenuItem } from '@mui/material'
 import { authProvider, dataProvider } from './catalog'
 import { LabelCreate, LabelEdit, LabelList, LabelShow } from './labels'
 import { LoginPage } from './LoginPage'
+import { Backups } from './Backups'
+import BackupIcon from '@mui/icons-material/Backup'
+import SettingsIcon from '@mui/icons-material/Settings'
+import ExpandLessIcon from '@mui/icons-material/ExpandLess'
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 
 const store = memoryStore()
+
+function CatalogMenu() {
+  const [expanded, setExpanded] = useState(true)
+  const [sidebarOpen, setSidebarOpen] = useSidebarState()
+  return <Menu>
+    <Menu.ResourceItem name="labels" />
+    <MenuItem aria-label="System" aria-expanded={sidebarOpen && expanded} aria-controls="system-backup-menu" onClick={() => {
+      if (!sidebarOpen) { setSidebarOpen(true); setExpanded(true) }
+      else setExpanded(!expanded)
+    }}>
+      <ListItemIcon><SettingsIcon /></ListItemIcon>
+      {sidebarOpen && <><ListItemText primary="System" />{expanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}</>}
+    </MenuItem>
+    {sidebarOpen && expanded && <Menu.Item id="system-backup-menu" to="/backups" primaryText="Backup" leftIcon={<BackupIcon />} sx={{ pl: 4 }} />}
+  </Menu>
+}
+
+function CatalogLayout(props: LayoutProps) {
+  return <Layout {...props} menu={CatalogMenu} />
+}
 
 export default function App() {
   return (
@@ -14,8 +42,10 @@ export default function App() {
       loginPage={LoginPage}
       disableTelemetry
       store={store}
+      layout={CatalogLayout}
     >
       <Resource name="labels" list={LabelList} show={LabelShow} create={LabelCreate} edit={LabelEdit} recordRepresentation="name" />
+      <Resource name="backups" list={Backups} icon={BackupIcon} />
     </Admin>
   )
 }
