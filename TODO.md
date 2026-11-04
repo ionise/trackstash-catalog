@@ -13,7 +13,12 @@ See [API design intent](docs/api-design.md) for contracts, boundaries, open deci
 - [x] Add OpenAPI and integration/contract coverage against temporary databases
 - [x] Add React-admin label list/detail/create/edit screens with memory-only login, origin policy, ETags, and browser tests
 - [ ] Add a separate `TrackStash.Catalog.Client` PowerShell HTTP module
-- [ ] Implement and test label relationship persistence, direction, provenance, effective dates, and hierarchy validation
+- [x] Add manual label profiles, typed web links, personal metadata, immutable revisions, API/Edit/Show, and profile-aware reviewed merges
+- [x] Prepare source-attributed observations, local artwork with source/rights, and typed label relationship schema (migration 5)
+- [ ] Implement reviewed label relationship workflows and hierarchy validation; initial schema includes direction/source/notes, not dates or territory
+- [ ] Implement local artwork upload/serving with source and usage-rights controls
+- [ ] Design a separate pluggable enrichment module and reviewed observation acceptance; automatic fetching is parked
+- [ ] Define label embedding documents, invalidation/regeneration, and semantic search (exclude personal notes by default)
 - [x] Document reviewed pairwise label merge design, multiple provider IDs, conflict policies, audit, concurrency, and retired-ID resolution (see [merge design](docs/api-design.md#reviewed-label-merge-design))
 - [x] Implement reviewed label merge storage/application contracts, preview/apply API, GUI confirmation, and all-writer retired-ID safeguards with temporary-catalog tests
 - [ ] Add safe deletion preview/apply (first ensure tombstones snapshot relational state, not just provider payloads, and preserve retired-ID resolution)

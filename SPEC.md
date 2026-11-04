@@ -1,7 +1,7 @@
 # trackstash-catalog Specification
 
 Status: active
-Last updated: 2026-11-03
+Last updated: 2026-11-04
 
 ## 1. Purpose
 
@@ -37,6 +37,8 @@ In scope for the first delivery phases:
 - `repair-indexes` for derived index repair and rebuild workflows
 - integration coverage against temporary SQLite databases
 - loopback-only bearer-key HTTP host for label query/read/create/edit and child inspection
+- manual label description, links, location/lifecycle, notes, favourite and review status through conditional profile replacement, with immutable revision history and profile-aware merges
+- schema-only future source observations, local artwork with source/rights, and parent/imprint/distributor relationships; provider enrichment, uploads, relationship workflows, and label embeddings remain deferred
 
 Out of scope for the first delivery phases:
 

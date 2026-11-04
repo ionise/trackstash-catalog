@@ -4,6 +4,7 @@ import {
   TextField, TextInput, Toolbar, SaveButton,
 } from 'react-admin'
 import { LabelMerge } from './LabelMerge'
+import { LabelProfileFields, LabelProfileShow } from './LabelProfile'
 
 const nameValidators = [required(), (value: string) => value?.trim() ? undefined : 'A nonblank name is required.']
 const filters = [<TextInput key="q" source="q" label="Search names and aliases" alwaysOn />]
@@ -34,6 +35,7 @@ export function LabelShow() {
         <TextField source="id" label="Catalog ID" />
         <DateField source="createdUtc" showTime />
         <DateField source="updatedUtc" showTime />
+        <LabelProfileShow />
         <ArrayField source="aliases">
           <Datagrid bulkActionButtons={false} rowClick={false}>
             <TextField source="value" sortable={false} />
@@ -71,6 +73,7 @@ export function LabelEdit() {
         <TextField source="id" label="Catalog ID" />
         <TextInput source="name" validate={nameValidators} fullWidth />
         <TextInput source="sortName" fullWidth />
+        <LabelProfileFields />
       </SimpleForm>
     </Edit>
   )

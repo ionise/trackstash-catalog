@@ -102,6 +102,15 @@ export function LabelMerge() {
             <Typography>Keep: {preview.survivor.name} ({preview.survivor.id})</Typography>
             <Typography>Retire: {preview.retired.name} ({preview.retired.id})</Typography>
             <Typography>Kept sort name: {preview.survivor.sortName ?? '(none)'}</Typography>
+            {preview.profile && <>
+              <Typography variant="h6">Resulting label information</Typography>
+              <Typography sx={{ whiteSpace: 'pre-wrap' }}>Description: {preview.profile.description ?? '(none)'}</Typography>
+              <Typography>Location: {preview.profile.countryCode ?? '(none)'} / {preview.profile.city ?? '(none)'}</Typography>
+              <Typography>Founded: {preview.profile.foundedYear ?? '(unknown)'}; status: {preview.profile.lifecycleStatus}</Typography>
+              <Typography sx={{ whiteSpace: 'pre-wrap' }}>Personal notes: {preview.profile.notes ?? '(none)'}</Typography>
+              <Typography>Favourite: {preview.profile.favourite ? 'Yes' : 'No'}; review: {preview.profile.reviewStatus}</Typography>
+              {preview.profile.links.map(link => <Typography key={link.url}>{link.kind}: {link.url}</Typography>)}
+            </>}
             <Typography>Review expires: {new Date(preview.expiresUtc).toLocaleString()}</Typography>
             <Button disabled={busy} onClick={() => review(preview.retired.id, preview.survivor.id)}>Switch survivor and review again</Button>
             <Typography variant="h6">Resulting aliases</Typography>

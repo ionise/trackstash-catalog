@@ -154,8 +154,10 @@ public sealed partial class LabelApiTests
         await ProblemAsync(await client.GetAsync($"/api/v1/label-merge-previews/{preview.OperationId}"), 410, "merge_preview_expired");
     }
 
-    [Fact]
-    public async Task StartupRejectsVersionThreeWithoutChangingIt()
+    [Theory]
+    [InlineData(3)]
+    [InlineData(4)]
+    public async Task StartupRejectsOldSchemaWithoutChangingIt(int version)
     {
         var path = Path.Combine(Path.GetTempPath(), $"catalog-v3-readiness-{Guid.NewGuid():N}.db");
         try
@@ -166,10 +168,11 @@ public sealed partial class LabelApiTests
                 using var command = connection.CreateCommand();
                 command.CommandText = """
                     CREATE TABLE schema_migration(version INTEGER PRIMARY KEY, name TEXT, applied_utc TEXT);
-                    INSERT INTO schema_migration VALUES (3, 'label-aggregate-version', '2026-11-03');
+                    INSERT INTO schema_migration VALUES (@version, 'old-schema', '2026-11-03');
                     CREATE TABLE label(label_id TEXT PRIMARY KEY, name TEXT);
                     INSERT INTO label VALUES ('keep-id','Keep name');
                     """;
+                command.Parameters.AddWithValue("@version", version);
                 await command.ExecuteNonQueryAsync();
             }
             await using var app = Build(builder => builder.Configuration.AddInMemoryCollection(
@@ -179,7 +182,7 @@ public sealed partial class LabelApiTests
             await check.OpenAsync();
             using var query = check.CreateCommand();
             query.CommandText = "SELECT MAX(version) FROM schema_migration";
-            Assert.Equal(3L, await query.ExecuteScalarAsync());
+            Assert.Equal((long)version, await query.ExecuteScalarAsync());
             query.CommandText = "SELECT name FROM label WHERE label_id='keep-id'";
             Assert.Equal("Keep name", await query.ExecuteScalarAsync());
             query.CommandText = "SELECT count(*) FROM sqlite_master WHERE type='table'";

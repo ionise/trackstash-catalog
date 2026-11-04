@@ -14,7 +14,8 @@ public sealed record MergeParticipantResponse(string Id, string? Name, string? S
 public sealed record LabelMergePreviewResponse(
     string OperationId, DateTimeOffset ExpiresUtc, MergeParticipantResponse Survivor, MergeParticipantResponse Retired,
     IReadOnlyList<LabelAliasResponse> Aliases, IReadOnlyList<LabelReferenceResponse> ExternalReferences,
-    IReadOnlyList<MergeReleaseLinkResponse> ReleaseLinks, IReadOnlyList<string> Blockers, IReadOnlyList<string> Warnings);
+    IReadOnlyList<MergeReleaseLinkResponse> ReleaseLinks, IReadOnlyList<string> Blockers, IReadOnlyList<string> Warnings,
+    LabelProfileResponse? Profile);
 /// <summary>A release association in the proposed resulting label.</summary>
 public sealed record MergeReleaseLinkResponse(string ReleaseId, bool IsPrimary, string? Role);
 /// <summary>Durable operation result, not a current survivor representation.</summary>
@@ -95,5 +96,5 @@ internal static class LabelMergeEndpoints
         preview.Aliases.Select(a => new LabelAliasResponse(a.Value, a.IsPrimary)).ToArray(),
         preview.ExternalReferences.Select(r => new LabelReferenceResponse(r.Source, r.ExternalId, r.IsPrimary, r.LastSeenUtc)).ToArray(),
         preview.ReleaseLinks.Select(l => new MergeReleaseLinkResponse(l.ReleaseId, l.IsPrimary, l.Role)).ToArray(),
-        preview.Blockers, preview.Warnings);
+        preview.Blockers, preview.Warnings, preview.Profile is null ? null : LabelEndpoints.ToProfileResponse(preview.Profile));
 }

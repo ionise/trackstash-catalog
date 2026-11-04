@@ -22,8 +22,8 @@ internal static class LabelEndpoints
             .WithDescription("Does not merge same-name labels. Returns Location and ETag. POST retries are not idempotent.")
             .Accepts<CreateLabelRequest>("application/json").ProducesProblem(400).ProducesProblem(409).ProducesProblem(415);
         group.MapPatch("/{id}", PatchAsync).WithName("UpdateLabel")
-            .WithSummary("Conditionally edit name or sort name")
-            .WithDescription("JSON Merge Patch only. Omitted values remain; sortName may be null. Supply one strong If-Match ETag from the last read.")
+            .WithSummary("Conditionally edit name, sort name, or the manual profile")
+            .WithDescription("JSON Merge Patch. Omitted top-level fields remain; profile, if supplied, is a complete replacement with every field required. Supply one strong last-read If-Match ETag.")
             .Accepts<UpdateLabelRequest>("application/merge-patch+json")
             .ProducesProblem(400).ProducesProblem(404).ProducesProblem(409).ProducesProblem(412).ProducesProblem(415).ProducesProblem(428);
         group.MapGet("/{id}/aliases", AliasesAsync).WithName("GetLabelAliases")
@@ -115,5 +115,11 @@ internal static class LabelEndpoints
     private static LabelResponse ToResponse(LabelDetail label) => new(
         label.Id, label.Name, label.SortName, label.Version, label.CreatedUtc, label.UpdatedUtc,
         label.Aliases.Select(a => new LabelAliasResponse(a.Value, a.IsPrimary)).ToArray(),
-        label.ExternalReferences.Select(r => new LabelReferenceResponse(r.Source, r.ExternalId, r.IsPrimary, r.LastSeenUtc)).ToArray());
+        label.ExternalReferences.Select(r => new LabelReferenceResponse(r.Source, r.ExternalId, r.IsPrimary, r.LastSeenUtc)).ToArray(),
+        ToProfileResponse(label.Profile));
+
+    internal static LabelProfileResponse ToProfileResponse(TrackStash.Core.Storage.LabelProfile profile) => new(
+        profile.Description, profile.CountryCode, profile.City, profile.FoundedYear, profile.LifecycleStatus,
+        profile.Notes, profile.Favourite, profile.ReviewStatus,
+        profile.Links.Select(l => new LabelWebLinkResponse(l.Kind, l.Url, l.Title, l.SourceUrl)).ToArray());
 }

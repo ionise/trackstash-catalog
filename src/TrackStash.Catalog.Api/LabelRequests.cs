@@ -55,13 +55,15 @@ internal static class LabelRequests
 
     public static async Task<LabelUpdate> PatchAsync(HttpRequest request, CancellationToken cancellationToken)
     {
-        var fields = await FieldsAsync(request, "application/merge-patch+json", cancellationToken);
+        var fields = await FieldsAsync(request, "application/merge-patch+json", cancellationToken, ["name", "sortName", "profile"]);
         var patch = new LabelUpdate
         {
             SetName = fields.ContainsKey("name"),
             Name = fields.TryGetValue("name", out var name) ? NullableString(name, "name") : null,
             SetSortName = fields.ContainsKey("sortName"),
             SortName = fields.TryGetValue("sortName", out var sort) ? NullableString(sort, "sortName") : null,
+            SetProfile = fields.ContainsKey("profile"),
+            Profile = fields.TryGetValue("profile", out var profile) ? LabelProfileRequests.Read(profile) : null,
         };
         patch.Validate();
         return patch;

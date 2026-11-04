@@ -9,7 +9,8 @@ public sealed record LabelReferenceDetail(string Source, string ExternalId, bool
 public sealed record LabelDetail(
     string Id, string? Name, string? SortName, string Version,
     DateTimeOffset? CreatedUtc, DateTimeOffset? UpdatedUtc,
-    IReadOnlyList<LabelAliasDetail> Aliases, IReadOnlyList<LabelReferenceDetail> ExternalReferences);
+    IReadOnlyList<LabelAliasDetail> Aliases, IReadOnlyList<LabelReferenceDetail> ExternalReferences,
+    LabelProfile Profile);
 
 public enum LabelWriteStatus { Created, Updated, NotFound, Stale, Conflict }
 public sealed record LabelWriteResult(LabelWriteStatus Status, LabelDetail? Label = null);
@@ -82,5 +83,6 @@ public sealed class LabelService : ILabelService
         label.Aliases.OrderBy(a => a.Value, StringComparer.Ordinal)
             .Select(a => new LabelAliasDetail(a.Value, a.IsPrimary)).ToArray(),
         label.ExternalReferences.OrderBy(r => r.Source, StringComparer.Ordinal).ThenBy(r => r.ExternalId, StringComparer.Ordinal)
-            .Select(r => new LabelReferenceDetail(r.Source, r.ExternalId, r.IsPrimary, r.LastSeenUtc)).ToArray());
+            .Select(r => new LabelReferenceDetail(r.Source, r.ExternalId, r.IsPrimary, r.LastSeenUtc)).ToArray(),
+        label.Profile);
 }

@@ -93,6 +93,10 @@ public static class CatalogApiHost
                 {
                     ["name"] = new() { Type = "string", Nullable = false, MinLength = 1 },
                     ["sortName"] = new() { Type = "string", Nullable = true },
+                    ["profile"] = new()
+                    {
+                        Reference = new OpenApiReference { Type = ReferenceType.Schema, Id = nameof(LabelProfileResponse) },
+                    },
                 },
             });
             options.IncludeXmlComments(Path.Combine(AppContext.BaseDirectory, $"{Assembly.GetExecutingAssembly().GetName().Name}.xml"));
@@ -106,6 +110,7 @@ public static class CatalogApiHost
                 [new OpenApiSecurityScheme { Reference = new OpenApiReference { Type = ReferenceType.SecurityScheme, Id = "Bearer" } }] = [],
             });
             options.OperationFilter<LabelOperationFilter>();
+            options.SchemaFilter<LabelProfileSchemaFilter>();
         });
         var app = builder.Build();
         // Resolve configuration before accepting requests; no migrations or seeding run here.

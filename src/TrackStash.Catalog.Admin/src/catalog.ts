@@ -7,6 +7,31 @@ export interface LabelRecord {
   sortName: string | null
   version: string
   etag?: string
+  profile?: LabelProfile
+}
+
+export interface LabelProfile {
+  description: string | null
+  countryCode: string | null
+  city: string | null
+  foundedYear: number | null
+  lifecycleStatus: string
+  notes: string | null
+  favourite: boolean
+  reviewStatus: string
+  links: { kind: string; url: string; title: string | null; sourceUrl: string | null }[]
+}
+
+function profileForSave(profile: LabelProfile): LabelProfile {
+  return {
+    description: profile.description || null, countryCode: profile.countryCode || null,
+    city: profile.city || null, foundedYear: profile.foundedYear ?? null,
+    lifecycleStatus: profile.lifecycleStatus, notes: profile.notes || null,
+    favourite: profile.favourite, reviewStatus: profile.reviewStatus,
+    links: profile.links.map(link => ({
+      kind: link.kind, url: link.url, title: link.title || null, sourceUrl: link.sourceUrl || null,
+    })),
+  }
 }
 
 interface Problem {
@@ -28,6 +53,7 @@ export interface MergePreview {
   blockers: string[]
   warnings: string[]
   etag: string
+  profile?: LabelProfile
 }
 
 export function createCatalogClient(fetcher: typeof fetch = fetch) {
@@ -113,6 +139,9 @@ export function createCatalogClient(fetcher: typeof fetch = fetch) {
         if (params.data[field] !== params.previousData?.[field])
           patch[field] = field === 'sortName' ? params.data[field] || null : params.data[field]
       }
+      if (params.data.profile && JSON.stringify(profileForSave(params.data.profile)) !==
+        JSON.stringify(params.previousData?.profile ? profileForSave(params.previousData.profile) : undefined))
+        patch.profile = profileForSave(params.data.profile)
       if (!Object.keys(patch).length) return { data: params.previousData }
       const response = await request(`/${encodeURIComponent(params.id)}`, {
         method: 'PATCH',

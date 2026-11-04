@@ -10,12 +10,21 @@ public sealed record CreateLabelRequest
     public string? SortName { get; init; }
 }
 
-/// <summary>A merge patch. Omitted properties are preserved; sortName alone may be null.</summary>
+/// <summary>A patch of scalar fields or a full profile replacement. Omitted properties are preserved; profile cannot be null.</summary>
 public sealed record UpdateLabelRequest
 {
     public System.Text.Json.JsonElement Name { get; init; }
     public System.Text.Json.JsonElement SortName { get; init; }
+    public System.Text.Json.JsonElement Profile { get; init; }
 }
+
+/// <summary>A manually curated web link; sourceUrl records provenance and no URL is fetched by this API.</summary>
+public sealed record LabelWebLinkResponse(string Kind, string Url, string? Title, string? SourceUrl);
+
+/// <summary>Curated label profile. All fields are required for replacement; optional values can be null.</summary>
+public sealed record LabelProfileResponse(
+    string? Description, string? CountryCode, string? City, int? FoundedYear, string LifecycleStatus,
+    string? Notes, bool Favourite, string ReviewStatus, IReadOnlyList<LabelWebLinkResponse> Links);
 
 /// <summary>A lightweight label with its opaque aggregate version.</summary>
 public sealed record LabelListItemResponse(string Id, string? Name, string? SortName, string Version);
@@ -33,4 +42,5 @@ public sealed record LabelReferenceResponse(string Source, string ExternalId, bo
 public sealed record LabelResponse(
     string Id, string? Name, string? SortName, string Version,
     DateTimeOffset? CreatedUtc, DateTimeOffset? UpdatedUtc,
-    IReadOnlyList<LabelAliasResponse> Aliases, IReadOnlyList<LabelReferenceResponse> ExternalReferences);
+    IReadOnlyList<LabelAliasResponse> Aliases, IReadOnlyList<LabelReferenceResponse> ExternalReferences,
+    LabelProfileResponse Profile);

@@ -33,6 +33,33 @@ If-Match: {{etag}}
 
 {"sortName":null}
 
+### Replace full editable profile (omission preserves; null text/year and [] clear)
+PATCH {{baseUrl}}/api/v1/labels/{{labelId}}
+Authorization: Bearer {{apiKey}}
+Content-Type: application/merge-patch+json
+If-Match: {{etag}}
+
+{
+  "profile": {
+    "description": "Independent electronic label.",
+    "countryCode": "ES",
+    "city": null,
+    "foundedYear": null,
+    "lifecycleStatus": "unknown",
+    "notes": null,
+    "favourite": false,
+    "reviewStatus": "in_progress",
+    "links": [
+      {
+        "kind": "official",
+        "url": "https://example.test/",
+        "title": "Official website",
+        "sourceUrl": null
+      }
+    ]
+  }
+}
+
 ### Alias inspection
 GET {{baseUrl}}/api/v1/labels/{{labelId}}/aliases
 Authorization: Bearer {{apiKey}}

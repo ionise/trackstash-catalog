@@ -4,7 +4,7 @@ React-admin label maintenance application using React, TypeScript, and Vite. Its
 
 ## Build and Use
 
-Requirements for building: Node.js 22.12 or newer and npm. The API requires .NET 8 and an existing canonical catalog migrated to version 4 or later.
+Requirements for building: Node.js 22.12 or newer and npm. The API requires .NET 8 and an existing canonical catalog migrated to version 5 or later.
 
 From this directory:
 
@@ -23,10 +23,11 @@ The app supports:
 - Search canonical names/aliases, sort by name/sort name/ID, and page results (10, 25, 50, or 100).
 - Inspect stable IDs, timestamps, aliases, and provider references.
 - Create labels with server-assigned IDs, or edit name/sort name. Clearing sort name sends JSON null.
+- In existing-label **Edit**, manage description, country/city, founded year, lifecycle, personal notes, favourite, review status, and typed links with optional verification source URL. Clear optional text/year to remove it; use the link row's remove button to remove a link. Links are displayed as safe HTTP(S) links on detail; descriptions/notes are plain text. Manual saves retain before/after history in storage, not a history-view screen.
 - Preserve the original detail-response ETag for a pessimistic conditional save. A 412 displays a stale-edit warning and does not retry or overwrite a competing edit; reload before making a fresh edit.
 - Review a pairwise duplicate-label merge from survivor detail: paged name/provider search, combined aliases/provider IDs/release links, blockers, switch-survivor, reason, and explicit confirmation. Cancel does not change identities; refreshing a 15-minute review requires confirmation again. A stale apply is rejected without automatic retry, and successful apply refreshes lists/detail.
 
-Deletion, bulk mutation, relationship editing, and alias/reference mutation are intentionally unavailable.
+Deletion, bulk mutation, relationship editing, artwork upload/serving, automated enrichment, and alias/reference mutation are intentionally unavailable. Artwork, relationships, and source observations have schema-only foundations. No label embedding generation or automatic site fetching runs.
 
 ## Credentials and Browser Access
 

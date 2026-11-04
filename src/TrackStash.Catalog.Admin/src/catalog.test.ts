@@ -126,6 +126,40 @@ describe('memory-only authentication', () => {
       expect(JSON.parse(String(fetcher.mock.calls[1][1]?.body))).toEqual({ reason: 'Same label', operator: null })
     })
 
+    describe('manual label profiles', () => {
+      it('sends a complete changed profile with the original ETag and explicit empty values', async () => {
+        const { dataProvider, fetcher, login } = setup()
+        await login()
+        const profile = {
+          description: 'Original', countryCode: 'ES', city: null, foundedYear: 2007, lifecycleStatus: 'active',
+          notes: null, favourite: true, reviewStatus: 'reviewed',
+          links: [{ kind: 'official', url: 'https://example.test', title: 'Official', sourceUrl: null }],
+        }
+        fetcher.mockResolvedValueOnce(Response.json({ id: 'one', profile }, { headers: { ETag: '"new"' } }))
+        await dataProvider.update('labels', {
+          id: 'one', previousData: { id: 'one', profile, etag: '"original"' },
+          data: { id: 'one', profile: { ...profile, description: '', favourite: false, links: [] } },
+        })
+        expect(new Headers(fetcher.mock.calls[0][1]?.headers).get('If-Match')).toBe('"original"')
+        expect(JSON.parse(String(fetcher.mock.calls[0][1]?.body))).toEqual({
+          profile: { ...profile, description: null, favourite: false, links: [] },
+        })
+      })
+
+      it('does not send an unchanged profile during a name-only edit', async () => {
+        const { dataProvider, fetcher, login } = setup()
+        await login()
+        const profile = { description: null, countryCode: null, city: null, foundedYear: null, lifecycleStatus: 'unknown',
+          notes: null, favourite: false, reviewStatus: 'unreviewed', links: [] }
+        fetcher.mockResolvedValueOnce(Response.json({ id: 'one', name: 'Updated', profile }, { headers: { ETag: '"new"' } }))
+        await dataProvider.update('labels', {
+          id: 'one', previousData: { id: 'one', name: 'Original', profile, etag: '"original"' },
+          data: { id: 'one', name: 'Updated', profile: { ...profile } },
+        })
+        expect(JSON.parse(String(fetcher.mock.calls[0][1]?.body))).toEqual({ name: 'Updated' })
+      })
+    })
+
     it('does not allow a review without an ETag to be confirmed', async () => {
       const { mergeClient, fetcher, login } = setup()
       await login()

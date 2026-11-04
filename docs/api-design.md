@@ -61,7 +61,12 @@ Use `/api/v1` as the initial route prefix. Proposed label representation:
   "createdUtc": "2026-11-03T06:00:00Z",
   "updatedUtc": "2026-11-03T06:00:00Z",
   "aliases": [],
-  "externalReferences": []
+  "externalReferences": [],
+  "profile": {
+    "description": null, "countryCode": null, "city": null, "foundedYear": null,
+    "lifecycleStatus": "unknown", "notes": null, "favourite": false,
+    "reviewStatus": "unreviewed", "links": []
+  }
 }
 ```
 
@@ -82,7 +87,7 @@ Use `/api/v1` as the initial route prefix. Proposed label representation:
 | GET | `/labels` | Search/filter/sort/paginate labels |
 | POST | `/labels` | Create label with server-assigned GUID |
 | GET | `/labels/{id}` | Read label |
-| PATCH | `/labels/{id}` | Update name/sort name |
+| PATCH | `/labels/{id}` | Update name/sort name and/or replace editable profile |
 | GET | `/labels/{id}/aliases` | Read aliases |
 | GET | `/labels/{id}/external-references` | Inspect provider links |
 
@@ -96,7 +101,21 @@ The initial slice is complete when the same label can be listed, inspected, crea
 - Preview deletion dependencies and delete through existing shared safe-delete/tombstone services.
 - Reviewed pairwise merges with retired-ID redirects are implemented below; automatic/bulk deduplication remains excluded.
 
-Do not expose unsupported placeholder endpoints as successful operations. Exact child-resource routes and identifiers remain to be settled: current aliases/references use composite keys, and label relationships lack persistence.
+Do not expose unsupported placeholder endpoints as successful operations. Exact child-resource routes and identifiers remain to be settled: current aliases/references use composite keys; label relationships now have schema-only persistence, not public operations.
+
+### Manual Label Profiles
+
+SQLite migration 5 adds manual metadata and a future enrichment foundation; the API requires version 5 and never auto-migrates. `GET /labels/{id}` always includes a profile, with empty defaults for labels not yet curated. Lightweight list items remain unchanged. Creation remains name/sort-name only: create first, then edit.
+
+`PATCH /labels/{id}` accepts optional `profile` alongside name/sortName, using the same original ETag and atomic transaction. Omission preserves all metadata; a supplied profile is a **complete nested replacement**, not a recursive merge. Send all nine fields shown above. Null profile, missing fields, unknown/wrong-case/duplicate properties, and invalid types return `400 validation_failed`. Nullable text/year clears with null; `links: []` clears links.
+
+Limits: description/notes 12,000 characters each, city 200, country two uppercase letters (format only), founded integer year 1–9999, lifecycle `unknown|active|inactive|closed`, review `unreviewed|in_progress|reviewed`, favourite boolean. At most 100 exact-URL-unique links, each with all four keys: `kind`, `url`, nullable `title`, nullable `sourceUrl`. Kinds are `official|bandcamp|discogs|musicbrainz|resident_advisor|beatport|social|other`; title limit 200; URLs limit 2,048 and must be absolute HTTP(S), without embedded credentials. The existing **16 KiB total request limit still applies**, so individual maxima are not simultaneously usable. Invalid input is rejected without partial scalar/profile/history writes.
+
+Every successful explicit profile save records immutable before/after JSON and original label ID. Actor `manual` identifies the entry method, not a human authenticated by the shared bearer key. History is local storage only, not a public endpoint/UI yet. Legacy CLI imports/upserts and name-only patches preserve profile metadata.
+
+Merge previews show the combined profile. Compatible/equal scalar fields coalesce, unknown/unreviewed are treated as unset, favourites OR, and links union by exact URL. Conflicting nonempty fields/link metadata or a union exceeding the link limit block apply until reconciled by conditional edits. Histories and source observations transfer with original IDs intact; profile/link/evidence changes invalidate outstanding reviews. Unsupported artwork or relationship rows block merge and metadata-bearing labels cannot yet be safely deleted.
+
+Migration 5 also prepares source observations with provenance/licence/retention/review status, local artwork BLOBs with source/attribution/rights, and distinct-label `imprint_of`/`distributed_by` relationships with source/notes. These are **schema only**: no upload/serve, relationship mutation, automated source scraping/fetching, enrichment module, or label embedding generation is included. Web links are manually managed navigation/evidence, not verified foreign identities. A future pluggable enrichment module should submit reviewable observations rather than directly overwrite accepted profile fields.
 
 ### Reviewed Label Merge Design
 
@@ -156,7 +175,7 @@ Explicit SQLite migration 4 adds:
 
 Snapshots must be built from actual relational state, not the existing deletion service's `source_payload_json` tombstone shortcut. Do not route merge through ordinary delete/restore. The source label is retired only after all supported dependencies are transferred; any failure rolls back identity rows, links, derived-data changes, redirects, operation status, and audit together.
 
-Migration 4 preserves existing canonical IDs and references and never automatically merges a same-name group. The API refuses schemas below version 4 without migrating them. Back up and migrate the live canonical catalog only with separate approval. Scanner storage is out of scope.
+Migration 4 preserves existing canonical IDs and references and never automatically merges a same-name group. The current API requires migration 5 for profiles and refuses older schemas without migrating them. Back up and migrate the live canonical catalog only with separate approval. Scanner storage is out of scope.
 
 SQLite uses immediate unit-of-work transactions to exclude concurrent writers throughout inspect/apply, plus a dependency digest and apply savepoint. Raw before-state snapshots include both labels, aliases, references, release links, incoming redirects, embedding documents/vectors, and work items. Unknown incoming foreign-key dependencies with rows block apply; processing embedding jobs also block to avoid racing a leased worker. Known label embedding models are queued for forced survivor regeneration after invalidation.
 
@@ -280,7 +299,7 @@ Implemented response:
 
 - The six first-slice routes above are implemented under `/api/v1`. Child collections are read-only arrays. Single-label detail/create/update returns `ETag`; POST also returns a relative `Location`. All responses use `Cache-Control: no-store`; conditional GET is not implemented.
 - List query parameters are exactly `q`, `page`, `pageSize`, `sort`, `order`, `normalizedName`, `source`, and `externalId`. Unknown/repeated parameters and invalid values return 400. Sorting and matching follow the shared foundation below.
-- Request property names are case-sensitive. Create accepts only `name` and optional `sortName`; patch accepts the same allowlist and rejects empty patches. Unknown, duplicate, or wrongly typed properties are rejected. Bodies are JSON objects limited to 16 KiB. JSON uses standard numeric typing, not string-to-number coercion.
+- Request property names are case-sensitive. Create accepts only `name` and optional `sortName`; patch also accepts a complete `profile` replacement and rejects empty patches. Unknown, duplicate, or wrongly typed properties are rejected. Bodies are JSON objects limited to 16 KiB. JSON uses standard numeric typing, not string-to-number coercion.
 - `ETag` is the quoted Base64 encoding of the UTF-8 opaque storage version. Clients must treat the whole header as opaque. PATCH requires exactly one strong quoted `If-Match`; weak tags, wildcards, lists, and malformed/noncanonical encodings return 400. A valid but outdated token returns 412; a missing precondition returns 428. A missing resource with a valid precondition returns 404.
 - Error responses use `application/problem+json` with `status`, `title`, `type`, `instance`, `code`, and `traceId`; validation errors include an `errors` field dictionary where a field can be identified. Stable codes include `validation_failed`, `invalid_json`, `unsupported_media_type`, `body_too_large`, `label_not_found`, `identity_conflict`, `precondition_required`, `stale_version`, `unauthorized`, `loopback_required`, `origin_not_allowed`, `http_error`, and `internal_error`. Unexpected exceptions are logged server-side and sanitized in responses.
 - Every API/OpenAPI route requires the configured bearer key. The public `/admin` shell and assets contain no catalog data or key. Local HTTP is an initial development policy, not production authentication. Key comparison uses fixed-time hash comparison. Keys must be at least 32 non-whitespace characters and belong in environment/user secrets, never committed configuration. The host does not issue/store keys.
