@@ -1,6 +1,4 @@
 using System.Net;
-using System.Security.Cryptography;
-using System.Text;
 using Microsoft.Extensions.Primitives;
 
 namespace TrackStash.Catalog.Api.Middleware;
@@ -8,12 +6,12 @@ namespace TrackStash.Catalog.Api.Middleware;
 internal sealed class LocalAccessMiddleware
 {
     private readonly RequestDelegate _next;
-    private readonly byte[] _keyHash;
+    private readonly BrowserOrigins _origins;
 
-    public LocalAccessMiddleware(RequestDelegate next, string key)
+    public LocalAccessMiddleware(RequestDelegate next, BrowserOrigins origins)
     {
         _next = next;
-        _keyHash = SHA256.HashData(Encoding.UTF8.GetBytes(key));
+        _origins = origins;
     }
 
     public async Task InvokeAsync(HttpContext context)
@@ -25,19 +23,16 @@ internal sealed class LocalAccessMiddleware
             await ApiErrors.WriteAsync(context, 403, "loopback_required", "Only loopback connections are permitted");
             return;
         }
-        if (!StringValues.IsNullOrEmpty(context.Request.Headers.Origin))
+        if (!Uri.TryCreate($"{context.Request.Scheme}://{context.Request.Host}", UriKind.Absolute, out var address)
+            || !address.IsLoopback)
         {
-            await ApiErrors.WriteAsync(context, 403, "origin_not_allowed", "Browser origins are not enabled");
+            await ApiErrors.WriteAsync(context, 403, "host_not_allowed", "A loopback host name is required");
             return;
         }
-        var authorization = context.Request.Headers.Authorization;
-        var value = authorization.Count == 1 ? authorization[0] : null;
-        if (value is null || !value.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
-            || !CryptographicOperations.FixedTimeEquals(_keyHash,
-                SHA256.HashData(Encoding.UTF8.GetBytes(value[7..]))))
+        var origin = context.Request.Headers.Origin;
+        if (!StringValues.IsNullOrEmpty(origin) && (origin.Count != 1 || !_origins.Permits(origin.ToString(), context.Request)))
         {
-            context.Response.Headers.WWWAuthenticate = "Bearer";
-            await ApiErrors.WriteAsync(context, 401, "unauthorized", "A valid bearer API key is required");
+            await ApiErrors.WriteAsync(context, 403, "origin_not_allowed", "This browser origin is not allowed");
             return;
         }
         await _next(context);

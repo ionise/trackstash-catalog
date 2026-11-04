@@ -41,7 +41,7 @@ In scope for the first delivery phases:
 Out of scope for the first delivery phases:
 
 - remote service hosting
-- UI application surfaces
+- UI surfaces beyond the initial label admin
 - full embedding generation pipelines
 - advanced interactive review tools
 - match scoring and media writeback
@@ -87,7 +87,7 @@ Owns:
 
 The [Catalog API design intent](docs/api-design.md) extends catalog with the implemented `TrackStash.Catalog.Api` HTTP host and `TrackStash.Catalog.Application` label services. It does not replace the existing local CLI or artifact workflows.
 
-Label list/read/create/edit and alias/provider-reference inspection are implemented, including OpenAPI and temporary-database HTTP tests. The initial host is loopback-only, requires a configured bearer key for every route, and rejects browser origins; it does not migrate at startup. Add relationship and lifecycle operations only as their domain contracts and persistence become available. Planned React-admin and PowerShell clients will consume the same API. HTTP handlers use `ILabelService`; existing local CLI workflows remain unchanged and can adopt the shared services incrementally.
+Label list/read/create/edit and alias/provider-reference inspection are implemented, including OpenAPI and temporary-database HTTP tests. The React-admin GUI consumes these endpoints with memory-only authentication and original-response ETags for conditional edits. The host is loopback-only, requires a bearer key for all API/OpenAPI routes, and permits only same-origin or explicitly configured loopback browser origins; only the static GUI shell/assets are public. It does not migrate at startup. Add relationship and lifecycle operations only as their domain contracts and persistence become available. The PowerShell HTTP client remains planned. HTTP handlers use `ILabelService`; existing local CLI workflows remain unchanged and can adopt the shared services incrementally.
 
 Public contracts remain storage-provider independent. Future artists, releases, recordings, genre taxonomies, and playlists should follow the same identity and service boundaries. The API document distinguishes implemented HTTP behavior from future plans; the command sections below describe CLI behavior.
 

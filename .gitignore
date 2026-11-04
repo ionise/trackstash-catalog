@@ -13,3 +13,11 @@ TestResults/
 coverage/
 *.coverage
 *.trx
+
+# Frontend dependencies, output, and machine-local configuration
+**/node_modules/
+**/dist/
+**/.env*
+!**/.env.example
+**/playwright-report/
+**/test-results/

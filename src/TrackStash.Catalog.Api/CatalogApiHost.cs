@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.FileProviders;
 using Microsoft.OpenApi.Models;
 using TrackStash.Catalog.Api.Middleware;
 using TrackStash.Catalog.Application;
@@ -26,6 +27,12 @@ public static class CatalogApiHost
             throw new InvalidOperationException("CatalogApi:Port must be between 1 and 65535.");
         if (builder.Configuration.GetSection("Kestrel:Endpoints").Exists())
             throw new InvalidOperationException("Custom Kestrel endpoints are not supported. Use CatalogApi:Port; this host is loopback-only.");
+        var browserOrigins = new BrowserOrigins(builder.Configuration.GetSection("CatalogApi:AllowedOrigins").Get<string[]>() ?? []);
+        builder.Services.AddSingleton(browserOrigins);
+        builder.Services.AddCors(options => options.AddDefaultPolicy(policy =>
+            policy.WithOrigins(browserOrigins.Allowed).WithMethods("GET", "POST", "PATCH")
+                .WithHeaders("Authorization", "Content-Type", "If-Match")
+                .WithExposedHeaders("ETag", "Location")));
         builder.WebHost.ConfigureKestrel(options =>
         {
             options.ListenLocalhost(port);
@@ -100,7 +107,9 @@ public static class CatalogApiHost
         // Resolve configuration before accepting requests; no migrations or seeding run here.
         _ = app.Services.GetRequiredService<IStorageProvider>();
         app.UseExceptionHandler();
-        app.UseMiddleware<LocalAccessMiddleware>(key);
+        app.UseMiddleware<LocalAccessMiddleware>();
+        app.UseCors();
+        app.UseMiddleware<BearerKeyMiddleware>(key);
         app.UseStatusCodePages(async context =>
         {
             var status = context.HttpContext.Response.StatusCode;
@@ -109,6 +118,15 @@ public static class CatalogApiHost
         });
         app.UseSwagger(options => options.RouteTemplate = "openapi/{documentName}.json");
         app.MapLabels();
+        var webRoot = Path.Combine(AppContext.BaseDirectory, "wwwroot");
+        if (File.Exists(Path.Combine(webRoot, "admin", "index.html")))
+        {
+            var files = new PhysicalFileProvider(webRoot);
+            app.Lifetime.ApplicationStopped.Register(files.Dispose);
+            app.UseStaticFiles(new StaticFileOptions { FileProvider = files });
+            app.MapFallbackToFile("/admin/{*path:nonfile}", "admin/index.html",
+                new StaticFileOptions { FileProvider = files }).ExcludeFromDescription();
+        }
         return app;
     }
 }

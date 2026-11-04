@@ -93,9 +93,24 @@ Seeding does not update media tags or establish file/release links automatically
 
 ## Label HTTP API and Planned Clients
 
-The [Catalog API design intent](docs/api-design.md) describes the implemented label-first ASP.NET Core host and shared application services, plus planned React-admin and PowerShell HTTP clients. SQLite remains a storage adapter, not part of the public API contract.
+The [Catalog API design intent](docs/api-design.md) describes the implemented label-first ASP.NET Core host, shared application services, and React-admin GUI, plus a planned PowerShell HTTP client. SQLite remains a storage adapter, not part of the public API contract.
 
-The host supports label list/read/create/edit and alias/provider-reference reads. Relationships, safe lifecycle workflows, GUI, and PowerShell HTTP client remain future work. The resource boundary leaves room for artists, releases, recordings (abstract tracks), genres/subgenres, and playlists without importing Beatport-specific identities or Library filesystem responsibilities.
+The host and GUI support label list/read/create/edit and alias/provider-reference inspection. Relationships, safe lifecycle workflows, and PowerShell HTTP client remain future work. The resource boundary leaves room for artists, releases, recordings (abstract tracks), genres/subgenres, and playlists without importing Beatport-specific identities or Library filesystem responsibilities.
+
+### React-admin GUI
+
+The [admin application](src/TrackStash.Catalog.Admin/README.md) provides searchable, sortable label lists, paged results, detail/alias/provider-reference inspection, and safe create/edit forms. It retains API keys in memory only, disables framework telemetry, and rejects stale edits using the form's original ETag.
+
+Build it before building the API:
+
+```bash
+cd src/TrackStash.Catalog.Admin
+npm ci
+npm run build
+cd ../..
+```
+
+Then start the API as below and open <http://localhost:5187/admin/>. Enter the key configured for that API. The .NET build copies built assets into its output/publish directory; users running the prebuilt output do not need npm. Source builds require Node.js 22.12 or later. See the [admin instructions](src/TrackStash.Catalog.Admin/README.md) for hot-reload development, tests, and packaging boundaries.
 
 ### Running the API Locally
 
@@ -111,7 +126,7 @@ The generated key stays in the shell environment, not source control. Configure 
 
 The host listens on `http://localhost:5187` (both loopback addresses when available). Change the port with `CatalogApi__Port`. General URL overrides do not enable remote hosting, and custom Kestrel endpoint configuration is rejected. The startup storage check refuses incompatible/uninitialized label storage without applying migrations or seeding.
 
-Every request, including OpenAPI, requires `Authorization: Bearer <key>`. Keys must have at least 32 characters and no whitespace. Browser `Origin` headers are rejected until an explicit GUI origin policy is added. Do not deploy behind a proxy or expose over LAN; remote access, TLS, per-user permissions, and key lifecycle management need a separate design.
+Every API request, including OpenAPI, requires `Authorization: Bearer <key>`. Keys must have at least 32 characters and no whitespace. Only the public `/admin` shell/assets are exempt; they contain no credentials or catalog data. Browser requests may use the API's own origin or exact additional HTTP(S) loopback origins configured in `CatalogApi:AllowedOrigins`. For Vite development set `CatalogApi__AllowedOrigins__0=http://localhost:5173`; other origins are rejected. Do not deploy behind a proxy or expose over LAN; remote access, TLS, per-user permissions, and key lifecycle management need a separate design.
 
 From another shell configured with the same key:
 

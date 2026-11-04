@@ -1,6 +1,6 @@
 # Catalog API Design Intent
 
-Status: shared label foundation and loopback-only HTTP host implemented with OpenAPI and integration tests. GUI and PowerShell HTTP clients remain planned.
+Status: shared label foundation, loopback-only HTTP host, and React-admin label GUI implemented with OpenAPI, integration tests, and browser tests. PowerShell HTTP client remains planned.
 
 ## Purpose and Scope
 
@@ -25,6 +25,7 @@ src/
   TrackStash.Catalog/               Existing CLI
   TrackStash.Catalog.Application/   Shared label use cases
   TrackStash.Catalog.Api/           ASP.NET Core HTTP host
+  TrackStash.Catalog.Admin/         React-admin label GUI (Vite/TypeScript)
 TrackStash.Catalog.Client/          Proposed PowerShell HTTP client
 ```
 
@@ -74,7 +75,7 @@ Use `/api/v1` as the initial route prefix. Proposed label representation:
 
 ## Proposed Operations and Delivery Order
 
-### First vertical slice (HTTP implemented; clients pending)
+### First vertical slice (HTTP and GUI implemented; PowerShell pending)
 
 | Method | Route | Intent |
 | --- | --- | --- |
@@ -167,14 +168,18 @@ Implemented response:
 - Request property names are case-sensitive. Create accepts only `name` and optional `sortName`; patch accepts the same allowlist and rejects empty patches. Unknown, duplicate, or wrongly typed properties are rejected. Bodies are JSON objects limited to 16 KiB. JSON uses standard numeric typing, not string-to-number coercion.
 - `ETag` is the quoted Base64 encoding of the UTF-8 opaque storage version. Clients must treat the whole header as opaque. PATCH requires exactly one strong quoted `If-Match`; weak tags, wildcards, lists, and malformed/noncanonical encodings return 400. A valid but outdated token returns 412; a missing precondition returns 428. A missing resource with a valid precondition returns 404.
 - Error responses use `application/problem+json` with `status`, `title`, `type`, `instance`, `code`, and `traceId`; validation errors include an `errors` field dictionary where a field can be identified. Stable codes include `validation_failed`, `invalid_json`, `unsupported_media_type`, `body_too_large`, `label_not_found`, `identity_conflict`, `precondition_required`, `stale_version`, `unauthorized`, `loopback_required`, `origin_not_allowed`, `http_error`, and `internal_error`. Unexpected exceptions are logged server-side and sanitized in responses.
-- Every route, including `/openapi/v1.json`, requires the configured bearer key. Local HTTP is an initial development policy, not production authentication. Key comparison uses fixed-time hash comparison. Keys must be at least 32 non-whitespace characters and belong in environment/user secrets, never committed configuration. The host does not issue/store keys.
-- Kestrel binds loopback on port 5187 by default (`CatalogApi:Port` override). It rejects custom Kestrel endpoint configuration and remote peer addresses. No forwarded-header/proxy support or CORS is enabled; any browser `Origin` header is rejected. GUI integration must add an explicit origin policy, not disable bearer authentication.
+- Every API/OpenAPI route requires the configured bearer key. The public `/admin` shell and assets contain no catalog data or key. Local HTTP is an initial development policy, not production authentication. Key comparison uses fixed-time hash comparison. Keys must be at least 32 non-whitespace characters and belong in environment/user secrets, never committed configuration. The host does not issue/store keys.
+- Kestrel binds loopback on port 5187 by default (`CatalogApi:Port` override). It rejects custom Kestrel endpoint configuration, remote peer addresses, and non-loopback Host headers (`host_not_allowed`). No forwarded-header/proxy support is enabled. Browser Origin must exactly match the request's own origin or `CatalogApi:AllowedOrigins`; configured origins must be canonical HTTP(S) loopback origins without paths or user info. Allowed-origin preflights do not require a key, but every subsequent API request does. CORS only allows GET/POST/PATCH with Authorization/Content-Type/If-Match, exposes ETag/Location, and does not allow credentials/cookies.
 - `CatalogApi:DatabasePath` must select an existing absolute canonical catalog path. Startup verifies label query readiness without seeding/migrating. The API must not be pointed at the scanner inventory database. The live catalog is not touched by automated tests.
 - OpenAPI is generated from endpoints and explicit DTOs at `/openapi/v1.json`, including paging fields, bearer security, merge-patch content type, errors, and concurrency headers. Swagger generation uses Swashbuckle for the existing .NET 8 target; no interactive UI or public documentation route is exposed.
 
 [HTTP integration tests](../tests/TrackStash.Catalog.Tests/LabelApiTests.cs) exercise temporary databases, access failures, malformed inputs, paging, identity preservation, legacy-write invalidation, competing edits, child reads, sanitized failures, OpenAPI, and refusal to migrate at startup. A real Kestrel loopback smoke test also verified all six operations. The [`.http` examples](../src/TrackStash.Catalog.Api/TrackStash.Catalog.Api.http) are the manual request harness.
 
-Remaining work includes CLI adoption of the service interface, GUI/PowerShell clients, browser-origin configuration, authenticated remote deployment, and create idempotency. Do not automatically retry POST until the latter has a persisted design.
+The [React-admin application](../src/TrackStash.Catalog.Admin/README.md) implements label list/detail/create/edit with paged search/sorting and read-only aliases/references. A thin data provider translates the API shape; forms preserve the original read ETag, whitelist mutable fields, and use pessimistic saves. Stale writes display an explicit warning rather than automatically fetching a fresh token/retrying. Bearer keys and UI preferences live in memory only, logout clears cached catalog state, reload requires login again, and React-admin telemetry is disabled.
+
+Production builds are served at `/admin/` by the API when built assets are present. Vite development uses localhost:5173 with a local API proxy and explicit origin configuration. [Unit tests](../src/TrackStash.Catalog.Admin/src/catalog.test.ts) and [browser tests](../src/TrackStash.Catalog.Admin/e2e/labels.spec.ts) verify transport, authentication, list navigation, edits, and stale-write preservation using temporary catalogs.
+
+Remaining work includes CLI adoption of the service interface, the PowerShell HTTP client, relationship/lifecycle UI, authenticated remote deployment, and create idempotency. Do not automatically retry POST until the latter has a persisted design.
 
 ### PowerShell HTTP Client
 
@@ -281,9 +286,9 @@ The initial host resolves these choices as described above:
 - New canonical GUID output and verbatim legacy IDs, without changing stored IDs.
 - Shared search semantics, sortable fields, page limits, and all ambiguous provider-reference candidates.
 - Strict JSON Merge Patch allowlist/null handling and aggregate revisions across existing writers.
-- Loopback-only development hosting with a bearer key and no browser origins. Remote deployment is not supported.
+- Loopback-only development hosting with a bearer key and exact same-origin/configured loopback browser origins. Remote deployment is not supported.
 
-Future GUI/remote access requires a separate explicit access policy. The initial host does not ship an unauthenticated mode.
+Future remote access requires a separate explicit access policy. The initial host does not ship an unauthenticated API mode.
 
 ### Source and Test Anchors
 
@@ -300,7 +305,7 @@ Future GUI/remote access requires a separate explicit access policy. The initial
 - [Existing import integration tests](../tests/TrackStash.Catalog.Tests/ImportCsvIntegrationTests.cs)
 - [Existing deletion integration tests](../tests/TrackStash.Catalog.Tests/DeleteEntityIntegrationTests.cs)
 
-Paths above are relative to this document's directory. Existing catalog tests cover imports, summary, deletion and command-line flows. The new focused tests cover foundation service/adapter behavior and concurrent conditional updates using temporary catalogs; HTTP contract and client tests are still required with the host.
+Paths above are relative to this document's directory. Existing catalog tests cover imports, summary, deletion and command-line flows. Focused tests cover foundation service/adapter behavior, HTTP contracts, concurrent conditional updates, and GUI workflows using temporary catalogs; PowerShell client tests remain future work.
 
 ## Implementation Plan and Acceptance Gates
 
@@ -314,4 +319,4 @@ Paths above are relative to this document's directory. Existing catalog tests co
 
 Tests must cover pagination totals/stable sorting, validation, normalization, immutable IDs, create/reapply identity behavior, stale edits, transactional rollback, missing resources, aliases/provider-reference ambiguity, safe deletion, and client error handling. Add relationship direction/cycle and merge-redirect tests with those capabilities. Verify UI and PowerShell behavior, not just repository methods.
 
-Before expanding the host to browser clients or remote deployment, settle their access policies rather than assuming the local bearer-key policy is sufficient. Planning does not authorize changes to existing catalog data, media files, or running Library jobs.
+Before expanding the host to remote deployment, settle its access policy rather than assuming the local bearer-key policy is sufficient. Planning does not authorize changes to existing catalog data, media files, or running Library jobs.

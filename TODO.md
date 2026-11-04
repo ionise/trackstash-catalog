@@ -11,7 +11,8 @@ See [API design intent](docs/api-design.md) for contracts, boundaries, open deci
 - [ ] Integrate shared label application services into CLI; extract further use cases as needed
 - [x] Add `TrackStash.Catalog.Api` with provider-independent label list/read/create/edit and alias/reference inspection
 - [x] Add OpenAPI and integration/contract coverage against temporary databases
-- [ ] Add React-admin label screens and a separate `TrackStash.Catalog.Client` PowerShell HTTP module
+- [x] Add React-admin label list/detail/create/edit screens with memory-only login, origin policy, ETags, and browser tests
+- [ ] Add a separate `TrackStash.Catalog.Client` PowerShell HTTP module
 - [ ] Implement and test label relationship persistence, direction, provenance, effective dates, and hierarchy validation
 - [ ] Add safe deletion preview/apply and reviewed duplicate/merge workflows with retired-ID resolution (first ensure tombstones snapshot relational state, not just provider payloads)
 - [ ] Validate the label slice end to end before expanding to artists, releases, and recordings

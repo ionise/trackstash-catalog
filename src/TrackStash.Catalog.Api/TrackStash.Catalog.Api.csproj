@@ -8,6 +8,8 @@
     <UserSecretsId>trackstash-catalog-api</UserSecretsId>
   </PropertyGroup>
   <ItemGroup>
+    <Content Include="../TrackStash.Catalog.Admin/dist/**" Link="wwwroot/admin/%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <ProjectReference Include="../TrackStash.Catalog.Application/TrackStash.Catalog.Application.csproj" />
     <ProjectReference Include="../../../trackstash-core/src/TrackStash.Core.Sqlite/TrackStash.Core.Sqlite.csproj" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />

@@ -124,6 +124,69 @@ public sealed class LabelApiTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task SameOriginBrowserCanEditButStillNeedsBearerKey()
+    {
+        using var missing = new HttpRequestMessage(HttpMethod.Get, "/api/v1/labels");
+        missing.Headers.Add("Origin", "http://localhost");
+        using var anonymous = _app.GetTestClient();
+        await ProblemAsync(await anonymous.SendAsync(missing), 401, "unauthorized");
+        var (label, tag) = await CreateAsync();
+        using var edit = new HttpRequestMessage(HttpMethod.Patch, $"/api/v1/labels/{label.Id}")
+        {
+            Content = new StringContent("""{"name":"Same-origin edit"}""", Encoding.UTF8, "application/merge-patch+json"),
+        };
+        edit.Headers.Add("Origin", "http://localhost");
+        edit.Headers.Add("If-Match", tag);
+        Assert.Equal(HttpStatusCode.OK, (await _client.SendAsync(edit)).StatusCode);
+    }
+
+    [Fact]
+    public async Task ExplicitLoopbackOriginAllowsPreflightAndExposesETagWithoutCredentials()
+    {
+        const string origin = "http://localhost:5173";
+        await using var app = Build(builder => builder.Configuration.AddInMemoryCollection(
+            new Dictionary<string, string?> { ["CatalogApi:AllowedOrigins:0"] = origin }));
+        await app.StartAsync();
+        using var client = app.GetTestClient();
+        using var preflight = new HttpRequestMessage(HttpMethod.Options, "/api/v1/labels");
+        preflight.Headers.Add("Origin", origin);
+        preflight.Headers.Add("Access-Control-Request-Method", "PATCH");
+        preflight.Headers.Add("Access-Control-Request-Headers", "authorization,content-type,if-match");
+        var allowed = await client.SendAsync(preflight);
+        Assert.Equal(HttpStatusCode.NoContent, allowed.StatusCode);
+        Assert.Equal(origin, allowed.Headers.GetValues("Access-Control-Allow-Origin").Single());
+        Assert.Contains("If-Match", allowed.Headers.GetValues("Access-Control-Allow-Headers").Single());
+        Assert.False(allowed.Headers.Contains("Access-Control-Allow-Credentials"));
+        client.DefaultRequestHeaders.Add("Origin", origin);
+        var unauthorized = await client.GetAsync("/api/v1/labels");
+        await ProblemAsync(unauthorized, 401, "unauthorized");
+        Assert.Equal(origin, unauthorized.Headers.GetValues("Access-Control-Allow-Origin").Single());
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Key);
+        var response = await client.PostAsJsonAsync("/api/v1/labels", new { name = "Browser-created" });
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        Assert.Contains("ETag", response.Headers.GetValues("Access-Control-Expose-Headers").Single());
+        Assert.Contains("Location", response.Headers.GetValues("Access-Control-Expose-Headers").Single());
+    }
+
+    [Theory]
+    [InlineData("https://example.com")]
+    [InlineData("*")]
+    [InlineData("http://localhost:5173/path")]
+    [InlineData("http://localhost:5173/")]
+    [InlineData("http://user@localhost:5173")]
+    public void InvalidBrowserOriginsFailStartup(string origin)
+        => Assert.Throws<InvalidOperationException>(() => Build(builder =>
+            builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?> { ["CatalogApi:AllowedOrigins:0"] = origin })));
+
+    [Fact]
+    public async Task NonLoopbackHostIsRejectedEvenOnLoopbackConnection()
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/labels");
+        request.Headers.Host = "example.invalid";
+        await ProblemAsync(await _client.SendAsync(request), 403, "host_not_allowed");
+    }
+
+    [Fact]
     public async Task LabelLifecycle_UsesStableIdentityETagsAndMergePatch()
     {
         var (label, etag) = await CreateAsync();
