@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import {
   Alert, Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle,
   FormControlLabel, MenuItem, Stack, TextField, Typography,
@@ -7,11 +8,11 @@ import { useLogoutIfAccessDenied, useRecordContext, useRefresh } from 'react-adm
 import { artworkClient } from './catalog'
 import type { ArtworkGallery, ArtworkItem, LabelRecord } from './catalog'
 
-export function ArtworkImage({ assetId, caption }: { assetId: string; caption: string }) {
-  return <AssetImage key={assetId} assetId={assetId} caption={caption} />
+export function ArtworkImage({ assetId, caption, size = 160 }: { assetId: string; caption: string; size?: number }) {
+  return <AssetImage key={assetId} assetId={assetId} caption={caption} size={size} />
 }
 
-function AssetImage({ assetId, caption }: { assetId: string; caption: string }) {
+function AssetImage({ assetId, caption, size }: { assetId: string; caption: string; size: number }) {
   const [url, setUrl] = useState('')
   const [error, setError] = useState('')
   const logout = useLogoutIfAccessDenied()
@@ -30,16 +31,26 @@ function AssetImage({ assetId, caption }: { assetId: string; caption: string }) 
     return () => { abort.abort(); if (objectUrl) URL.revokeObjectURL(objectUrl) }
   }, [assetId, logout])
   return error ? <Alert severity="error">{error}</Alert> : url
-    ? <Box component="img" src={url} alt={caption} sx={{ width: 160, height: 160, objectFit: 'contain', borderRadius: 1, bgcolor: 'action.hover' }} />
+    ? <Box component="img" src={url} alt={caption} sx={{ width: size, height: size, maxWidth: '100%', objectFit: 'contain', borderRadius: 1, bgcolor: 'action.hover' }} />
     : <Typography>Loading artwork...</Typography>
 }
 
-export function LabelArtwork() {
-  const record = useRecordContext<LabelRecord>()
-  return record ? <LabelArtworkPanel key={record.id} id={record.id} name={record.name} /> : null
+export interface LabelArtworkState {
+  gallery?: ArtworkGallery
+  error: string
+  busy: boolean
+  manage: () => void
+}
+interface LabelArtworkProps {
+  children?: (state: LabelArtworkState, gallery: ReactNode) => ReactNode
 }
 
-function LabelArtworkPanel({ id, name }: { id: string; name: string | null }) {
+export function LabelArtwork({ children }: LabelArtworkProps) {
+  const record = useRecordContext<LabelRecord>()
+  return record ? <LabelArtworkPanel key={record.id} id={record.id} name={record.name} version={record.version}>{children}</LabelArtworkPanel> : null
+}
+
+function LabelArtworkPanel({ id, name, version, children }: LabelArtworkProps & { id: string; name: string | null; version: string }) {
   const refresh = useRefresh()
   const logout = useLogoutIfAccessDenied()
   const [gallery, setGallery] = useState<ArtworkGallery>()
@@ -58,6 +69,7 @@ function LabelArtworkPanel({ id, name }: { id: string; name: string | null }) {
   const [replacement, setReplacement] = useState<string>()
   const uploadSection = useRef<HTMLDivElement>(null)
   useEffect(() => {
+    if (open) return
     const abort = new AbortController()
     void artworkClient.get(id, abort.signal).then(result => {
       if (!abort.signal.aborted) { setGallery(result); setDraft(result.items) }
@@ -68,7 +80,7 @@ function LabelArtworkPanel({ id, name }: { id: string; name: string | null }) {
       }
     })
     return () => abort.abort()
-  }, [id, logout])
+  }, [id, version, open, logout])
 
   const dirty = JSON.stringify(draft) !== JSON.stringify(gallery?.items ?? [])
   async function execute(action: () => Promise<void>) {
@@ -107,10 +119,14 @@ function LabelArtworkPanel({ id, name }: { id: string; name: string | null }) {
     })
   }
 
-  return <Box sx={{ width: '100%', py: 2 }}>
+  function manage() {
+    setOpen(true); setDraft(gallery?.items ?? []); setReplacement(undefined); setError('')
+    if (!gallery) void execute(async () => accept(await artworkClient.get(id)))
+  }
+  const galleryView = <Box sx={{ width: '100%', py: 2 }}>
     <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
-      <Typography variant="h6">Artwork</Typography>
-      <Button disabled={busy} onClick={() => { setOpen(true); setDraft(gallery?.items ?? []); setReplacement(undefined); setError('') }}>Manage artwork</Button>
+      <Typography variant="h6" component="h2">Artwork</Typography>
+      <Button disabled={busy} onClick={manage}>Manage artwork</Button>
     </Stack>
     {!open && error && <Alert severity="error">{error}</Alert>}
     {gallery?.items.length === 0 && <Typography color="text.secondary">No artwork recorded.</Typography>}
@@ -120,6 +136,9 @@ function LabelArtworkPanel({ id, name }: { id: string; name: string | null }) {
         <Typography>{item.caption || item.role}{item.isPreferred ? ' (preferred)' : ''}</Typography>
       </Box>)}
     </Stack>
+  </Box>
+  return <>
+    {children ? children({ gallery, error, busy, manage }, galleryView) : galleryView}
     <Dialog open={open} onClose={() => { if (!busy) setOpen(false) }} fullWidth maxWidth="md">
       <DialogTitle>Label artwork and gallery</DialogTitle>
       <DialogContent>
@@ -184,5 +203,5 @@ function LabelArtworkPanel({ id, name }: { id: string; name: string | null }) {
       </DialogContent>
       <DialogActions><Button disabled={busy} onClick={() => setOpen(false)}>Close artwork</Button></DialogActions>
     </Dialog>
-  </Box>
+  </>
 }

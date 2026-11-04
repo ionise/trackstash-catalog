@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Alert, Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, Stack, TextField, Typography } from '@mui/material'
+import { Alert, Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, IconButton, Menu, MenuItem, Stack, TextField, Typography } from '@mui/material'
+import MoreVertIcon from '@mui/icons-material/MoreVert'
 import { useDataProvider, useLogoutIfAccessDenied, useRecordContext, useRedirect, useRefresh } from 'react-admin'
 import { mergeClient } from './catalog'
 import type { LabelRecord, MergePreview } from './catalog'
@@ -12,6 +13,7 @@ export function LabelMerge() {
   const refresh = useRefresh()
   const logoutIfAccessDenied = useLogoutIfAccessDenied()
   const [open, setOpen] = useState(false)
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null)
   const [search, setSearch] = useState('')
   const [source, setSource] = useState('')
   const [externalId, setExternalId] = useState('')
@@ -73,9 +75,15 @@ export function LabelMerge() {
   }
 
   return <>
-    <Button onClick={() => { setOpen(true); setPreview(undefined); setCandidates([]); setError(''); setReason(''); setOperator(''); setConfirmed(false); setTotal(0) }}>
-      Merge duplicate into this label
-    </Button>
+    <IconButton aria-label="More actions" aria-haspopup="menu" aria-controls={anchor ? 'label-actions' : undefined}
+      aria-expanded={Boolean(anchor)} onClick={event => setAnchor(event.currentTarget)}>
+      <MoreVertIcon />
+    </IconButton>
+    <Menu id="label-actions" anchorEl={anchor} open={Boolean(anchor)} onClose={() => setAnchor(null)}>
+      <MenuItem onClick={() => { setAnchor(null); setOpen(true); setPreview(undefined); setCandidates([]); setError(''); setReason(''); setOperator(''); setConfirmed(false); setTotal(0) }}>
+        Merge label...
+      </MenuItem>
+    </Menu>
     <Dialog open={open} onClose={() => { if (!busy) setOpen(false) }} fullWidth maxWidth="md">
       <DialogTitle>Review duplicate label merge</DialogTitle>
       <DialogContent>

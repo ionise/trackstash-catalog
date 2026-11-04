@@ -17,7 +17,7 @@ See [API design intent](docs/api-design.md) for contracts, boundaries, open deci
 - [x] Prepare source-attributed observations, local artwork with source/rights, and typed label relationship schema (migration 5)
 - [ ] Implement reviewed label relationship workflows and hierarchy validation; initial schema includes direction/source/notes, not dates or territory
 - [x] Deliver label artwork as the first consumer of shared artwork infrastructure (stages below)
-- [ ] Polish the Label detail UI: identity header, preferred logo with accessible artwork action, biography, favourite toggle, external-link icons, local country flags, secondary record details, and honest future-content placeholders (see [UI plan](docs/label-detail-ui-plan.md))
+- [x] Polish the Label detail UI: identity header, preferred logo with accessible artwork action, biography, favourite toggle, external-link icons, local country flags, secondary record details, and honest future-content placeholders (see [UI plan](docs/label-detail-ui-plan.md))
 - [ ] Once related entity/query infrastructure exists, add label-scoped Tracks, Releases and related Artists subpages with backend search/filtering, stable sorting, pagination and URL query state (see [longer-term list plan](docs/label-detail-ui-plan.md#longer-term-searchable-subpages))
 - [ ] Design a separate pluggable enrichment module and reviewed observation acceptance; automatic fetching is parked
 - [ ] Define label embedding documents, invalidation/regeneration, and semantic search (exclude personal notes by default)

@@ -120,7 +120,8 @@ test('merge review displays survivor-first artwork and preserves the winning pre
     })
     expect(uploaded.status()).toBe(201)
   }
-  await page.getByRole('button', { name: 'Merge duplicate into this label' }).click()
+  await page.getByRole('button', { name: 'More actions', exact: true }).click()
+  await page.getByRole('menuitem', { name: 'Merge label...', exact: true }).click()
   const dialog = page.getByRole('dialog')
   await dialog.getByLabel('Find duplicate label').fill('Artwork Merge Duplicate')
   await dialog.getByRole('button', { name: 'Search candidates', exact: true }).click()

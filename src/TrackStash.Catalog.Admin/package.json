@@ -20,10 +20,13 @@
   "dependencies": {
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",
+    "@mui/icons-material": "^9.5.0",
     "@mui/material": "^9.5.0",
+    "flag-icons": "^7.6.0",
     "react": "^19.3.1",
     "react-admin": "^5.15.5",
-    "react-dom": "^19.3.1"
+    "react-dom": "^19.3.1",
+    "simple-icons": "^16.36.0"
   },
   "devDependencies": {
     "patched-uri-decoder": "npm:decode-uri-component@^0.5.1",

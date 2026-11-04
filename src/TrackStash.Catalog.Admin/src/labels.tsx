@@ -1,11 +1,10 @@
 import {
-  ArrayField, BooleanField, Create, Datagrid, DateField, Edit, EditButton,
-  List, Pagination, required, Show, ShowButton, SimpleForm, SimpleShowLayout,
+  Create, Datagrid, Edit, EditButton,
+  List, Pagination, required, Show, ShowButton, SimpleForm,
   TextField, TextInput, Toolbar, SaveButton,
 } from 'react-admin'
-import { LabelMerge } from './LabelMerge'
-import { LabelProfileFields, LabelProfileShow } from './LabelProfile'
-import { LabelArtwork } from './LabelArtwork'
+import { LabelProfileFields } from './LabelProfile'
+import { LabelDetail } from './LabelDetail'
 
 const nameValidators = [required(), (value: string) => value?.trim() ? undefined : 'A nonblank name is required.']
 const filters = [<TextInput key="q" source="q" label="Search names and aliases" alwaysOn />]
@@ -28,31 +27,8 @@ export function LabelList() {
 
 export function LabelShow() {
   return (
-    <Show>
-      <SimpleShowLayout>
-        <LabelMerge />
-        <LabelArtwork />
-        <TextField source="name" />
-        <TextField source="sortName" />
-        <TextField source="id" label="Catalog ID" />
-        <DateField source="createdUtc" showTime />
-        <DateField source="updatedUtc" showTime />
-        <LabelProfileShow />
-        <ArrayField source="aliases">
-          <Datagrid bulkActionButtons={false} rowClick={false}>
-            <TextField source="value" sortable={false} />
-            <BooleanField source="isPrimary" sortable={false} />
-          </Datagrid>
-        </ArrayField>
-        <ArrayField source="externalReferences">
-          <Datagrid bulkActionButtons={false} rowClick={false}>
-            <TextField source="source" sortable={false} />
-            <TextField source="externalId" label="Provider ID" sortable={false} />
-            <BooleanField source="isPrimary" sortable={false} />
-            <DateField source="lastSeenUtc" showTime sortable={false} />
-          </Datagrid>
-        </ArrayField>
-      </SimpleShowLayout>
+    <Show actions={false}>
+      <LabelDetail />
     </Show>
   )
 }

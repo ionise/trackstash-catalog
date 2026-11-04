@@ -1,6 +1,6 @@
 # Label detail UI plan
 
-Status: agreed direction, not implemented. This increment improves the existing Label experience before starting Artists; Releases follow once Label and Artist workflows are ready.
+Status: Label detail layout and interactions implemented, with frontend unit and production/development browser coverage. Searchable related-content subpages remain future work. This increment improves the existing Label experience before starting Artists; Releases follow once Label and Artist workflows are ready.
 
 ## Purpose and visual direction
 
@@ -14,7 +14,7 @@ There is no Featured section. Tracks and Releases are future label content views
 +-----------------------------------------------------------------------+
 | Existing Trackstash application bar                                   |
 +------------------+----------------------------------------------------+
-|                  | [Label logo]  Label name                   [Edit]  |
+|                  | [Label logo]  Label name               [Edit] [...] |
 | Trackstash       |               [Favourite] [Website] [Discogs] ...   |
 | navigation       |               [flag] Country / City / Founded year |
 |                  |                                                    |
@@ -49,6 +49,8 @@ There is no Featured section. Tracks and Releases are future label content views
 ### Edit and favourite
 
 - Provide an obvious Edit button in the header for label information. Reuse the current edit workflow initially; organise it into clear sections if needed without changing persistence semantics.
+- Place a More actions menu beside Edit at the top right of the header, displayed with a vertical three-dot icon and an accessible name. Include a clearly labelled "Merge label..." action; do not bury the merge entry point in Record details.
+- Selecting "Merge label..." opens the existing reviewed merge workflow: choose the other label, preview the result, then explicitly confirm. Opening the menu or selecting the action must never apply a merge directly.
 - Favourite corresponds to the existing `profile.favourite` value, not a new following/subscription concept. Present a heart toggle with an accessible label and pressed state.
 - Update favourite through the existing conditional label update contract. Preserve the complete current profile, links and unrelated fields; do not send a partial nested profile replacement.
 - Use the current aggregate ETag, prevent duplicate submissions, and handle stale updates explicitly with reload/review rather than silently overwriting or retrying.
@@ -61,6 +63,7 @@ There is no Featured section. Tracks and Releases are future label content views
 - Give each link a tooltip and accessible service/title label; distinguish multiple links for the same service.
 - Use locally bundled, appropriately licensed icons. Verify brand-asset terms and keep required notices; use a generic icon where a suitable asset is unavailable.
 - Retain safe HTTP(S) URL validation and safe external-window behaviour. Do not fetch remote logos, scrape pages, or infer unverified links as part of this increment.
+- Implementation bundles selected music-service paths from Simple Icons and uses generic icons for services awaiting brand-asset review. Country names/flags come from `flag-icons`; interface icons come from MUI. Asset sources and licence notices ship with the frontend; see the [admin documentation](../src/TrackStash.Catalog.Admin/README.md#dependency-and-generated-file-policy).
 
 ## Country flag and location
 
@@ -77,7 +80,7 @@ There is no Featured section. Tracks and Releases are future label content views
 - Reserve Tracks, Releases and Artists sections in that order. Until the corresponding catalog workflows and associations exist, show clearly labelled unavailable/not-implemented states, not empty-library claims or simulated records.
 - No Featured tab, ranking, playback or multi-entity implementation is included.
 - Keep personal notes and review status accessible in a secondary section.
-- Move catalog/provider IDs, aliases, timestamps and existing merge controls into a clearly discoverable Record details / advanced actions section. Preserve the reviewed preview/confirmation process; merge must never become a one-click action.
+- Move catalog/provider IDs, aliases and timestamps into a clearly discoverable Record details section. Keep the merge entry point in the header's More actions menu, not in this section or a large block above the label information.
 - Keep all information currently visible on the Show page accessible after the redesign.
 - Relationship editing remains a separate increment. Do not imply that an editable label hierarchy already exists.
 
@@ -100,7 +103,7 @@ When backend catalog relationships and query infrastructure are available, evolv
 1. **Page structure and identity header**
    - Refactor the existing Show layout using MUI components and the current application shell.
    - Add responsive header, preferred artwork/placeholder, biography and secondary detail sections.
-   - Preserve direct label URLs, retired-ID behaviour and existing Edit/Merge entry points.
+   - Preserve direct label URLs and retired-ID behaviour; keep Edit prominent and move the reviewed merge workflow entry point into the header's More actions menu.
 2. **Header interactions and location**
    - Wire the existing artwork manager to the logo and visible management action.
    - Add concurrency-safe favourite updates, curated link icons and country-name/flag display.
@@ -122,6 +125,7 @@ When backend catalog relationships and query infrastructure are available, evolv
 - Favourite updates preserve all other profile fields and links; stale writes surface a conflict and do not overwrite newer edits. Subsequent gallery actions use refreshed versions.
 - Authenticated images remain protected; loading, unavailable content and API errors are visible.
 - Existing artwork upload/replacement/preference/detachment and merge preview/apply browser coverage continues to pass after actions move.
+- The header's More actions menu exposes "Merge label..." by mouse, keyboard and touch; selection opens the reviewed workflow without applying a merge, and explicit preview/confirmation remains required.
 - Notes, aliases, provider references, statuses and timestamps remain accessible; future content is explicitly marked as unimplemented.
 - Keyboard focus, accessible names, contrast, long label names/descriptions, multiple external links and narrow screens are covered.
 - No schema migration, automatic enrichment, Artist/Release implementation, remote flag/icon requests or live catalog mutation is required by this UI increment.
