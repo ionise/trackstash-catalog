@@ -16,7 +16,7 @@ See [API design intent](docs/api-design.md) for contracts, boundaries, open deci
 - [x] Add manual label profiles, typed web links, personal metadata, immutable revisions, API/Edit/Show, and profile-aware reviewed merges
 - [x] Prepare source-attributed observations, local artwork with source/rights, and typed label relationship schema (migration 5)
 - [ ] Implement reviewed label relationship workflows and hierarchy validation; initial schema includes direction/source/notes, not dates or territory
-- [ ] Implement local artwork upload/serving with source and usage-rights controls
+- [ ] Deliver label artwork as the first consumer of shared artwork infrastructure (stages below)
 - [ ] Design a separate pluggable enrichment module and reviewed observation acceptance; automatic fetching is parked
 - [ ] Define label embedding documents, invalidation/regeneration, and semantic search (exclude personal notes by default)
 - [x] Document reviewed pairwise label merge design, multiple provider IDs, conflict policies, audit, concurrency, and retired-ID resolution (see [merge design](docs/api-design.md#reviewed-label-merge-design))
@@ -25,12 +25,18 @@ See [API design intent](docs/api-design.md) for contracts, boundaries, open deci
 - [ ] Validate the label slice end to end before expanding to artists, releases, and recordings
 - [ ] Design genres/subgenres and ordered playlists later without duplicating recording identities or assuming local file ownership
 
-## Image-aware entity workflows (planned)
+## Shared artwork infrastructure (planned)
 
-- [ ] Extend entity YAML contract usage to carry image links/roles provided by core contracts
-- [ ] Add catalog apply/get orchestration for entity images without direct SQL/database access in catalog
-- [ ] Support recording image release-context linkage when provided by the input model
-- [ ] Surface fallback behavior in get/export flows (recording -> parent release image when no recording-specific image exists)
-- [ ] Add dry-run/apply reporting updates so image add/update/remove operations are visible
-- [ ] Add integration tests for image apply/get flows against core contract implementations
-- [ ] Keep command behavior provider-agnostic through `IStorageProviderFactory` and core interfaces
+See [shared artwork design intent](../trackstash-core/docs/artwork-design.md) for decisions, open design points, dependencies, and acceptance gates. Only the migration-5 label-specific foundation exists today; shared image contracts are not yet implemented.
+
+- [x] Record shared assets, foreign-key-backed entity associations, galleries, and explicit release-context fallback intent
+- [ ] A: Specify core asset/association/resolution contracts, provenance/rights boundaries, storage strategy, roles/order/preference, protected browser serving, processing limits, retention, and concurrency
+- [ ] B (after A): Implement shared persistence and a new forward migration from populated version 5; preserve legacy artwork and install dependency/version/retirement safeguards
+- [ ] C (after B): Deliver validated local upload, thumbnails, authenticated serving, and reusable label artwork/gallery UI with source/rights, replace/detach, ordering, and preferred selection
+- [ ] C: Test artwork-aware merge transfer/conflicts/audit before removing the current conservative blocker; retain safe deletion blockers until full snapshot/restore support exists
+- [ ] D (after B and relevant entity workflows): Reuse assets/associations for artists and releases; implement recording overrides, release-context resolution, explicit preferred-release fallback, and missing/ambiguous results
+- [ ] D: Verify original-release/compilation/reissue context and release-change cache invalidation; never pick an arbitrary first release or copy inherited artwork onto recordings
+- [ ] E (after shared contracts and applicable workflows): Extend portable YAML/import/export and CLI dry-run/apply/get through provider-independent services; define binary packaging and distinguish inherited from explicit artwork
+- [ ] Validate each increment with focused core/API tests and browser tests where applicable; approve live backup/migration separately
+
+No automatic remote fetching, enrichment, media writeback, or full multi-entity GUI expansion is included in the initial label slice.

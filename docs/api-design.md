@@ -117,6 +117,14 @@ Merge previews show the combined profile. Compatible/equal scalar fields coalesc
 
 Migration 5 also prepares source observations with provenance/licence/retention/review status, local artwork BLOBs with source/attribution/rights, and distinct-label `imprint_of`/`distributed_by` relationships with source/notes. These are **schema only**: no upload/serve, relationship mutation, automated source scraping/fetching, enrichment module, or label embedding generation is included. Web links are manually managed navigation/evidence, not verified foreign identities. A future pluggable enrichment module should submit reviewable observations rather than directly overwrite accepted profile fields.
 
+### Shared Artwork Direction (Planned)
+
+The [shared artwork design](../../trackstash-core/docs/artwork-design.md) records the agreed asset/association model and staged acceptance gates. Labels will be the first consumer of shared upload, validation, thumbnail, and authenticated serving infrastructure; artists/releases can reuse it later. Galleries use ordered, role-bearing entity associations, not duplicated image bytes or unconstrained polymorphic ownership.
+
+Recording artwork resolves an explicit override first, then the current associated release, then a deliberately selected preferred release when no context is supplied; ambiguity must not silently choose the first release. Inheritance is resolved, not copied. Routes, upload limits, protected browser loading, provenance deduplication, and exact concurrency contracts remain design work. Existing profile JSON and the public static GUI exemption do not provide image upload or public artwork serving.
+
+Migration 5 remains unchanged; a future forward migration must preserve populated label artwork. Artwork-aware merge/deletion policies must be implemented and tested before existing conservative blockers are relaxed. Implementation stages are tracked in [TODO](../TODO.md#shared-artwork-infrastructure-planned). No artwork implementation or live migration is authorized by documenting this direction.
+
 ### Reviewed Label Merge Design
 
 Status: **first increment implemented** through core contracts, SQLite migration 4, catalog application services, authenticated preview/apply routes, and a React-admin review dialog. Migration and live merges remain separate operator actions; automated tests use temporary catalogs. This section records the agreed design and concrete initial policy.
