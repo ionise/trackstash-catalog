@@ -20,10 +20,10 @@ There is no Featured section. Tracks and Releases are future label content views
 |                  |                                                    |
 | Space for future | Description / biography                             |
 | areas            |                                                    |
-|                  | Tracks | Releases | Artists                         |
+|                  | Releases | Artists | Tracks | Details               |
 |                  | Related-content area (not implemented yet)          |
 |                  |                                                    |
-|                  | Secondary: gallery, notes and record details         |
+|                  | Details tab: gallery, notes and record details       |
 +------------------+----------------------------------------------------+
 ```
 
@@ -42,7 +42,7 @@ There is no Featured section. Tracks and Releases are future label content views
 - Preserve image proportions and allow space for square logos without cropping important content.
 - Reveal a camera or pencil action over the logo on hover and keyboard focus. Keep an equivalent visible/tappable control on touch devices; access must not depend on hover.
 - Open the existing artwork manager from that action, including when there is no image.
-- Keep the additional gallery available in a secondary Artwork section, with a clearly labelled Manage artwork action.
+- Keep the additional gallery in the Details tab's Artwork section, with a clearly labelled Manage artwork action. Do not repeat the gallery beneath the other tabs.
 - Reuse authenticated blob fetching, upload validation, provenance/rights fields, replacement, ordering, detachment and preference handling. Do not introduce public image URLs or a second upload workflow.
 - Continue to distinguish immediate upload/replacement saves from unsaved gallery edits. Missing or damaged files must show an explicit error and leave management accessible.
 
@@ -62,7 +62,7 @@ There is no Featured section. Tracks and Releases are future label content views
 - Support recognised services such as the official website, Discogs, MusicBrainz, Bandcamp, Resident Advisor and social profiles. Use a generic link icon for unknown services.
 - Give each link a tooltip and accessible service/title label; distinguish multiple links for the same service.
 - Use locally bundled, appropriately licensed icons. Verify brand-asset terms and keep required notices; use a generic icon where a suitable asset is unavailable.
-- Retain safe HTTP(S) URL validation and safe external-window behaviour. Do not fetch remote logos, scrape pages, or infer unverified links as part of this increment.
+- Retain safe HTTP(S) URL validation and safe external-window behaviour. Do not fetch remote logos, scrape pages, or infer unverified links. A deterministic provider-label link derived from a stored numeric provider ID is permitted: render it without persisting it as a curated profile link, open it in a new tab, retain multiple distinct IDs with the preferred ID first, and avoid duplicating a curated label URL for the same ID.
 - Implementation bundles selected music-service paths from Simple Icons and uses generic icons for services awaiting brand-asset review. Country names/flags come from `flag-icons`; interface icons come from MUI. Asset sources and licence notices ship with the frontend; see the [admin documentation](../src/TrackStash.Catalog.Admin/README.md#dependency-and-generated-file-policy).
 
 ## Country flag and location
@@ -77,9 +77,9 @@ There is no Featured section. Tracks and Releases are future label content views
 
 ## Related content and secondary information
 
-- Reserve Tracks, Releases and Artists sections in that order. Until the corresponding catalog workflows and associations exist, show clearly labelled unavailable/not-implemented states, not empty-library claims or simulated records.
+- Show Releases, Artists, Tracks and Details tabs in that order, with Releases selected initially. Until the corresponding catalog workflows and associations exist, the first three show clearly labelled unavailable/not-implemented states, not empty-library claims or simulated records. Details contains the artwork gallery, personal notes/review status and Record details; these are not displayed below other tab panels.
 - No Featured tab, ranking, playback or multi-entity implementation is included.
-- Keep personal notes and review status accessible in a secondary section.
+- Keep personal notes and review status accessible in Details. The header, biography and logo artwork action remain available regardless of the selected tab.
 - Move catalog/provider IDs, aliases and timestamps into a clearly discoverable Record details section. Keep the merge entry point in the header's More actions menu, not in this section or a large block above the label information.
 - Keep all information currently visible on the Show page accessible after the redesign.
 - Relationship editing remains a separate increment. Do not imply that an editable label hierarchy already exists.

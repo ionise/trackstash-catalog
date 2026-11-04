@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import type { ReactNode } from 'react'
 import {
   Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Chip, Divider,
   IconButton, Link, Stack, SvgIcon, Tab, Tabs, Tooltip, Typography,
@@ -19,7 +20,7 @@ import { ArtworkImage, LabelArtwork } from './LabelArtwork'
 import type { LabelArtworkState } from './LabelArtwork'
 import type { LabelRecord } from './catalog'
 import { LabelMerge } from './LabelMerge'
-import { countryPresentation, linkPresentation } from './labelPresentation'
+import { countryPresentation, labelLinks, linkPresentation } from './labelPresentation'
 
 const serviceIcons = new Map([
   ['Bandcamp', siBandcamp], ['Beatport', siBeatport], ['Discogs', siDiscogs],
@@ -87,7 +88,7 @@ function Header({ record, artwork }: { record: LabelRecord; artwork: LabelArtwor
       </Stack>
       <Stack direction="row" useFlexGap spacing={1} sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
         <Favourite record={record} />
-        {profile?.links.map(link => {
+        {labelLinks(record).map(link => {
           const presentation = linkPresentation(link)
           const icon = serviceIcons.get(presentation.service ?? '')
           return <Tooltip title={presentation.label} key={`${link.kind}/${link.url}`}>
@@ -112,19 +113,22 @@ function Header({ record, artwork }: { record: LabelRecord; artwork: LabelArtwor
   </Stack>
 }
 
-const sections = ['Tracks', 'Releases', 'Artists']
+const sections = ['Releases', 'Artists', 'Tracks', 'Details']
 
-function RelatedContent() {
+function RelatedContent({ children }: { children: ReactNode }) {
   const [tab, setTab] = useState(0)
-  return <Box component="section" aria-label="Related content">
-    <Tabs value={tab} onChange={(_, value: number) => setTab(value)} aria-label="Label related content">
-      {sections.map((name, index) => <Tab key={name} id={`label-tab-${index}`} aria-controls={`label-panel-${index}`} label={name} />)}
+  return <Box component="section" aria-label="Related content" sx={{ minWidth: 0, width: '100%' }}>
+    <Tabs value={tab} onChange={(_, value: number) => setTab(value)} aria-label="Label related content"
+      variant="scrollable" scrollButtons="auto" allowScrollButtonsMobile
+      sx={{ minWidth: 0, maxWidth: '100%', width: '100%', contain: 'inline-size' }}>
+      {sections.map((name, index) => <Tab key={name} id={`label-tab-${index}`} aria-controls={`label-panel-${index}`}
+        label={name} sx={{ minWidth: 0, px: { xs: 1.5, sm: 2 } }} />)}
     </Tabs>
     {sections.map((name, index) => <Box key={name} role="tabpanel" hidden={tab !== index}
-      id={`label-panel-${index}`} aria-labelledby={`label-tab-${index}`} sx={{ py: 3 }}>
-      <Typography color="text.secondary">
+      id={`label-panel-${index}`} aria-labelledby={`label-tab-${index}`} sx={{ py: 3, minWidth: 0 }}>
+      {name === 'Details' ? children : <Typography color="text.secondary">
         {name === 'Artists' ? 'Related artists' : name} are not available in Trackstash yet. Search and filters will be added when the supporting catalog features are ready.
-      </Typography>
+      </Typography>}
     </Box>)}
   </Box>
 }
@@ -140,8 +144,8 @@ export function LabelDetail() {
       </Typography>
     </Box>
     <Divider />
-    <RelatedContent />
-    <Divider />
+    <RelatedContent>
+    <Stack spacing={3} sx={{ minWidth: 0 }}>
     <Box component="section" aria-label="Artwork gallery">{gallery}</Box>
     <Box component="section" aria-label="Personal notes">
       <Typography variant="h6" component="h2" gutterBottom>Personal notes</Typography>
@@ -181,5 +185,7 @@ export function LabelDetail() {
         </SimpleShowLayout>
       </AccordionDetails>
     </Accordion>
+    </Stack>
+    </RelatedContent>
   </Stack>}</LabelArtwork>
 }

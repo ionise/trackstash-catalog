@@ -8,6 +8,7 @@ export interface LabelRecord {
   version: string
   etag?: string
   profile?: LabelProfile
+  externalReferences?: { source: string; externalId: string; isPrimary: boolean }[]
 }
 
 export interface LabelProfile {

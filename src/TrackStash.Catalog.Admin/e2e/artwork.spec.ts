@@ -7,6 +7,7 @@ async function login(page: Page, id: string) {
   await page.goto(`/admin/#/labels/${id}/show`)
   await page.getByLabel('API key').fill(key)
   await page.getByRole('button', { name: 'Connect', exact: true }).click()
+  await page.getByRole('tab', { name: 'Details', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Manage artwork', exact: true })).toBeVisible()
 }
 async function png(page: Page) {
@@ -57,6 +58,7 @@ test('label artwork uploads, protected images, gallery edits and detachment surv
   await page.reload()
   await page.getByLabel('API key').fill(key)
   await page.getByRole('button', { name: 'Connect', exact: true }).click()
+  await page.getByRole('tab', { name: 'Details', exact: true }).click()
   await expect(page.getByRole('img', { name: 'Gallery first', exact: true })).toHaveAttribute('src', /^blob:/)
   await page.getByRole('button', { name: 'Manage artwork', exact: true }).click()
   await dialog.getByRole('button', { name: 'Replace image 1', exact: true }).click()

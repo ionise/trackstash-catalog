@@ -1,4 +1,29 @@
 import countries from 'flag-icons/country.json'
+import type { LabelRecord } from './catalog'
+
+export function labelLinks(record: LabelRecord) {
+  const links = [...(record.profile?.links ?? [])]
+  const linkedIds = new Set(links.flatMap(link => {
+    const url = new URL(link.url)
+    if (url.hostname !== 'beatport.com' && url.hostname !== 'www.beatport.com') return []
+    const match = /^\/label\/[^/]+\/([1-9]\d*)\/?$/.exec(url.pathname)
+    return match ? [match[1]] : []
+  }))
+  const slug = record.name?.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'label'
+  const references = (record.externalReferences ?? []).filter(reference =>
+    reference.source.toLowerCase() === 'beatport' && /^[1-9]\d*$/.test(reference.externalId))
+    .sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary) || a.externalId.localeCompare(b.externalId))
+  for (const reference of references) {
+    if (linkedIds.has(reference.externalId)) continue
+    links.push({
+      kind: 'beatport', url: `https://www.beatport.com/label/${slug}/${reference.externalId}`,
+      title: `Label ${reference.externalId}${reference.isPrimary ? ' (preferred)' : ''}`, sourceUrl: null,
+    })
+    linkedIds.add(reference.externalId)
+  }
+  return links
+}
 
 const flags = import.meta.glob<string>('../node_modules/flag-icons/flags/4x3/??.svg', {
   eager: true, query: '?url&no-inline', import: 'default',

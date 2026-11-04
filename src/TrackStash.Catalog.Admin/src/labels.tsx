@@ -27,7 +27,7 @@ export function LabelList() {
 
 export function LabelShow() {
   return (
-    <Show actions={false}>
+    <Show actions={false} sx={{ minWidth: 0, '& .RaShow-main, & .RaShow-card': { minWidth: 0 } }}>
       <LabelDetail />
     </Show>
   )
