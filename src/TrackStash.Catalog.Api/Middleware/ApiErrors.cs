@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 using TrackStash.Core.Storage;
+using TrackStash.Catalog.Application;
 
 namespace TrackStash.Catalog.Api.Middleware;
 
@@ -43,6 +44,8 @@ internal sealed class ApiExceptionHandler(ILogger<ApiExceptionHandler> logger) :
     {
         var (status, code, title, detail, field) = exception switch
         {
+            ArtworkUnavailableException => (409, "artwork_unavailable", "Artwork unavailable",
+                (string?)"The stored image is missing, damaged or unsupported. Check artwork storage and restore its backup if needed.", (string?)null),
             RetiredLabelException => (409, "label_retired", "Label is retired", (string?)"Review the canonical label before writing.", (string?)null),
             ApiRequestException request => (request.Status, request.Code, "Request rejected", (string?)request.Message, request.Field),
             JsonException => (400, "invalid_json", "Invalid JSON", null, null),
@@ -52,7 +55,7 @@ internal sealed class ApiExceptionHandler(ILogger<ApiExceptionHandler> logger) :
                 "Check the supplied field value.", MapField(argument.ParamName)),
             _ => (500, "internal_error", "An unexpected error occurred", null, null),
         };
-        if (status >= 500)
+        if (status >= 500 || exception is ArtworkUnavailableException)
             logger.LogError(exception, "Catalog API request failed; trace {TraceId}", context.TraceIdentifier);
         else
             logger.LogWarning("Catalog API rejected request with {Code}; trace {TraceId}", code, context.TraceIdentifier);

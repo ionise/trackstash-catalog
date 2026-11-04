@@ -3,6 +3,7 @@ import { Alert, Box, Button, Checkbox, Dialog, DialogActions, DialogContent, Dia
 import { useDataProvider, useLogoutIfAccessDenied, useRecordContext, useRedirect, useRefresh } from 'react-admin'
 import { mergeClient } from './catalog'
 import type { LabelRecord, MergePreview } from './catalog'
+import { ArtworkImage } from './LabelArtwork'
 
 export function LabelMerge() {
   const record = useRecordContext<LabelRecord>()
@@ -102,6 +103,13 @@ export function LabelMerge() {
             <Typography>Keep: {preview.survivor.name} ({preview.survivor.id})</Typography>
             <Typography>Retire: {preview.retired.name} ({preview.retired.id})</Typography>
             <Typography>Kept sort name: {preview.survivor.sortName ?? '(none)'}</Typography>
+            {!!preview.artwork?.length && <>
+              <Typography variant="h6">Resulting artwork (survivor first)</Typography>
+              {preview.artwork.map((item, index) => <Box key={item.id}>
+                <ArtworkImage assetId={item.assetId} caption={item.caption || `Merged artwork ${index + 1}`} />
+                <Typography>{index + 1}. {item.caption || item.role}{item.isPreferred ? ' (preferred)' : ''}</Typography>
+              </Box>)}
+            </>}
             {preview.profile && <>
               <Typography variant="h6">Resulting label information</Typography>
               <Typography sx={{ whiteSpace: 'pre-wrap' }}>Description: {preview.profile.description ?? '(none)'}</Typography>

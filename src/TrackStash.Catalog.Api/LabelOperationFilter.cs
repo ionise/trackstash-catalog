@@ -16,14 +16,14 @@ internal sealed class LabelOperationFilter : IOperationFilter
                 Description = status switch
                 {
                     "401" => "Bearer key required", "403" => "Loopback/origin policy rejected",
-                    "413" => "Body exceeds 16 KiB", _ => "Unexpected failure",
+                    "413" => operation.OperationId == "UploadLabelArtwork" ? "Upload exceeds 10 MiB plus 64 KiB envelope" : "Body exceeds 16 KiB", _ => "Unexpected failure",
                 },
                 Content = new Dictionary<string, OpenApiMediaType>
                 {
                     ["application/problem+json"] = new() { Schema = context.SchemaGenerator.GenerateSchema(typeof(Microsoft.AspNetCore.Mvc.ProblemDetails), context.SchemaRepository) },
                 },
             });
-        if (context.ApiDescription.HttpMethod == "PATCH" || operation.OperationId == "ApplyLabelMerge")
+        if (context.ApiDescription.HttpMethod == "PATCH" || operation.OperationId is "ApplyLabelMerge" or "UploadLabelArtwork")
             operation.Parameters.Add(new OpenApiParameter
             {
                 Name = "If-Match", In = ParameterLocation.Header, Required = true,
@@ -59,7 +59,8 @@ internal sealed class LabelOperationFilter : IOperationFilter
         }
         foreach (var response in operation.Responses.Where(x => x.Key is "200" or "201"))
         {
-            if (operation.OperationId is "GetLabel" or "CreateLabel" or "UpdateLabel" or "CreateLabelMergePreview" or "GetLabelMergePreview")
+            if (operation.OperationId is "GetLabel" or "CreateLabel" or "UpdateLabel" or "CreateLabelMergePreview" or "GetLabelMergePreview"
+                or "GetLabelArtwork" or "UploadLabelArtwork" or "ReplaceLabelArtwork")
                 response.Value.Headers["ETag"] = new OpenApiHeader
                 {
                     Description = "Opaque strong entity/review tag. Send the original tag in If-Match when editing or confirming a merge.",

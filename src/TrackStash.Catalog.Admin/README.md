@@ -4,7 +4,7 @@ React-admin label maintenance application using React, TypeScript, and Vite. Its
 
 ## Build and Use
 
-Requirements for building: Node.js 22.12 or newer and npm. The API requires .NET 8 and an existing canonical catalog migrated to version 5 or later.
+Requirements for building: Node.js 22.12 or newer and npm. The API requires .NET 8 and an existing canonical catalog migrated to version 6 or later.
 
 From this directory:
 
@@ -24,10 +24,12 @@ The app supports:
 - Inspect stable IDs, timestamps, aliases, and provider references.
 - Create labels with server-assigned IDs, or edit name/sort name. Clearing sort name sends JSON null.
 - In existing-label **Edit**, manage description, country/city, founded year, lifecycle, personal notes, favourite, review status, and typed links with optional verification source URL. Clear optional text/year to remove it; use the link row's remove button to remove a link. Links are displayed as safe HTTP(S) links on detail; descriptions/notes are plain text. Manual saves retain before/after history in storage, not a history-view screen.
+- On **Show**, use **Manage artwork** to upload logos/gallery images with mandatory rights text and optional source/attribution. JPEG/PNG only, static, up to 10 MiB/25 megapixels/16384 pixels per side. Uploads save immediately; ordered gallery edits, captions, role/preference and detachment use a separate conditional save. **Replace image** keeps its gallery position and old asset/history. Reload explicitly after a stale edit. Closing the dialog discards only unsaved gallery edits, not completed uploads.
+- Artwork and merge-review images use bearer-authenticated fetch and temporary blob URLs, revoked on unmount; no public asset exemption or credentials in image URLs. Originals and thumbnails are stored in the API's configured external managed directory and must be backed up with the database; see [storage configuration](../../README.md#label-artwork-and-galleries).
 - Preserve the original detail-response ETag for a pessimistic conditional save. A 412 displays a stale-edit warning and does not retry or overwrite a competing edit; reload before making a fresh edit.
 - Review a pairwise duplicate-label merge from survivor detail: paged name/provider search, combined aliases/provider IDs/release links, blockers, switch-survivor, reason, and explicit confirmation. Cancel does not change identities; refreshing a 15-minute review requires confirmation again. A stale apply is rejected without automatic retry, and successful apply refreshes lists/detail.
 
-Deletion, bulk mutation, relationship editing, artwork upload/serving, automated enrichment, and alias/reference mutation are intentionally unavailable. Artwork, relationships, and source observations have schema-only foundations. No label embedding generation or automatic site fetching runs.
+Deletion, bulk mutation, relationship editing, automated enrichment, and alias/reference mutation are intentionally unavailable. Relationships and source observations have schema-only foundations. No label embedding generation or automatic site fetching runs. Merge galleries retain survivor order, append retired artwork and preserve the winning preference; detached assets remain retained.
 
 ## Credentials and Browser Access
 

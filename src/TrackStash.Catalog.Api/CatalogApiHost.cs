@@ -39,13 +39,17 @@ public static class CatalogApiHost
             options.Limits.MaxRequestBodySize = 16 * 1024;
         });
         builder.Services.AddSingleton<IStorageProviderFactory, SqliteStorageProviderFactory>();
+        builder.Services.AddSingleton<IArtworkContentStore>(_ => new ManagedArtworkStore(builder.Configuration["CatalogApi:ArtworkRoot"]));
+        builder.Services.TryAddSingleton<IArtworkImageProcessor, ArtworkImageProcessor>();
+        builder.Services.TryAddScoped<IArtworkService, ArtworkService>();
         builder.Services.AddSingleton<IStorageProvider>(services =>
         {
             var path = builder.Configuration["CatalogApi:DatabasePath"];
             if (string.IsNullOrWhiteSpace(path) || !Path.IsPathFullyQualified(path) || !File.Exists(path))
                 throw new InvalidOperationException("CatalogApi:DatabasePath must name an existing, absolute catalog database path.");
             return services.GetRequiredService<IStorageProviderFactory>()
-                .Create(new StorageProviderDescriptor("sqlite", DatabasePath: path));
+                .Create(new StorageProviderDescriptor("sqlite", DatabasePath: path,
+                    ArtworkRoot: services.GetRequiredService<IArtworkContentStore>().Root));
         });
         builder.Services.TryAddScoped<ILabelService, LabelService>();
         builder.Services.TryAddSingleton(TimeProvider.System);
@@ -128,6 +132,7 @@ public static class CatalogApiHost
         app.UseSwagger(options => options.RouteTemplate = "openapi/{documentName}.json");
         app.MapLabels();
         app.MapLabelMerges();
+        app.MapArtwork();
         var webRoot = Path.Combine(AppContext.BaseDirectory, "wwwroot");
         if (File.Exists(Path.Combine(webRoot, "admin", "index.html")))
         {

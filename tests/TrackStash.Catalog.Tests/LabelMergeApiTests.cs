@@ -157,6 +157,7 @@ public sealed partial class LabelApiTests
     [Theory]
     [InlineData(3)]
     [InlineData(4)]
+    [InlineData(5)]
     public async Task StartupRejectsOldSchemaWithoutChangingIt(int version)
     {
         var path = Path.Combine(Path.GetTempPath(), $"catalog-v3-readiness-{Guid.NewGuid():N}.db");

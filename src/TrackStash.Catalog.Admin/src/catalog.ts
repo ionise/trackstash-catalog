@@ -54,7 +54,27 @@ export interface MergePreview {
   warnings: string[]
   etag: string
   profile?: LabelProfile
+  artwork?: ArtworkEntry[]
 }
+
+export interface ArtworkEntry {
+  id: string
+  assetId: string
+  role: string
+  caption: string | null
+  isPreferred: boolean
+}
+export interface ArtworkItem extends ArtworkEntry {
+  mediaType: string
+  byteLength: number
+  width: number | null
+  height: number | null
+  originalFilename: string | null
+  sourceUrl: string | null
+  attribution: string | null
+  usageRights: string
+}
+export interface ArtworkGallery { labelId: string; items: ArtworkItem[]; etag: string }
 
 export function createCatalogClient(fetcher: typeof fetch = fetch) {
   let token: string | undefined
@@ -197,7 +217,28 @@ export function createCatalogClient(fetcher: typeof fetch = fetch) {
       return await response.json() as { canonicalId: string; operationId: string; auditId: string }
     },
   }
-  return { dataProvider, authProvider, mergeClient }
+  async function gallery(response: Response): Promise<ArtworkGallery> {
+    const etag = response.headers.get('ETag')
+    if (!etag) throw new Error('Artwork response is missing its ETag; editing is unavailable.')
+    return { ...await response.json(), etag }
+  }
+  const artworkClient = {
+    get: async (id: string, signal?: AbortSignal) =>
+      gallery(await request(`/${encodeURIComponent(id)}/artwork`, { signal })),
+    upload: async (id: string, etag: string, form: FormData) =>
+      gallery(await request(`/${encodeURIComponent(id)}/artwork`, {
+        method: 'POST', headers: { 'If-Match': etag }, body: form,
+      })),
+    save: async (id: string, etag: string, items: ArtworkEntry[]) =>
+      gallery(await request(`/${encodeURIComponent(id)}/artwork`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json', 'If-Match': etag },
+        body: JSON.stringify({ items: items.map(({ id, assetId, role, caption, isPreferred }) =>
+          ({ id, assetId, role, caption: caption || null, isPreferred })) }),
+      })),
+    image: async (assetId: string, original = false, signal?: AbortSignal) =>
+      (await request(`/${encodeURIComponent(assetId)}/${original ? 'original' : 'thumbnail'}`, { signal }, 'artwork-assets')).blob(),
+  }
+  return { dataProvider, authProvider, mergeClient, artworkClient }
 }
 
-export const { dataProvider, authProvider, mergeClient } = createCatalogClient()
+export const { dataProvider, authProvider, mergeClient, artworkClient } = createCatalogClient()

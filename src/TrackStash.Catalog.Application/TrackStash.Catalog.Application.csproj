@@ -5,6 +5,8 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="SkiaSharp" Version="3.119.4" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="3.119.4" />
     <ProjectReference Include="../../../trackstash-core/src/TrackStash.Core/TrackStash.Core.csproj" />
   </ItemGroup>
 </Project>

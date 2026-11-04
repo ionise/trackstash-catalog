@@ -9,7 +9,7 @@ test('sign in, inspect, create, edit, clear sort name, and sign out on reload', 
   await page.goto('/admin/')
   await page.getByLabel('API key').fill('incorrect')
   await page.getByRole('button', { name: 'Connect', exact: true }).click()
-  await expect(page.getByRole('alert')).toBeVisible()
+  await expect(page.getByRole('alert').filter({ hasText: 'A valid bearer API key is required' })).toBeVisible()
   await page.getByLabel('API key').fill(key)
   await page.getByRole('button', { name: 'Connect', exact: true }).click()
   await expect(page.getByRole('cell', { name: 'Archive Label', exact: true })).toBeVisible()

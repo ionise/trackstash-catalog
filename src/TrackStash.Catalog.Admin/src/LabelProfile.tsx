@@ -44,7 +44,7 @@ export function LabelProfileFields() {
         <TextInput source="sourceUrl" label="Source URL" validate={url} helperText="Where this link was verified (optional)." fullWidth />
       </SimpleFormIterator>
     </ArrayInput>
-    <Alert severity="info">Manual entries are saved with revision history. Automated enrichment, artwork uploads, and relationship editing are not enabled yet.</Alert>
+    <Alert severity="info">Manual entries are saved with revision history. Manage artwork separately on the label detail page. Automated enrichment and relationship editing are not enabled yet.</Alert>
   </>
 }
 

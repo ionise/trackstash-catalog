@@ -39,7 +39,7 @@ public sealed partial class LabelApiTests : IAsyncLifetime
         {
             builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["CatalogApi:ApiKey"] = Key, ["CatalogApi:DatabasePath"] = _path,
+                ["CatalogApi:ApiKey"] = Key, ["CatalogApi:DatabasePath"] = _path, ["CatalogApi:ArtworkRoot"] = _path + ".artwork",
             });
             builder.WebHost.UseTestServer();
             configure?.Invoke(builder);
@@ -51,6 +51,7 @@ public sealed partial class LabelApiTests : IAsyncLifetime
         await _app.DisposeAsync();
         SqliteConnection.ClearAllPools();
         File.Delete(_path);
+        if (Directory.Exists(_path + ".artwork")) Directory.Delete(_path + ".artwork", recursive: true);
     }
 
     private async Task<(LabelResponse Label, string ETag)> CreateAsync(string name = "Example Records")
@@ -418,7 +419,7 @@ public sealed partial class LabelApiTests : IAsyncLifetime
             await using var app = Build(builder =>
                 builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?> { ["CatalogApi:DatabasePath"] = path }));
             var failure = await Assert.ThrowsAsync<InvalidOperationException>(() => app.StartAsync());
-            Assert.Contains("schema version 5", failure.Message);
+            Assert.Contains("schema version 6", failure.Message);
             await using var connection = new SqliteConnection($"Data Source={path};Mode=ReadOnly");
             await connection.OpenAsync();
             using var command = connection.CreateCommand();

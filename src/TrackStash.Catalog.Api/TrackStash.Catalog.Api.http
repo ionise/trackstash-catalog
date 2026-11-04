@@ -5,6 +5,8 @@
 @retiredLabelId = replace-with-duplicate-id
 @mergeOperationId = replace-with-operation-id-from-preview
 @mergeEtag = "replace-with-etag-from-merge-preview"
+@assetId = replace-with-asset-id
+@artworkEntryId = replace-with-gallery-entry-id
 
 ### Authenticated OpenAPI
 GET {{baseUrl}}/openapi/v1.json
@@ -62,6 +64,51 @@ If-Match: {{etag}}
 
 ### Alias inspection
 GET {{baseUrl}}/api/v1/labels/{{labelId}}/aliases
+Authorization: Bearer {{apiKey}}
+
+### Read ordered artwork (capture current label ETag before any artwork write)
+GET {{baseUrl}}/api/v1/labels/{{labelId}}/artwork
+Authorization: Bearer {{apiKey}}
+
+### Upload a local logo (choose a local file; POST is not automatically retried)
+POST {{baseUrl}}/api/v1/labels/{{labelId}}/artwork
+Authorization: Bearer {{apiKey}}
+If-Match: {{etag}}
+Content-Type: multipart/form-data; boundary=trackstash-artwork-boundary
+
+--trackstash-artwork-boundary
+Content-Disposition: form-data; name="file"; filename="logo.png"
+Content-Type: image/png
+
+< ./logo.png
+--trackstash-artwork-boundary
+Content-Disposition: form-data; name="role"
+
+logo
+--trackstash-artwork-boundary
+Content-Disposition: form-data; name="usageRights"
+
+Private reference; permission not verified
+--trackstash-artwork-boundary
+Content-Disposition: form-data; name="isPreferred"
+
+true
+--trackstash-artwork-boundary--
+
+### Full gallery edit: array order sets order, omitted entries detach; [] clears all
+PATCH {{baseUrl}}/api/v1/labels/{{labelId}}/artwork
+Authorization: Bearer {{apiKey}}
+Content-Type: application/json
+If-Match: {{etag}}
+
+{"items":[{"id":"{{artworkEntryId}}","assetId":"{{assetId}}","role":"logo","caption":null,"isPreferred":true}]}
+
+### Protected original (no API keys in the URL)
+GET {{baseUrl}}/api/v1/artwork-assets/{{assetId}}/original
+Authorization: Bearer {{apiKey}}
+
+### Protected thumbnail (no public image exemption)
+GET {{baseUrl}}/api/v1/artwork-assets/{{assetId}}/thumbnail
 Authorization: Bearer {{apiKey}}
 
 ### Provider-reference inspection

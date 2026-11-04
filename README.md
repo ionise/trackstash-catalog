@@ -114,7 +114,7 @@ Then start the API as below and open <http://localhost:5187/admin/>. Enter the k
 
 ### Running the API Locally
 
-From this module directory, configure an existing canonical catalog migrated to version 5 or later:
+From this module directory, configure an existing canonical catalog migrated to version 6 or later:
 
 ```bash
 export CatalogApi__DatabasePath="/absolute/path/to/Trackstash.Catalog.db"
@@ -143,7 +143,19 @@ The [HTTP request examples](src/TrackStash.Catalog.Api/TrackStash.Catalog.Api.ht
 
 Open an existing label and choose **Edit** to manage description, country/city, founded year, lifecycle, personal notes, favourite, review status, and typed web links (including optional verification source URL). Create a label first, then edit its information. Saves use the original ETag and retain manual before/after revision history; name-only edits and existing CLI imports preserve profiles. Website links do not establish verified provider IDs.
 
-Migration 5 adds this metadata and schema-only foundations for source-attributed observations, local artwork uploads with source/rights, and parent/imprint/distributor links between distinct labels. Uploads, relationship editing, automated enrichment/providers, and label embedding generation remain deferred. No external sites are fetched. Profile conflicts block a merge; compatible values/links and history carry forward. See [profile contracts](docs/api-design.md#manual-label-profiles) for limits and replacement semantics.
+Migration 5 adds this metadata and foundations for source-attributed observations and parent/imprint/distributor links between distinct labels. Migration 6 implements shared artwork and label galleries below. Relationship editing, automated enrichment/providers, and label embedding generation remain deferred. No external sites are fetched. Profile conflicts block a merge; compatible values/links and history carry forward. See [profile contracts](docs/api-design.md#manual-label-profiles) for limits and replacement semantics.
+
+### Label Artwork and Galleries
+
+On label detail, choose **Manage artwork**. Upload a JPEG/PNG logo or gallery image, record usage rights and optional source/attribution, then choose its caption and preference. Uploads save immediately. Reorder/edit/detach entries with **Save gallery changes**; **Replace image** uploads a new asset in the existing position, preserving the old image/history. Stale writes are rejected, not retried. Merges stack the retired label's gallery behind the survivor's, retaining the survivor's preferred image (or carrying forward the retired preference if none).
+
+Originals and thumbnails are managed files **outside the database and Git repository**. The default is .NET's user `LocalApplicationData` directory plus `TrackStash/artwork-data`. Configure an absolute root with `TRACKSTASH_ARTWORK_ROOT` for native migration/tools and API, or override the API with `CatalogApi__ArtworkRoot`. Use the same root for both; changing it does not move existing assets. Roots within Git working trees are rejected. No API content route is public; the browser uses authenticated image requests without putting keys in URLs.
+
+Upload limits: static JPEG/PNG, 10 MiB, 25 megapixels, 16384 pixels per side. SVG, animations, malformed images and oversized uploads are rejected. Original bytes/metadata are retained; 512-pixel JPEG thumbnails apply orientation and omit source metadata. Re-upload to change immutable provenance. Duplicate bytes are not automatically deduplicated across uploads with different source/rights.
+
+**Back up the artwork root together with a consistent database snapshot.** A database-only backup cannot restore new artwork. A coordinated native backup/restore feature is on the [TODO list](TODO.md#shared-artwork-infrastructure); until then stop writers and preserve both matching stores. Detached assets are retained for history, not garbage-collected. Migration 6 exports populated legacy BLOB artwork to the configured root; it never edits migration 5. Unsupported legacy bytes remain preserved, but serving reports an explicit error. See [artwork design and operational rules](../trackstash-core/docs/artwork-design.md).
+
+This increment completes label artwork only. Artists are next after Labels are satisfactory; Releases follow label/artist workflows. Recording release-context inheritance remains documented future work, not implemented fallback.
 
 ### Reviewed Duplicate-label Merges
 
@@ -168,7 +180,7 @@ Migration 4 adds review/audit/retirement storage and guards, but does not merge 
 
 Queries return `{ items, total, page, pageSize }`, search names/aliases with shared strict normalization, preserve ambiguous candidates, and support stable sorting and pages up to 100. Updates require the last-read opaque version and distinguish missing labels from stale edits. Explicit field flags preserve omitted values and allow clearing nullable sort names.
 
-The SQLite adapter requires explicit migration to version 5 before use. Its aggregate-version triggers invalidate tokens when existing CLI/import workflows change a label, alias, provider reference, or release-label link. Unconditional writers still invalidate versions but must reject retired-ID reuse. The HTTP host uses `ILabelService` and `ILabelMergeService`; no new CLI commands are included.
+The SQLite adapter requires explicit migration to version 6 before use. Its aggregate-version triggers invalidate tokens when existing CLI/import workflows change a label, alias, provider reference, or release-label link. Unconditional writers still invalidate versions but must reject retired-ID reuse. The HTTP host uses `ILabelService` and `ILabelMergeService`; no new CLI commands are included.
 
 See the [implemented contract and remaining decisions](docs/api-design.md#implemented-foundation) for details.
 

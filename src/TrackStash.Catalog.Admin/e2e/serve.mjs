@@ -24,7 +24,7 @@ try {
   `])
   api = spawn('dotnet', [join(root, 'trackstash-catalog/src/TrackStash.Catalog.Api/bin/Debug/net8.0/TrackStash.Catalog.Api.dll')], {
     stdio: 'inherit',
-    env: { ...process.env, CatalogApi__DatabasePath: database, CatalogApi__Port: '5199',
+    env: { ...process.env, CatalogApi__DatabasePath: database, CatalogApi__Port: '5199', CatalogApi__ArtworkRoot: join(temporary, 'artwork-data'),
       CatalogApi__ApiKey: 'test-only-browser-key-not-a-production-secret',
       CatalogApi__AllowedOrigins__0: 'http://localhost:5173' },
   })
