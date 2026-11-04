@@ -1,6 +1,6 @@
 # Catalog API Design Intent
 
-Status: shared label foundation, loopback-only HTTP host, and React-admin label GUI implemented with OpenAPI, integration tests, and browser tests. PowerShell HTTP client remains planned.
+Status: shared label foundation, reviewed pairwise label merges, loopback-only HTTP host, and React-admin label GUI implemented with OpenAPI, integration tests, and browser tests. PowerShell HTTP client remains planned.
 
 ## Purpose and Scope
 
@@ -94,9 +94,124 @@ The initial slice is complete when the same label can be listed, inspected, crea
 - Maintain provider references with provenance and duplicate-link conflict checks.
 - Add/read/update/remove label relationships.
 - Preview deletion dependencies and delete through existing shared safe-delete/tombstone services.
-- Review duplicate candidates, preview merges, and explicitly approve merges with retired-ID redirects.
+- Reviewed pairwise merges with retired-ID redirects are implemented below; automatic/bulk deduplication remains excluded.
 
 Do not expose unsupported placeholder endpoints as successful operations. Exact child-resource routes and identifiers remain to be settled: current aliases/references use composite keys, and label relationships lack persistence.
+
+### Reviewed Label Merge Design
+
+Status: **first increment implemented** through core contracts, SQLite migration 4, catalog application services, authenticated preview/apply routes, and a React-admin review dialog. Migration and live merges remain separate operator actions; automated tests use temporary catalogs. This section records the agreed design and concrete initial policy.
+
+#### Identity and Scope
+
+A canonical entity can have multiple references to the same provider. Current `label_external_ref` has primary key `(label_id, source, external_id)`, so combining two Beatport IDs on one label does **not** require additional foreign-key columns. Artist, release, and recording external-reference tables use the same pattern. New persistence is needed for retirement, audit, and reviewed operations, not for multiple provider IDs.
+
+Start with a **pairwise, explicitly reviewed label merge**. The operator chooses a survivor and a label to retire. Keep the survivor's ID, name, sort name, and creation time; preserve the retired name as an alias. Choosing a different display name is a separate conditional edit, followed by a fresh preview. Do not guess equivalence from matching names, normalization, embeddings, or provider names.
+
+For Univack, a preview can combine the existing labels' known Beatport references. A third provider identity must be independently verified and attached through a future reviewed reference workflow; merge must not invent or fetch an unconfirmed third ID.
+
+This increment excludes automatic deduplication, multi-selection/bulk merges, undo/unmerge, provider-reference editing, artist/release/recording merge endpoints, and media tag/file changes. It may precede label relationship editing, but must reject dependencies it cannot safely transfer.
+
+#### Preview and Confirmation
+
+1. From label detail, choose **Merge duplicate into this label** and select the other active label through paged name/provider search. Show both IDs prominently; allow switching the survivor by requesting a new preview.
+2. Display survivor fields, retired fields, combined aliases/provider IDs, release links to move/coalesce, warnings, blockers, and the proposed retired-ID redirect. Show same-provider references as a list, never a single-ID field.
+3. Require a nonblank reason and explicit confirmation of the survivor/retired direction. The initial local bearer key identifies a shared local credential, not an individual human: audit should record a local credential principal, plus optional operator-supplied attribution marked as unverified. Never store the key.
+4. A preview does not mutate catalog identities/links. It persists an immutable review with a 15-minute expiry, a server-assigned operation ID, input IDs/versions, dependency digest, deterministic public plan, and a plan format version incorporated into the state digest. Preview storage must not copy secrets into public responses.
+5. Apply accepts that operation ID and the reason, not a client-supplied arbitrary merge plan. Check both versions and recompute the dependency digest and plan inside the write transaction. A changed or expired preview requires a new review, not automatic token refresh.
+6. On success, navigate to survivor detail, invalidate both label caches and list totals, and show the retained provider IDs. On stale/conflict failure, preserve the reason and show that no merge occurred; do not silently retry.
+
+Persisting the operation identity also gives apply safe retry semantics: a repeated request for an already-applied operation returns the recorded outcome without moving rows or writing another audit record. It does not reapply the merge even if the survivor has since changed. Return the original operation outcome and its audit ID, not a stale representation advertised as current label detail; clients fetch the survivor afresh.
+
+#### Deterministic Transfer Rules
+
+| Data | Proposed behavior |
+| --- | --- |
+| Survivor scalar fields | Keep existing values; recompute normalization from survivor name and refresh aggregate version/update time |
+| Retired scalar fields and payload | Preserve in full before-state audit snapshot, not by overwriting survivor payload |
+| Names and aliases | Add retired canonical name as a non-primary alias if not already present; union aliases by exact value (the current key), retain differently spelled variants, and recompute comparison keys with the shared normalizer |
+| Alias primary flags | Survivor's explicit primary choice wins; transferred aliases are non-primary. Existing multiple-primary anomalies block until reviewed |
+| Distinct provider references | Move every `(source, external_id)` to survivor, retaining last-seen time and payload. Multiple IDs from Beatport are valid |
+| Duplicate provider reference | Coalesce identical keys; keep latest non-null last-seen observation. Identical/non-conflicting payloads coalesce; two different non-null payloads block the first increment rather than discard evidence |
+| Reference primary flags | Interpret as preferred link per provider, not a uniqueness constraint on provider membership. Retain the survivor's choice; if none exists, retain a single retired primary. Multiple ambiguous primaries block |
+| Release links | Move links referencing retired ID. If both labels link the same release, combine `is_primary` with OR; keep equal roles or the sole non-null role. Different non-null roles block because the current composite key cannot retain both |
+| Existing redirects into either participant | Resolve them to the new survivor, preserving original retirement/audit history and preventing cycles |
+| Derived label embeddings/work items | Invalidate/delete or supersede retired derived entries and invalidate survivor embeddings for regeneration through the existing queue contracts. Do not relabel old vectors as newly computed evidence |
+| Unsupported dependencies | Block with public domain names/counts; never cascade-delete unknown relationships, images, or links |
+
+Same `(source, external_id)` attached to a **third active label** is an identity conflict: block and present the third label for review. Different external IDs from the same provider do not conflict. Do not silently introduce a global unique-provider constraint during migration while unresolved duplicates may exist.
+
+Every coalescing decision and original row must remain recoverable in the audit snapshot, including alias flags, payload observations, release roles/flags, original timestamps, and derived-data disposition. Audit preservation is not an implemented undo capability.
+
+#### Persistence and Provider Boundary
+
+Label-specific core contracts expose identity resolution (active/retired/missing), merge preview/apply results, and adapter operations to inspect dependencies and apply a plan transactionally. Catalog owns orchestration/review policy and transport projection. SQL, physical table names, serialization of audit rows, and lock strategy stay in storage adapters. Do not add a generic merge engine until another entity's rules justify it.
+
+Explicit SQLite migration 4 adds:
+
+- A retired-label mapping keyed by retired ID, pointing to an active survivor, with retirement time and merge audit ID. Retired IDs cannot also be active label IDs. Enforce this for ordinary inserts/upserts and restore as well as merge.
+- A durable review/operation record with expiry, input IDs and versions, dependency digest, plan format version, status, and applied audit/outcome reference. Enforce single apply and preserve applied outcomes for retry; expired unused previews may be cleaned up separately.
+- Append-only merge audit records with merge ID, participant IDs, UTC time, reason, principal/attribution, full relational before-state snapshots, after-state/transfer decisions, and affected release identities. Preserve provider payloads in restricted storage, not general HTTP responses.
+- Adapter mechanisms to invalidate label versions when merge-relevant release links change, or equivalent dependency compare-and-lock support. Existing label/alias/reference version triggers alone do **not** cover release-link changes.
+
+Snapshots must be built from actual relational state, not the existing deletion service's `source_payload_json` tombstone shortcut. Do not route merge through ordinary delete/restore. The source label is retired only after all supported dependencies are transferred; any failure rolls back identity rows, links, derived-data changes, redirects, operation status, and audit together.
+
+Migration 4 preserves existing canonical IDs and references and never automatically merges a same-name group. The API refuses schemas below version 4 without migrating them. Back up and migrate the live canonical catalog only with separate approval. Scanner storage is out of scope.
+
+SQLite uses immediate unit-of-work transactions to exclude concurrent writers throughout inspect/apply, plus a dependency digest and apply savepoint. Raw before-state snapshots include both labels, aliases, references, release links, incoming redirects, embedding documents/vectors, and work items. Unknown incoming foreign-key dependencies with rows block apply; processing embedding jobs also block to avoid racing a leased worker. Known label embedding models are queued for forced survivor regeneration after invalidation.
+
+Unused/expired reviews and applied operation outcomes are retained in this increment; no cleanup job is installed. Audits and retired IDs are permanent and have database delete/update guards. Full audit snapshots are restricted to local database administration, not exposed by HTTP; protect database/backup access accordingly. There is no separate per-user audit permission model while using the shared local key.
+
+#### Concurrency and Retired IDs
+
+Apply must validate the survivor and retired label versions **and** the complete affected dependency set under a transaction/locking strategy that excludes conflicting writers until commit. A digest check outside the write transaction is insufficient. Version equality alone is also insufficient: release-link changes and newly introduced third-party provider conflicts must be rechecked. Include incoming redirects and derived work in the inspected dependency plan where relevant.
+
+Retired IDs remain resolvable indefinitely. Proposed read behavior:
+
+- Exact GET for a retired label (and its child inspection routes) returns `308 Permanent Redirect` to the corresponding survivor route. Collapse chains to an active target; audit history retains intermediate merges.
+- List/search returns active identities only; retained aliases and provider IDs make the survivor discoverable.
+- PATCH, delete, merge selection, or restore addressed to a retired ID returns `409 label_retired` with `canonicalId` and a survivor URI. Writes must never follow a redirect implicitly.
+- Application/storage identity resolution returns retirement information explicitly; callers choose read resolution or write rejection. API handlers do not infer it from missing rows.
+
+Prevent resurrection across **all** existing writers before shipping:
+
+- Provider-ID imports resolve transferred references to the survivor.
+- Explicit retired IDs in YAML/import artifacts or release-link selectors produce an actionable conflict; do not silently edit the survivor under an old identity or recreate a label.
+- Low-level create/upsert and restore must reject retired-ID reuse, including legacy callers. Release writers must reject or explicitly resolve retired links; they cannot insert a fresh reference to a nonexistent active row.
+- Same-name creation remains allowed because name equality is not identity. Merge does not authorize name-based deduplication of future records.
+- Keep any survivor with incoming retired IDs from ordinary deletion until a lifecycle policy preserves resolution. Existing deletion commands must enforce this, not just HTTP routes.
+
+If that survivor is later merged again, retarget incoming mappings atomically to the new active survivor. Reject self-merge, retired participants, cycles, and concurrent/reversed merges. No mutation should revive an intermediate ID.
+
+#### Implemented Merge HTTP Surface
+
+All routes retain existing bearer/origin protection and Problem Details conventions:
+
+| Method and route | Contract |
+| --- | --- |
+| `POST /api/v1/labels/{survivorId}/merge-previews` | JSON `{ "retiredLabelId": "..." }`; 201 with Location and review DTO containing both label summaries, expected versions, expiry, impact, warnings/blockers, and review ETag |
+| `GET /api/v1/label-merge-previews/{operationId}` | 200 review DTO with ETag; no raw snapshots/provider payloads |
+| `POST /api/v1/label-merge-previews/{operationId}/apply` | JSON `{ "reason": "Confirmed same label", "operator": "optional unverified attribution" }` and `If-Match` review ETag; 200 outcome with operation/audit IDs and canonical survivor URI |
+
+`If-Match` here protects the immutable reviewed plan; apply also validates live participant versions/dependencies. Missing precondition -> 428; stale tag or changed reviewed state -> 412; expired preview -> 410; missing resource -> 404; invalid body/self-merge -> 400; blocked plan/retired participant/conflicting replay -> 409. Add documented codes such as `merge_preview_expired`, `merge_state_changed`, `merge_blocked`, and `label_retired`.
+
+An identical retry after success returns the saved outcome even though versions necessarily changed during merge, including after review expiry. A replay with a different reason/operator/principal returns 409; a mismatched review ETag returns 412. Distinguish an unapplied stale preview from a completed operation before validating current participant state. Expose operation outcome/audit metadata without exposing full audit snapshots; read DTOs must not leak payloads or credentials. GET of an expired, unapplied review returns 410; an applied review remains readable.
+
+The GUI's label-detail action offers paged name/provider candidate search, preview, switch-survivor, reason, optional unverified operator attribution, and explicit direction confirmation. Refresh/switch requires confirmation again. Cancel never changes label data, and stale apply does not silently retry. Local YAML/CSV writes and dry runs reject explicit retired label IDs, including release-link selectors; transferred provider references resolve to the survivor. Local YAML `get-entity` reports the retired identity and canonical ID explicitly rather than exporting a misleading missing entity. No new merge CLI command is included.
+
+#### Acceptance Gates and Expansion
+
+Implemented tests cover the following acceptance gates:
+
+- Same-name labels with distinct Beatport IDs merge into one active GUID retaining all known provider IDs; unrelated same-name labels remain separate without explicit selection.
+- Alias spelling/primary rules, payload conflicts, provider primary choices, third-party reference conflicts, and release-link coalescing/blockers match the preview.
+- Changes to either participant, release links, redirects, or relevant third-party references invalidate/reject the reviewed plan; competing applies cannot both succeed.
+- Failure injection rolls back every transfer/audit/redirect and leaves both labels usable. Double submission/response loss replays the one saved result.
+- Retired reads resolve, retired writes/restore/import/upsert cannot resurrect IDs, chained merges remain acyclic, and survivor deletion is blocked where necessary.
+- Full snapshots contain original relational data even when provider payload is null or unrelated to the stored entity.
+- Migration is data-preserving/idempotent; storage, application, HTTP/OpenAPI, existing CLI/import/delete, and browser preview/confirm/cancel/error tests pass against temporary catalogs.
+
+Artists, releases, and recordings should reuse the identity/reference/retirement principles, not blindly reuse label transfer rules. Artist credits/relationships, release placements/dates, and recording media associations/matches/fingerprints require separate dependency and conflict policies. Multiple Beatport track IDs can identify one recording; remasters remain separate recordings under the agreed policy.
 
 ### Relationship Semantics
 

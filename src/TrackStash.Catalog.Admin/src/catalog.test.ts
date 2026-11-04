@@ -110,6 +110,30 @@ describe('memory-only authentication', () => {
     await expect(authProvider.checkAuth({})).rejects.toThrow()
   })
 
+  describe('reviewed merges', () => {
+    it('uses the reviewed ETag and operation for apply without refetch or automatic retry', async () => {
+      const { mergeClient, fetcher, login } = setup()
+      await login()
+      fetcher.mockResolvedValueOnce(Response.json({ operationId: 'review', blockers: [] }, { headers: { ETag: '"review-token"' } }))
+      const preview = await mergeClient.preview('survivor/id', 'retired')
+      expect(fetcher.mock.calls[0][0]).toBe('/api/v1/labels/survivor%2Fid/merge-previews')
+      expect(JSON.parse(String(fetcher.mock.calls[0][1]?.body))).toEqual({ retiredLabelId: 'retired' })
+      fetcher.mockResolvedValueOnce(Response.json({ title: 'Merge not applied', detail: 'Create a fresh preview.', code: 'merge_state_changed' }, { status: 412 }))
+      await expect(mergeClient.apply(preview, 'Same label', '')).rejects.toMatchObject({ status: 412, message: 'Create a fresh preview.' })
+      expect(fetcher).toHaveBeenCalledTimes(2)
+      expect(fetcher.mock.calls[1][0]).toBe('/api/v1/label-merge-previews/review/apply')
+      expect(new Headers(fetcher.mock.calls[1][1]?.headers).get('If-Match')).toBe('"review-token"')
+      expect(JSON.parse(String(fetcher.mock.calls[1][1]?.body))).toEqual({ reason: 'Same label', operator: null })
+    })
+
+    it('does not allow a review without an ETag to be confirmed', async () => {
+      const { mergeClient, fetcher, login } = setup()
+      await login()
+      fetcher.mockResolvedValueOnce(Response.json({ operationId: 'review' }))
+      await expect(mergeClient.preview('one', 'two')).rejects.toThrow('missing its ETag')
+    })
+  })
+
   it('does not log out on conflicts or origin/server failures', async () => {
     const { authProvider, login } = setup()
     await login()

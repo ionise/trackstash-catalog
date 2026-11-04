@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
+using TrackStash.Core.Storage;
 
 namespace TrackStash.Catalog.Api.Middleware;
 
@@ -42,6 +43,7 @@ internal sealed class ApiExceptionHandler(ILogger<ApiExceptionHandler> logger) :
     {
         var (status, code, title, detail, field) = exception switch
         {
+            RetiredLabelException => (409, "label_retired", "Label is retired", (string?)"Review the canonical label before writing.", (string?)null),
             ApiRequestException request => (request.Status, request.Code, "Request rejected", (string?)request.Message, request.Field),
             JsonException => (400, "invalid_json", "Invalid JSON", null, null),
             BadHttpRequestException bad => (bad.StatusCode,
@@ -55,7 +57,13 @@ internal sealed class ApiExceptionHandler(ILogger<ApiExceptionHandler> logger) :
         else
             logger.LogWarning("Catalog API rejected request with {Code}; trace {TraceId}", code, context.TraceIdentifier);
         context.Response.StatusCode = status;
-        await context.Response.WriteAsJsonAsync(ApiErrors.Create(context, status, code, title, detail, field),
+        var problem = ApiErrors.Create(context, status, code, title, detail, field);
+        if (exception is RetiredLabelException retired)
+        {
+            problem.Extensions["canonicalId"] = retired.CanonicalId;
+            problem.Extensions["canonicalUri"] = $"/api/v1/labels/{Uri.EscapeDataString(retired.CanonicalId)}";
+        }
+        await context.Response.WriteAsJsonAsync(problem,
             options: (JsonSerializerOptions?)null, contentType: "application/problem+json", cancellationToken: cancellationToken);
         return true;
     }

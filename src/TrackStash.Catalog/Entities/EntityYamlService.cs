@@ -68,6 +68,12 @@ public static class EntityYamlService
         var existingId = await ResolveExistingIdAsync(kind, envelope.Spec, uow, cancellationToken).ConfigureAwait(false);
         var explicitId = FirstNonEmpty(envelope.Spec.Id, envelope.Metadata?.Id);
         var finalId = explicitId ?? existingId ?? EntityId.New();
+        if (kind == "Label")
+        {
+            var identity = await uow.Labels.ResolveIdentityAsync(finalId, cancellationToken).ConfigureAwait(false);
+            if (identity.IsRetired)
+                errors.Add($"Label '{finalId}' is retired; review canonical label '{identity.CanonicalId}' before applying this artifact.");
+        }
 
         if (mode == "create-only" && existingId is not null)
             errors.Add($"Entity already exists for {kind} with id '{existingId}'.");
@@ -198,6 +204,8 @@ public static class EntityYamlService
 
     private static async Task<EntityEnvelope?> GetLabelAsync(string id, IUnitOfWork uow, CancellationToken cancellationToken)
     {
+        var identity = await uow.Labels.ResolveIdentityAsync(id, cancellationToken).ConfigureAwait(false);
+        if (identity.IsRetired) throw new RetiredLabelException(id, identity.CanonicalId!);
         var label = await uow.Labels.GetByIdAsync(id, cancellationToken).ConfigureAwait(false);
         if (label is null) return null;
 
@@ -665,7 +673,11 @@ public static class EntityYamlService
     private static async Task<string> ResolveLabelIdAsync(string? labelId, EntityRefSelector? labelRef, IUnitOfWork uow, CancellationToken cancellationToken)
     {
         if (!string.IsNullOrWhiteSpace(labelId))
+        {
+            var identity = await uow.Labels.ResolveIdentityAsync(labelId, cancellationToken).ConfigureAwait(false);
+            if (identity.IsRetired) throw new RetiredLabelException(labelId, identity.CanonicalId!);
             return labelId;
+        }
 
         var byName = labelRef?.ByName;
         if (!string.IsNullOrWhiteSpace(byName))

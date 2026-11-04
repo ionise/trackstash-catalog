@@ -2,6 +2,9 @@
 # Set apiKey locally in your HTTP client's secret/environment variables, not in this file.
 @labelId = replace-with-label-id
 @etag = "replace-with-etag-from-response"
+@retiredLabelId = replace-with-duplicate-id
+@mergeOperationId = replace-with-operation-id-from-preview
+@mergeEtag = "replace-with-etag-from-merge-preview"
 
 ### Authenticated OpenAPI
 GET {{baseUrl}}/openapi/v1.json
@@ -48,3 +51,33 @@ Authorization: Bearer {{apiKey}}
 Content-Type: application/merge-patch+json
 
 {"name":"Edited Example"}
+
+### Preview duplicate retirement into labelId (201 + Location + review ETag; no label changes)
+POST {{baseUrl}}/api/v1/labels/{{labelId}}/merge-previews
+Authorization: Bearer {{apiKey}}
+Content-Type: application/json
+
+{"retiredLabelId":"{{retiredLabelId}}"}
+
+### Read saved review (410 if expired and unapplied)
+GET {{baseUrl}}/api/v1/label-merge-previews/{{mergeOperationId}}
+Authorization: Bearer {{apiKey}}
+
+### Apply only after reviewing direction, provider IDs, aliases, release links, and blockers
+POST {{baseUrl}}/api/v1/label-merge-previews/{{mergeOperationId}}/apply
+Authorization: Bearer {{apiKey}}
+Content-Type: application/json
+If-Match: {{mergeEtag}}
+
+{"reason":"Confirmed both records identify the same label","operator":null}
+
+### Missing merge precondition: 428; changed state returns 412, blockers 409
+POST {{baseUrl}}/api/v1/label-merge-previews/{{mergeOperationId}}/apply
+Authorization: Bearer {{apiKey}}
+Content-Type: application/json
+
+{"reason":"Same label"}
+
+### After apply: retired read redirects 308; retired writes are rejected with canonicalId
+GET {{baseUrl}}/api/v1/labels/{{retiredLabelId}}
+Authorization: Bearer {{apiKey}}

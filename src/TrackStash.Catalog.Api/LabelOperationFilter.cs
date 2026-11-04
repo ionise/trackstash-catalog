@@ -23,7 +23,7 @@ internal sealed class LabelOperationFilter : IOperationFilter
                     ["application/problem+json"] = new() { Schema = context.SchemaGenerator.GenerateSchema(typeof(Microsoft.AspNetCore.Mvc.ProblemDetails), context.SchemaRepository) },
                 },
             });
-        if (context.ApiDescription.HttpMethod == "PATCH")
+        if (context.ApiDescription.HttpMethod == "PATCH" || operation.OperationId == "ApplyLabelMerge")
             operation.Parameters.Add(new OpenApiParameter
             {
                 Name = "If-Match", In = ParameterLocation.Header, Required = true,
@@ -59,17 +59,23 @@ internal sealed class LabelOperationFilter : IOperationFilter
         }
         foreach (var response in operation.Responses.Where(x => x.Key is "200" or "201"))
         {
-            if (operation.OperationId is "GetLabel" or "CreateLabel" or "UpdateLabel")
+            if (operation.OperationId is "GetLabel" or "CreateLabel" or "UpdateLabel" or "CreateLabelMergePreview" or "GetLabelMergePreview")
                 response.Value.Headers["ETag"] = new OpenApiHeader
                 {
-                    Description = "Opaque strong aggregate entity tag. Send it back in If-Match when editing.",
+                    Description = "Opaque strong entity/review tag. Send the original tag in If-Match when editing or confirming a merge.",
                     Schema = new OpenApiSchema { Type = "string" },
                 };
             if (response.Key == "201")
                 response.Value.Headers["Location"] = new OpenApiHeader
                 {
-                    Description = "URI of the created label.", Schema = new OpenApiSchema { Type = "string" },
+                    Description = "URI of the created label or merge review.", Schema = new OpenApiSchema { Type = "string" },
                 };
         }
+        if (operation.Responses.TryGetValue("308", out var redirect))
+            redirect.Headers["Location"] = new OpenApiHeader
+            {
+                Description = "Canonical survivor URI for this retired label/child resource.",
+                Schema = new OpenApiSchema { Type = "string" },
+            };
     }
 }

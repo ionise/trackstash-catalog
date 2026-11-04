@@ -17,7 +17,7 @@ using TrackStash.Core.Storage;
 
 namespace TrackStash.Catalog.Tests;
 
-public sealed class LabelApiTests : IAsyncLifetime
+public sealed partial class LabelApiTests : IAsyncLifetime
 {
     private const string Key = "test-only-api-key-not-a-real-secret-12345";
     private readonly string _path = Path.Combine(Path.GetTempPath(), $"catalog-api-{Guid.NewGuid():N}.db");
@@ -417,7 +417,8 @@ public sealed class LabelApiTests : IAsyncLifetime
             await File.WriteAllBytesAsync(path, []);
             await using var app = Build(builder =>
                 builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?> { ["CatalogApi:DatabasePath"] = path }));
-            await Assert.ThrowsAsync<SqliteException>(() => app.StartAsync());
+            var failure = await Assert.ThrowsAsync<InvalidOperationException>(() => app.StartAsync());
+            Assert.Contains("schema version 4", failure.Message);
             await using var connection = new SqliteConnection($"Data Source={path};Mode=ReadOnly");
             await connection.OpenAsync();
             using var command = connection.CreateCommand();

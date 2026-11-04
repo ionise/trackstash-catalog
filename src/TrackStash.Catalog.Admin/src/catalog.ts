@@ -17,19 +17,32 @@ interface Problem {
   errors?: Record<string, string[]>
 }
 
+export interface MergePreview {
+  operationId: string
+  expiresUtc: string
+  survivor: LabelRecord
+  retired: LabelRecord
+  aliases: { value: string; isPrimary: boolean }[]
+  externalReferences: { source: string; externalId: string; isPrimary: boolean }[]
+  releaseLinks: { releaseId: string; isPrimary: boolean; role: string | null }[]
+  blockers: string[]
+  warnings: string[]
+  etag: string
+}
+
 export function createCatalogClient(fetcher: typeof fetch = fetch) {
   let token: string | undefined
 
-  async function request(path: string, init: RequestInit = {}) {
+  async function request(path: string, init: RequestInit = {}, resource = 'labels') {
     if (!token) throw new HttpError('Sign in with your catalog API key.', 401)
     const headers = new Headers(init.headers)
     headers.set('Authorization', `Bearer ${token}`)
-    const response = await fetcher(`/api/v1/labels${path}`, {
+    const response = await fetcher(`/api/v1/${resource}${path}`, {
       ...init, headers, cache: 'no-store', credentials: 'omit',
     })
     if (!response.ok) {
       const problem: Problem = await response.json()
-      const message = response.status === 412
+      const message = response.status === 412 && problem.code !== 'merge_state_changed'
         ? 'This label changed since you opened it. Your edit was not saved. Reload the label before editing again.'
         : problem.detail ?? problem.title ?? `Catalog request failed (${response.status}).`
       throw new HttpError(message, response.status, {
@@ -137,7 +150,25 @@ export function createCatalogClient(fetcher: typeof fetch = fetch) {
     },
     getPermissions: async () => [],
   }
-  return { dataProvider, authProvider }
+
+  const mergeClient = {
+    preview: async (survivorId: string, retiredLabelId: string): Promise<MergePreview> => {
+      const response = await request(`/${encodeURIComponent(survivorId)}/merge-previews`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ retiredLabelId }),
+      })
+      const etag = response.headers.get('ETag')
+      if (!etag) throw new Error('Merge review is missing its ETag; apply is unavailable.')
+      return { ...await response.json(), etag }
+    },
+    apply: async (preview: MergePreview, reason: string, operator: string) => {
+      const response = await request(`/${encodeURIComponent(preview.operationId)}/apply`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'If-Match': preview.etag },
+        body: JSON.stringify({ reason, operator: operator || null }),
+      }, 'label-merge-previews')
+      return await response.json() as { canonicalId: string; operationId: string; auditId: string }
+    },
+  }
+  return { dataProvider, authProvider, mergeClient }
 }
 
-export const { dataProvider, authProvider } = createCatalogClient()
+export const { dataProvider, authProvider, mergeClient } = createCatalogClient()

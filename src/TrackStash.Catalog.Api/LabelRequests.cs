@@ -67,8 +67,8 @@ internal static class LabelRequests
         return patch;
     }
 
-    private static async Task<Dictionary<string, JsonElement>> FieldsAsync(HttpRequest request, string contentType,
-        CancellationToken cancellationToken)
+    internal static async Task<Dictionary<string, JsonElement>> FieldsAsync(HttpRequest request, string contentType,
+        CancellationToken cancellationToken, string[]? allowedFields = null)
     {
         if (!request.HasJsonContentType() || !string.Equals(request.ContentType?.Split(';')[0].Trim(), contentType, StringComparison.OrdinalIgnoreCase))
             throw new ApiRequestException(415, "unsupported_media_type", $"Use {contentType}.");
@@ -80,7 +80,7 @@ internal static class LabelRequests
         var fields = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
         foreach (var property in document.RootElement.EnumerateObject())
         {
-            if (property.Name is not ("name" or "sortName"))
+            if (!(allowedFields ?? ["name", "sortName"]).Contains(property.Name, StringComparer.Ordinal))
                 throw Invalid("This field is not editable.", property.Name);
             if (!fields.TryAdd(property.Name, property.Value.Clone()))
                 throw Invalid("Duplicate properties are not allowed.", property.Name);
@@ -88,7 +88,11 @@ internal static class LabelRequests
         return fields;
     }
 
-    private static string? NullableString(JsonElement value, string field) => value.ValueKind switch
+    internal static string RequiredString(Dictionary<string, JsonElement> fields, string field)
+        => fields.TryGetValue(field, out var value) && value.ValueKind == JsonValueKind.String
+            && !string.IsNullOrWhiteSpace(value.GetString()) ? value.GetString()! : throw Invalid("A nonblank string is required.", field);
+
+    internal static string? NullableString(JsonElement value, string field) => value.ValueKind switch
     {
         JsonValueKind.String => value.GetString(),
         JsonValueKind.Null => null,

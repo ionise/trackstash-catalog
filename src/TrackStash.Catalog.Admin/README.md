@@ -4,7 +4,7 @@ React-admin label maintenance application using React, TypeScript, and Vite. Its
 
 ## Build and Use
 
-Requirements for building: Node.js 22.12 or newer and npm. The API requires .NET 8 and an existing canonical catalog migrated to version 3 or later.
+Requirements for building: Node.js 22.12 or newer and npm. The API requires .NET 8 and an existing canonical catalog migrated to version 4 or later.
 
 From this directory:
 
@@ -24,6 +24,7 @@ The app supports:
 - Inspect stable IDs, timestamps, aliases, and provider references.
 - Create labels with server-assigned IDs, or edit name/sort name. Clearing sort name sends JSON null.
 - Preserve the original detail-response ETag for a pessimistic conditional save. A 412 displays a stale-edit warning and does not retry or overwrite a competing edit; reload before making a fresh edit.
+- Review a pairwise duplicate-label merge from survivor detail: paged name/provider search, combined aliases/provider IDs/release links, blockers, switch-survivor, reason, and explicit confirmation. Cancel does not change identities; refreshing a 15-minute review requires confirmation again. A stale apply is rejected without automatic retry, and successful apply refreshes lists/detail.
 
 Deletion, bulk mutation, relationship editing, and alias/reference mutation are intentionally unavailable.
 
@@ -61,7 +62,7 @@ npm run test:e2e
 ADMIN_TEST_DEV=1 npm run test:e2e  # same tests through the Vite development proxy
 ```
 
-Unit tests cover transport mapping, original-token preservation, rejected writes, errors, and authentication. Browser tests start a temporary catalog/API and check real sign-in, detail/child display, create/edit, stale writes, searching/paging/sorting, and logout/refresh. They require the repository's bootstrap module and `sqlite3`, use ports 5199 (API) and optionally 5173 (Vite), and stop their servers/remove their temporary catalog on exit. Never use a live catalog for these tests.
+Unit tests cover transport mapping, original-token preservation, rejected writes, merge review/apply, errors, and authentication. Browser tests start a temporary catalog/API and check real sign-in, detail/child display, create/edit, stale writes, searching/paging/sorting, logout/refresh, merge cancellation/confirmation/provider preservation, and stale merge rejection. They require the repository's bootstrap module and `sqlite3`, use ports 5199 (API) and optionally 5173 (Vite), and stop their servers/remove their temporary catalog on exit. Never use a live catalog for these tests.
 
 ## Dependency and Generated-file Policy
 

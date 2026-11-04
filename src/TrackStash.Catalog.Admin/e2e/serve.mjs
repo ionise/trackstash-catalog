@@ -17,6 +17,10 @@ try {
     INSERT INTO label (label_id, name) VALUES ('legacy-test', 'Archive Label');
     INSERT INTO label_alias (label_id, value, is_primary) VALUES ('legacy-test', 'Archive Alias', 1);
     INSERT INTO label_external_ref (label_id, source, external_id) VALUES ('legacy-test', 'beatport', '42');
+    INSERT INTO label (label_id, name) VALUES ('merge-survivor', 'Merge Survivor'), ('merge-retired', 'Merge Duplicate');
+    INSERT INTO label_external_ref (label_id, source, external_id, is_primary) VALUES
+      ('merge-survivor', 'beatport', '10955', 1), ('merge-retired', 'beatport', '254639', 1),
+      ('merge-retired', 'beatport', 'verified-third-test-id', 0);
   `])
   api = spawn('dotnet', [join(root, 'trackstash-catalog/src/TrackStash.Catalog.Api/bin/Debug/net8.0/TrackStash.Catalog.Api.dll')], {
     stdio: 'inherit',

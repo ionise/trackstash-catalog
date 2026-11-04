@@ -16,7 +16,7 @@ internal static class LabelEndpoints
         group.MapGet("/{id}", GetAsync).WithName("GetLabel")
             .WithSummary("Read a canonical label")
             .WithDescription("Returns aliases and provider references without provider payloads, and an aggregate ETag for editing.")
-            .ProducesProblem(404);
+            .ProducesProblem(404).Produces(308);
         group.MapPost("", CreateAsync).WithName("CreateLabel")
             .WithSummary("Create a label with a server-assigned GUID")
             .WithDescription("Does not merge same-name labels. Returns Location and ETag. POST retries are not idempotent.")
@@ -25,15 +25,15 @@ internal static class LabelEndpoints
             .WithSummary("Conditionally edit name or sort name")
             .WithDescription("JSON Merge Patch only. Omitted values remain; sortName may be null. Supply one strong If-Match ETag from the last read.")
             .Accepts<UpdateLabelRequest>("application/merge-patch+json")
-            .ProducesProblem(400).ProducesProblem(404).ProducesProblem(412).ProducesProblem(415).ProducesProblem(428);
+            .ProducesProblem(400).ProducesProblem(404).ProducesProblem(409).ProducesProblem(412).ProducesProblem(415).ProducesProblem(428);
         group.MapGet("/{id}/aliases", AliasesAsync).WithName("GetLabelAliases")
             .WithSummary("Read alternate label names")
             .WithDescription("Read-only alternate names for this label identity. No alias mutation is exposed.")
-            .ProducesProblem(404);
+            .ProducesProblem(404).Produces(308);
         group.MapGet("/{id}/external-references", ReferencesAsync).WithName("GetLabelExternalReferences")
             .WithSummary("Read provider identities for a label")
             .WithDescription("Returns provider IDs and last-seen timestamps, excluding raw provider payloads.")
-            .ProducesProblem(404);
+            .ProducesProblem(404).Produces(308);
     }
 
     private static async Task<Ok<LabelListResponse>> ListAsync(HttpContext context, ILabelService service, CancellationToken cancellationToken)
@@ -44,9 +44,11 @@ internal static class LabelEndpoints
             page.Total, page.Page, page.PageSize));
     }
 
-    private static async Task<Results<Ok<LabelResponse>, ProblemHttpResult>> GetAsync(
-        string id, HttpContext context, ILabelService service, CancellationToken cancellationToken)
+    private static async Task<Results<Ok<LabelResponse>, ProblemHttpResult, RedirectHttpResult>> GetAsync(
+        string id, HttpContext context, ILabelService service, ILabelMergeService merges, CancellationToken cancellationToken)
     {
+        var redirect = await RetiredReadAsync(id, "", context, merges, cancellationToken);
+        if (redirect is not null) return redirect;
         var label = await service.GetAsync(id, cancellationToken);
         if (label is null) return Missing(context);
         context.Response.Headers.ETag = LabelRequests.ETag(label.Version);
@@ -80,22 +82,35 @@ internal static class LabelEndpoints
         return TypedResults.Ok(ToResponse(label));
     }
 
-    private static async Task<Results<Ok<IReadOnlyList<LabelAliasResponse>>, ProblemHttpResult>> AliasesAsync(
-        string id, HttpContext context, ILabelService service, CancellationToken cancellationToken)
+    private static async Task<Results<Ok<IReadOnlyList<LabelAliasResponse>>, ProblemHttpResult, RedirectHttpResult>> AliasesAsync(
+        string id, HttpContext context, ILabelService service, ILabelMergeService merges, CancellationToken cancellationToken)
     {
+        var redirect = await RetiredReadAsync(id, "/aliases", context, merges, cancellationToken);
+        if (redirect is not null) return redirect;
         var label = await service.GetAsync(id, cancellationToken);
         return label is null ? Missing(context) : TypedResults.Ok(ToResponse(label).Aliases);
     }
 
-    private static async Task<Results<Ok<IReadOnlyList<LabelReferenceResponse>>, ProblemHttpResult>> ReferencesAsync(
-        string id, HttpContext context, ILabelService service, CancellationToken cancellationToken)
+    private static async Task<Results<Ok<IReadOnlyList<LabelReferenceResponse>>, ProblemHttpResult, RedirectHttpResult>> ReferencesAsync(
+        string id, HttpContext context, ILabelService service, ILabelMergeService merges, CancellationToken cancellationToken)
     {
+        var redirect = await RetiredReadAsync(id, "/external-references", context, merges, cancellationToken);
+        if (redirect is not null) return redirect;
         var label = await service.GetAsync(id, cancellationToken);
         return label is null ? Missing(context) : TypedResults.Ok(ToResponse(label).ExternalReferences);
     }
 
     private static ProblemHttpResult Missing(HttpContext context)
         => TypedResults.Problem(ApiErrors.Create(context, 404, "label_not_found", "Label not found"));
+
+    private static async Task<RedirectHttpResult?> RetiredReadAsync(string id, string suffix, HttpContext context,
+        ILabelMergeService merges, CancellationToken cancellationToken)
+    {
+        var identity = await merges.ResolveAsync(id, cancellationToken);
+        if (!identity.IsRetired) return null;
+        context.Response.Headers.CacheControl = "no-store";
+        return TypedResults.Redirect($"/api/v1/labels/{Uri.EscapeDataString(identity.CanonicalId!)}{suffix}", permanent: true, preserveMethod: true);
+    }
 
     private static LabelResponse ToResponse(LabelDetail label) => new(
         label.Id, label.Name, label.SortName, label.Version, label.CreatedUtc, label.UpdatedUtc,

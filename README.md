@@ -95,7 +95,7 @@ Seeding does not update media tags or establish file/release links automatically
 
 The [Catalog API design intent](docs/api-design.md) describes the implemented label-first ASP.NET Core host, shared application services, and React-admin GUI, plus a planned PowerShell HTTP client. SQLite remains a storage adapter, not part of the public API contract.
 
-The host and GUI support label list/read/create/edit and alias/provider-reference inspection. Relationships, safe lifecycle workflows, and PowerShell HTTP client remain future work. The resource boundary leaves room for artists, releases, recordings (abstract tracks), genres/subgenres, and playlists without importing Beatport-specific identities or Library filesystem responsibilities.
+The host and GUI support label list/read/create/edit, alias/provider-reference inspection, and reviewed duplicate-label merges with audit and retired-ID resolution. Relationship editing, safe deletion endpoints, and the PowerShell HTTP client remain future work. The resource boundary leaves room for artists, releases, recordings (abstract tracks), genres/subgenres, and playlists without importing Beatport-specific identities or Library filesystem responsibilities.
 
 ### React-admin GUI
 
@@ -114,7 +114,7 @@ Then start the API as below and open <http://localhost:5187/admin/>. Enter the k
 
 ### Running the API Locally
 
-From this module directory, configure an existing canonical catalog migrated to version 3 or later:
+From this module directory, configure an existing canonical catalog migrated to version 4 or later:
 
 ```bash
 export CatalogApi__DatabasePath="/absolute/path/to/Trackstash.Catalog.db"
@@ -137,7 +137,24 @@ curl -H "Authorization: Bearer $CatalogApi__ApiKey" \
   'http://localhost:5187/openapi/v1.json'
 ```
 
-The [HTTP request examples](src/TrackStash.Catalog.Api/TrackStash.Catalog.Api.http) cover all six operations and error paths. Reads/creates/edits of a single label return a quoted opaque `ETag`. Send that exact value in `If-Match` when editing with `application/merge-patch+json`; missing headers return 428, stale versions 412. Do not retry POST automatically: create idempotency is not implemented.
+The [HTTP request examples](src/TrackStash.Catalog.Api/TrackStash.Catalog.Api.http) cover label CRUD/inspection and merge preview/apply. Reads/creates/edits of a single label return a quoted opaque `ETag`. Send that exact value in `If-Match` when editing with `application/merge-patch+json`; missing headers return 428, stale versions 412. Do not retry ordinary label creation POST automatically: create idempotency is not implemented.
+
+### Reviewed Duplicate-label Merges
+
+Open the label you want to keep, then choose **Merge duplicate into this label**. Search by name/alias or provider ID, choose the duplicate, and review the direction, retained provider IDs, aliases, release links, warnings, and blockers. Supply a reason and confirm explicitly. Switching the survivor or refreshing the review requires confirmation again; previews expire after 15 minutes.
+
+One label can already hold several Beatport IDs. Apply atomically transfers supported links, coalesces compatible rows, preserves relational before/after audit evidence, and retires the duplicate ID. Conflicting payloads/roles, ambiguous primary flags, third-party provider conflicts, processing embedding work, and unsupported dependencies block apply. No automatic fuzzy matching, undo, media rewriting, or artist/release/recording merging is included.
+
+Retired HTTP reads redirect to the survivor; writes return `409 label_retired` with the canonical ID. YAML/CSV imports and restores cannot recreate retired IDs, including dry runs of explicit label/release selectors. Merge applies are idempotent for the same operation/ETag/reason/operator; a changed or expired unapplied review requires another preview. See the [merge contract](docs/api-design.md#reviewed-label-merge-design).
+
+**Upgrade before running this version:** stop the old API, make a consistent backup of the canonical catalog, then run the native bootstrap `migrate` command against that catalog (never the scanner database). For example, from the workspace root, after backing up:
+
+```bash
+dotnet run --project trackstash-bootstrap/src/TrackStash.Bootstrap -- \
+  migrate --provider sqlite --db-path "/absolute/path/to/Trackstash.Catalog.db"
+```
+
+Migration 4 adds review/audit/retirement storage and guards, but does not merge or renumber existing labels. Startup refuses older schemas without changing them. Build the admin assets again before rebuilding the API. Protect database/backup access: full audit snapshots can contain provider payloads, and no HTTP endpoint exposes those snapshots. Applied operation outcomes, audits, redirects, and unused reviews are retained; cleanup and undo are not implemented.
 
 ### Shared Label Foundation
 
@@ -145,7 +162,7 @@ The [HTTP request examples](src/TrackStash.Catalog.Api/TrackStash.Catalog.Api.ht
 
 Queries return `{ items, total, page, pageSize }`, search names/aliases with shared strict normalization, preserve ambiguous candidates, and support stable sorting and pages up to 100. Updates require the last-read opaque version and distinguish missing labels from stale edits. Explicit field flags preserve omitted values and allow clearing nullable sort names.
 
-The SQLite adapter requires explicit migration to version 3 before use. Its aggregate-version triggers also invalidate tokens when existing CLI/import workflows change a label, alias, or provider reference. Existing unconditional CLI writes retain their behavior; the new HTTP host uses `ILabelService`. No new CLI commands are included yet.
+The SQLite adapter requires explicit migration to version 4 before use. Its aggregate-version triggers invalidate tokens when existing CLI/import workflows change a label, alias, provider reference, or release-label link. Unconditional writers still invalidate versions but must reject retired-ID reuse. The HTTP host uses `ILabelService` and `ILabelMergeService`; no new CLI commands are included.
 
 See the [implemented contract and remaining decisions](docs/api-design.md#implemented-foundation) for details.
 

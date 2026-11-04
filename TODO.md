@@ -14,7 +14,9 @@ See [API design intent](docs/api-design.md) for contracts, boundaries, open deci
 - [x] Add React-admin label list/detail/create/edit screens with memory-only login, origin policy, ETags, and browser tests
 - [ ] Add a separate `TrackStash.Catalog.Client` PowerShell HTTP module
 - [ ] Implement and test label relationship persistence, direction, provenance, effective dates, and hierarchy validation
-- [ ] Add safe deletion preview/apply and reviewed duplicate/merge workflows with retired-ID resolution (first ensure tombstones snapshot relational state, not just provider payloads)
+- [x] Document reviewed pairwise label merge design, multiple provider IDs, conflict policies, audit, concurrency, and retired-ID resolution (see [merge design](docs/api-design.md#reviewed-label-merge-design))
+- [x] Implement reviewed label merge storage/application contracts, preview/apply API, GUI confirmation, and all-writer retired-ID safeguards with temporary-catalog tests
+- [ ] Add safe deletion preview/apply (first ensure tombstones snapshot relational state, not just provider payloads, and preserve retired-ID resolution)
 - [ ] Validate the label slice end to end before expanding to artists, releases, and recordings
 - [ ] Design genres/subgenres and ordered playlists later without duplicating recording identities or assuming local file ownership
 

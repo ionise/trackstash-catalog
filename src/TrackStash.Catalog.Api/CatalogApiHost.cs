@@ -48,6 +48,8 @@ public static class CatalogApiHost
                 .Create(new StorageProviderDescriptor("sqlite", DatabasePath: path));
         });
         builder.Services.TryAddScoped<ILabelService, LabelService>();
+        builder.Services.TryAddSingleton(TimeProvider.System);
+        builder.Services.TryAddScoped<ILabelMergeService, LabelMergeService>();
         builder.Services.AddHostedService<CatalogReadinessCheck>();
         builder.Services.ConfigureHttpJsonOptions(options =>
         {
@@ -73,6 +75,8 @@ public static class CatalogApiHost
                     ["instance"] = new() { Type = "string" },
                     ["code"] = new() { Type = "string", Description = "Stable API error code." },
                     ["traceId"] = new() { Type = "string", Description = "Correlation identifier for server logs." },
+                    ["canonicalId"] = new() { Type = "string", Description = "Active label ID for a label_retired conflict." },
+                    ["canonicalUri"] = new() { Type = "string", Description = "Survivor resource URI for a label_retired conflict." },
                     ["errors"] = new()
                     {
                         Type = "object", AdditionalProperties = new OpenApiSchema
@@ -118,6 +122,7 @@ public static class CatalogApiHost
         });
         app.UseSwagger(options => options.RouteTemplate = "openapi/{documentName}.json");
         app.MapLabels();
+        app.MapLabelMerges();
         var webRoot = Path.Combine(AppContext.BaseDirectory, "wwwroot");
         if (File.Exists(Path.Combine(webRoot, "admin", "index.html")))
         {
