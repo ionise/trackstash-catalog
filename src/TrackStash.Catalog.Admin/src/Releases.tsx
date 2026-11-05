@@ -39,7 +39,7 @@ function ReleasePage({ page, search, labelId, onPage }: { page: number; search: 
   if (!data) return <LinearProgress aria-label="Loading catalog releases" />
   return <>
     {!data.total && <Typography>No catalog releases match this view.</Typography>}
-    <Box sx={{ overflowX: 'auto' }}>
+    <Box sx={{ overflowX: 'auto', width: '100%', minWidth: 0, contain: 'inline-size' }}>
       <Table aria-label={labelId ? 'Label releases' : 'Catalog releases'}>
         <TableHead><TableRow><TableCell>Release</TableCell><TableCell>{labelId ? 'Primary artist' : 'Label'}</TableCell><TableCell>Catalog number</TableCell><TableCell>Publish date</TableCell><TableCell>Tracks</TableCell></TableRow></TableHead>
         <TableBody>{data.items.map(release => <TableRow key={release.id} hover>

@@ -88,3 +88,22 @@ test('narrow touch Release view contains the table and keeps artwork management 
     await context.close()
   }
 })
+
+test('narrow Release lists contain their columns without widening the page', async ({ browser }) => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
+  try {
+    const page = await context.newPage()
+    await page.goto('/admin/#/releases')
+    await page.getByLabel('API key').fill(key)
+    await page.getByRole('button', { name: 'Connect', exact: true }).click()
+    const releases = page.getByRole('table', { name: 'Catalog releases', exact: true })
+    await expect(releases).toBeVisible()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
+    await releases.getByRole('link', { name: 'Fixture Catalog Release', exact: true }).click()
+    await page.getByRole('link', { name: 'Release Fixture Label (primary label)', exact: true }).click()
+    await expect(page.getByRole('table', { name: 'Label releases', exact: true })).toBeVisible()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
+  } finally {
+    await context.close()
+  }
+})

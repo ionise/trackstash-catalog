@@ -11,6 +11,7 @@ export default defineConfig({
     url: 'http://localhost:5199/admin/',
     reuseExistingServer: false,
     timeout: 120_000,
+    gracefulShutdown: { signal: 'SIGTERM', timeout: 10_000 },
   }, ...(development ? [{
     command: 'npm run dev',
     url: 'http://localhost:5173/admin/',

@@ -109,3 +109,58 @@ test('missing Artist has an explicit error and no success-shaped detail', async 
   await expect(page.getByRole('alert').filter({ hasText: 'Catalog Artist was not found.' })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Track credits', exact: true })).toHaveCount(0)
 })
+
+test('Artist tracks use the alternate release date and never borrow viewed-Artist evidence as contributors', async ({ page }) => {
+  await page.route(/\/api\/v1\/artists\/release-fixture-artist\/track-appearances\?/, async route => {
+    const response = await route.fetch()
+    const data = await response.json()
+    await route.fulfill({ response, json: { ...data, total: 2, items: [
+      { ...data.items[0], publishDate: null, newReleaseDate: '2020-01-02', contributors: [] },
+      { ...data.items[1], placementId: null, releaseId: null, releaseTitle: null, labels: [],
+        publishDate: null, newReleaseDate: null, contributors: [] },
+    ] } })
+  })
+  await page.goto('/admin/#/artists/release-fixture-artist/show?tab=Tracks')
+  await page.getByLabel('API key').fill(key)
+  await page.getByRole('button', { name: 'Connect', exact: true }).click()
+  const rows = page.getByRole('table', { name: 'Artist track credits', exact: true }).getByRole('row')
+  await expect(rows).toHaveCount(3)
+  await expect(rows.nth(1).getByRole('cell').nth(3)).toHaveText('2020-01-02')
+  await expect(rows.nth(1)).toContainText('Primary Artist not recorded')
+  await expect(rows.nth(1).getByRole('link', { name: 'Fixture Composer', exact: true })).toHaveCount(0)
+  await rows.nth(1).getByRole('button', { name: 'Credit details', exact: true }).click()
+  await expect(rows.nth(1)).toContainText('Credited as: Fixture Composer')
+  await expect(rows.nth(2).getByRole('cell').nth(2)).toContainText('Not recorded')
+  await expect(rows.nth(2).getByRole('cell').nth(3)).toHaveText('Not available')
+  await rows.nth(2).getByRole('button', { name: 'Credit details', exact: true }).click()
+  await expect(rows.nth(2)).toContainText('No release placement')
+  await expect(page.getByRole('button', { name: 'Next page', exact: true })).toBeDisabled()
+})
+
+for (const tracks of [true, false]) {
+  test(`Artist ${tracks ? 'track' : 'release'} appearance failures and empty results remain distinct`, async ({ page }) => {
+    const path = `/api/v1/artists/release-fixture-artist/${tracks ? 'track' : 'release'}-appearances`
+    let unavailable = true
+    await page.route(`**${path}?*`, route => route.fulfill({
+      status: unavailable ? 503 : 200,
+      contentType: unavailable ? 'application/problem+json' : 'application/json',
+      body: JSON.stringify(unavailable
+        ? { detail: 'Fixture credits temporarily unavailable.', code: 'fixture_unavailable' }
+        : { items: [], total: 0, page: 1, pageSize: 25 }),
+    }))
+    const tab = tracks ? 'Tracks' : 'Releases'
+    await page.goto(`/admin/#/artists/release-fixture-artist/show?tab=${tab}`)
+    await page.getByLabel('API key').fill(key)
+    await page.getByRole('button', { name: 'Connect', exact: true }).click()
+    await expect(page.getByRole('alert').filter({ hasText: 'Fixture credits temporarily unavailable.' })).toBeVisible()
+    const empty = page.getByText(`No ${tracks ? 'track' : 'release'} credits recorded.`, { exact: true })
+    await expect(empty).toHaveCount(0)
+    unavailable = false
+    await page.getByRole('tab', { name: 'Featured', exact: true }).click()
+    await page.getByRole('tab', { name: tab, exact: true }).click()
+    await expect(empty).toBeVisible()
+    await expect(page.getByRole('alert').filter({ hasText: 'Fixture credits temporarily unavailable.' })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Previous page', exact: true })).toBeDisabled()
+    await expect(page.getByRole('button', { name: 'Next page', exact: true })).toBeDisabled()
+  })
+}
