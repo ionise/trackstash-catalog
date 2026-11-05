@@ -1,0 +1,63 @@
+using System.Net;
+using System.Net.Http.Json;
+using Microsoft.AspNetCore.TestHost;
+using TrackStash.Catalog.Api;
+
+namespace TrackStash.Catalog.Tests;
+
+public sealed partial class LabelApiTests
+{
+    [Fact]
+    public async Task ArtistBrowseListsLabelCreditsAndSafeDetailsAndPagedAppearancesWithoutWrites()
+    {
+        var service = await ImportService(); var preview = await Reviewed(service);
+        var outcome = await service.ApplyAsync(preview.Plan.OperationId, preview.Plan.Version, "Review", true);
+        var history = await ImportCount("catalog_foundation_revision");
+        var release = (await _client.GetFromJsonAsync<ReleaseResponse>($"/api/v1/releases/{outcome.ReleaseId}"))!;
+        var primary = release.Credits.First(c => c.Role == "primary");
+        await ImportSql($"INSERT INTO artist_alias(artist_id,value) VALUES('{primary.ArtistId}','Alias 100%'); UPDATE artist SET source_payload_json='PRIVATE_SENTINEL' WHERE artist_id='{primary.ArtistId}'");
+        var filtered = (await _client.GetFromJsonAsync<ArtistListResponse>("/api/v1/artists?labelId=source-label"))!;
+        Assert.Equal(3, filtered.Total); Assert.Equal(3, filtered.Items.Select(a => a.Id).Distinct().Count());
+        var remixers = (await _client.GetFromJsonAsync<ArtistListResponse>("/api/v1/artists?labelId=source-label&role=remixer"))!;
+        Assert.Equal("unresolved_compound", Assert.Single(remixers.Items).IdentityStatus);
+        var literal = (await _client.GetFromJsonAsync<ArtistListResponse>("/api/v1/artists?q=%25"))!;
+        Assert.Equal(primary.ArtistId, Assert.Single(literal.Items).Id);
+        var first = (await _client.GetFromJsonAsync<ArtistListResponse>("/api/v1/artists?pageSize=1"))!;
+        var second = (await _client.GetFromJsonAsync<ArtistListResponse>("/api/v1/artists?pageSize=1&page=2"))!;
+        Assert.NotEqual(first.Items[0].Id, second.Items[0].Id);
+        var detailResponse = await _client.GetAsync($"/api/v1/artists/{primary.ArtistId}");
+        var detail = (await detailResponse.Content.ReadFromJsonAsync<ArtistResponse>())!;
+        Assert.Equal(primary.ArtistName, detail.Name); Assert.Contains("Alias 100%", detail.Aliases);
+        Assert.NotEmpty(detail.ExternalReferences); Assert.NotNull(detailResponse.Headers.ETag);
+        Assert.True(detailResponse.Headers.CacheControl!.NoStore); Assert.DoesNotContain("PRIVATE", await detailResponse.Content.ReadAsStringAsync());
+        var credits = (await _client.GetFromJsonAsync<ArtistCreditsResponse>($"/api/v1/artists/{primary.ArtistId}/releases?pageSize=1"))!;
+        Assert.Single(credits.Items); Assert.Equal(outcome.ReleaseId, credits.Items[0].ReleaseId);
+        var tracks = (await _client.GetFromJsonAsync<ArtistCreditsResponse>($"/api/v1/artists/{primary.ArtistId}/tracks"))!;
+        Assert.NotEmpty(tracks.Items); Assert.All(tracks.Items, c => Assert.NotEqual("release", c.Scope));
+        Assert.Equal(history, await ImportCount("catalog_foundation_revision"));
+        var openapi = await _client.GetStringAsync("/openapi/v1.json");
+        Assert.Contains("/api/v1/artists/{id}/tracks", openapi);
+    }
+    [Theory]
+    [InlineData("page=0")]
+    [InlineData("pageSize=101")]
+    [InlineData("role=producer")]
+    [InlineData("labelId=")]
+    [InlineData("q=x&q=y")]
+    [InlineData("unknown=x")]
+    public async Task ArtistBrowseRejectsInvalidQueries(string query)
+        => await ProblemAsync(await _client.GetAsync("/api/v1/artists?" + query), 400, "validation_failed");
+    [Fact]
+    public async Task ArtistBrowseRequiresAuthHandlesMissingAndGatesSchemaWithoutBreakingLabels()
+    {
+        using var anonymous = _app.GetTestClient();
+        await ProblemAsync(await anonymous.GetAsync("/api/v1/artists"), 401, "unauthorized");
+        await ProblemAsync(await _client.GetAsync("/api/v1/artists/missing"), 404, "artist_not_found");
+        await ProblemAsync(await _client.GetAsync("/api/v1/artists/missing/tracks"), 404, "artist_not_found");
+        await ProblemAsync(await _client.GetAsync("/api/v1/artists/missing/releases?role=primary"), 400, "validation_failed");
+        await ImportSql("DELETE FROM schema_migration WHERE version>=9");
+        await ProblemAsync(await _client.GetAsync("/api/v1/artists"), 409, "artist_schema_required");
+        Assert.Equal(HttpStatusCode.OK, (await _client.GetAsync("/api/v1/labels")).StatusCode);
+        Assert.Equal(8, await Provider.Migrations.GetCurrentVersionAsync());
+    }
+}

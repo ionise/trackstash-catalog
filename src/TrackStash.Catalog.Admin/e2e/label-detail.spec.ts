@@ -83,7 +83,7 @@ test('label header, local flag, links and favourite preserve the full profile an
   await favourite.click()
   await expect(favourite).toHaveAttribute('aria-pressed', 'false')
   await page.getByRole('tab', { name: 'Artists', exact: true }).click()
-  await expect(page.getByRole('tabpanel')).toContainText('Related artists are not available')
+  await expect(page.getByRole('tabpanel', { name: 'Artists', exact: true })).toContainText('No catalog Artists match this view.')
   await page.getByRole('tab', { name: 'Details', exact: true }).click()
   await expect(page.getByText(profile.notes, { exact: true })).toBeVisible()
   await page.route('**/artwork-assets/*/thumbnail', route => route.fulfill({

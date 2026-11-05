@@ -1,4 +1,30 @@
 @baseUrl = http://localhost:5187
+@artistId = replace-with-canonical-artist-id
+
+### Search canonical Artists by literal name/sort-name/alias substring
+GET {{baseUrl}}/api/v1/artists?q=Fixture&page=1&pageSize=25
+Authorization: Bearer {{apiKey}}
+
+### Artists credited as remixers on releases linked to this Label (not signing affiliations)
+GET {{baseUrl}}/api/v1/artists?labelId={{labelId}}&role=remixer&page=1&pageSize=25
+Authorization: Bearer {{apiKey}}
+
+### Safe Artist identity details and ETag
+GET {{baseUrl}}/api/v1/artists/{{artistId}}
+Authorization: Bearer {{apiKey}}
+
+### Grouped release appearances with explicit credit scopes
+GET {{baseUrl}}/api/v1/artists/{{artistId}}/releases?page=1&pageSize=25
+Authorization: Bearer {{apiKey}}
+
+### Explicit placement/Recording credits, including unplaced Recordings
+GET {{baseUrl}}/api/v1/artists/{{artistId}}/tracks?page=1&pageSize=25
+Authorization: Bearer {{apiKey}}
+
+### Missing Artist returns 404, not an empty successful detail
+GET {{baseUrl}}/api/v1/artists/not-a-catalog-artist
+Authorization: Bearer {{apiKey}}
+
 # Set apiKey locally in your HTTP client's secret/environment variables, not in this file.
 @labelId = replace-with-label-id
 @etag = "replace-with-etag-from-response"

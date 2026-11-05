@@ -89,6 +89,18 @@ export interface ReleaseCredit {
   artistId: string; artistName: string | null; creditedName: string | null; role: string
   position: number | null; identityStatus: string
 }
+export interface CatalogArtist {
+  id: string; name: string | null; kind: string; identityStatus: string; roles: string[]
+}
+export interface ArtistDetail extends Omit<CatalogArtist, 'roles'> {
+  sortName: string | null; version: string; aliases: string[]
+  externalReferences: { source: string; externalId: string; isPrimary: boolean }[]
+}
+export interface ArtistAppearance {
+  creditId: string; releaseId: string | null; releaseTitle: string | null
+  recordingId: string | null; placementId: string | null; trackTitle: string | null; mixName: string | null
+  role: string; scope: string; creditedName: string | null; position: number | null
+}
 export interface ReleaseDetail {
   id: string; title: string | null; version: string; catalogNumber: string | null; upc: string | null
   publishDate: string | null; newReleaseDate: string | null
@@ -448,7 +460,15 @@ export function createCatalogClient(fetcher: typeof fetch = fetch) {
     tracks: async (id: string, page: number, signal?: AbortSignal): Promise<GroupPage<ReleaseTrack>> =>
       (await request(`/${encodeURIComponent(id)}/tracks?page=${page}&pageSize=25`, { signal }, 'releases')).json(),
   }
-  return { dataProvider, authProvider, mergeClient, artworkClient, releaseArtworkClient, backupsClient, relationshipsClient, groupClient, purchaseReleaseClient, releaseImportClient, releaseClient }
+  const artistClient = {
+    list: async (query: URLSearchParams, signal?: AbortSignal): Promise<GroupPage<CatalogArtist>> =>
+      (await request(`?${query}`, { signal }, 'artists')).json(),
+    get: async (id: string, signal?: AbortSignal): Promise<ArtistDetail> =>
+      (await request(`/${encodeURIComponent(id)}`, { signal }, 'artists')).json(),
+    credits: async (id: string, tracks: boolean, page: number, signal?: AbortSignal): Promise<GroupPage<ArtistAppearance>> =>
+      (await request(`/${encodeURIComponent(id)}/${tracks ? 'tracks' : 'releases'}?page=${page}&pageSize=25`, { signal }, 'artists')).json(),
+  }
+  return { dataProvider, authProvider, mergeClient, artworkClient, releaseArtworkClient, backupsClient, relationshipsClient, groupClient, purchaseReleaseClient, releaseImportClient, releaseClient, artistClient }
 }
 
-export const { dataProvider, authProvider, mergeClient, artworkClient, releaseArtworkClient, backupsClient, relationshipsClient, groupClient, purchaseReleaseClient, releaseImportClient, releaseClient } = createCatalogClient()
+export const { dataProvider, authProvider, mergeClient, artworkClient, releaseArtworkClient, backupsClient, relationshipsClient, groupClient, purchaseReleaseClient, releaseImportClient, releaseClient, artistClient } = createCatalogClient()

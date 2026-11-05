@@ -10,6 +10,14 @@ Status: shared label foundation, reviewed pairwise label merges, loopback-only H
 
 ## Purpose and Scope
 
+### Read-only canonical Artists
+
+`GET /api/v1/artists` accepts `q` (literal case-insensitive name/sort-name/alias substring, up to 200 characters), optional canonical `labelId`, optional `role` (`primary`/`remixer`), `page` and `pageSize` (1-100). Stable name/ID ordering preserves same-name identities as separate results. Label context is derived from release, placement and Recording credits on linked releases; it does not establish a signing or ownership relationship. Each result includes kind, identity status and distinct credited roles in that context.
+
+`GET /api/v1/artists/{id}` returns safe name/sort-name, kind, identity status, aliases and provider identities with the aggregate ETag; arbitrary payloads are excluded. `GET /api/v1/artists/{id}/releases` pages appearances grouped by release/role/credit scope/credited spelling (not one row per repeated track). `GET /api/v1/artists/{id}/tracks` pages explicit placement and Recording credits, retaining repeated placements and unplaced Recordings (nullable release/placement IDs). Both accept only `page`/`pageSize`. Release-level credits are not fabricated as Recording or placement credits.
+
+All routes are read-only, bearer/origin protected, cancellable and no-store. Unknown/repeated query fields or invalid bounds return 400; missing Artist detail/credits returns 404. Schema 9+ is required; schema 8 returns `409 artist_schema_required` without migration while Label/inspector routes remain usable. There are no Artist editing, portrait, split/merge or private purchase endpoints.
+
 ### Read-only canonical Releases
 
 `GET /api/v1/releases` accepts `q` (literal case-insensitive title/catalog-number substring, up to 200 characters), optional canonical `labelId`, `page` and `pageSize` (1-100). Results are ordered by title case-insensitively then canonical ID, and include primary/display label and placement count. Filtering uses all release-label links, not only the displayed primary label. `GET /api/v1/releases/{id}` returns safe metadata, labels, release credits and provider identities with an ETag; `GET /api/v1/releases/{id}/tracks` pages placements in display order with listing credits and distinct source/official numbering. Unknown/repeated query fields return 400; missing release detail/tracks return 404. All routes use existing bearer/origin protection, cancellation and no-store responses. Raw payloads, private data and media locations are excluded.

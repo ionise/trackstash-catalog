@@ -8,6 +8,7 @@ import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { releaseClient } from './catalog'
 import type { CatalogRelease, GroupPage, ReleaseCredit, ReleaseDetail, ReleaseTrack } from './catalog'
 import { ArtworkImage, ArtworkPanel } from './LabelArtwork'
+import { ArtistCreditName } from './Artists'
 
 function Pager({ page, total, onPage }: { page: number; total: number; onPage: (page: number) => void }) {
   return <Stack direction="row" spacing={2} sx={{ alignItems: 'center', my: 2 }}>
@@ -48,8 +49,8 @@ function ReleasePage({ page, search, labelId, onPage }: { page: number; search: 
             <Link to={`/releases/${encodeURIComponent(release.id)}/show`}>{release.title ?? 'Untitled release'}</Link>
           </Stack></TableCell>
           <TableCell>{labelId
-            ? release.primaryArtists.length ? release.primaryArtists.map(credit =>
-              `${credit.creditedName ?? credit.artistName ?? credit.artistId}${credit.identityStatus === 'unresolved_compound' ? ' [unresolved compound]' : ''}`).join(', ') : 'Not recorded'
+            ? release.primaryArtists.length ? release.primaryArtists.map((credit, index) =>
+              <span key={`${credit.artistId}:${index}`}>{index > 0 && ', '}<ArtistCreditName credit={credit} /></span>) : 'Not recorded'
             : release.labelId ? <Link to={`/labels/${encodeURIComponent(release.labelId)}/show`}>{release.labelName ?? release.labelId}</Link> : 'Not recorded'}</TableCell>
           <TableCell>{release.catalogNumber ?? 'Not recorded'}</TableCell><TableCell>{release.publishDate ?? 'Unknown'}</TableCell><TableCell>{release.placementCount}</TableCell>
         </TableRow>)}</TableBody>
@@ -89,7 +90,7 @@ export function ReleaseList() {
 }
 function Credits({ items }: { items: ReleaseCredit[] }) {
   return items.length ? <ul>{items.map((credit, index) => <li key={index}>
-    {credit.creditedName ?? credit.artistName ?? credit.artistId} - {credit.role}
+    <ArtistCreditName credit={credit} showStatus={false} /> - {credit.role}
     {credit.creditedName && credit.artistName && credit.creditedName !== credit.artistName && ` (canonical: ${credit.artistName})`}
     {credit.identityStatus === 'unresolved_compound' && ' [unresolved compound]'}
   </li>)}</ul> : <Typography color="text.secondary">No credits recorded in this scope.</Typography>

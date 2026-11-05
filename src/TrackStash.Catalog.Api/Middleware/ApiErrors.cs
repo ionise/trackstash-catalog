@@ -44,6 +44,7 @@ internal sealed class ApiExceptionHandler(ILogger<ApiExceptionHandler> logger) :
     {
         var (status, code, title, detail, field) = exception switch
         {
+            ArtistBrowseUnavailableException => (409, "artist_schema_required", "Artist browsing unavailable", (string?)"Artist browsing requires schema 9 or later. Migrate only a separately approved catalog.", (string?)null),
             ReleaseArtworkNotFoundException => (404, "release_not_found", "Release not found", (string?)"Catalog release was not found.", (string?)null),
             ReleaseArtworkUnavailableException artwork => (409, "release_artwork_unavailable", "Release artwork unavailable", (string?)artwork.Message, (string?)null),
             ReleaseQueryValidationException query => (400, "validation_failed", "Invalid release query", (string?)query.Message, (string?)null),

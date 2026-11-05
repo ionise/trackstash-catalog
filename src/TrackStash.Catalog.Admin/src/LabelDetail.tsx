@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { LabelArtists } from './Artists'
 import type { ReactNode } from 'react'
 import {
   Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Chip, Divider,
@@ -130,7 +131,7 @@ function RelatedContent({ children }: { children: ReactNode }) {
     </Tabs>
     {sections.map((name, index) => <Box key={name} role="tabpanel" hidden={tab !== index}
       id={`label-panel-${index}`} aria-labelledby={`label-tab-${index}`} sx={{ py: 3, minWidth: 0 }}>
-      {name === 'Releases' ? tab === index && record && <LabelReleases key={record.id} labelId={record.id} /> : name === 'Details' ? children : name === 'Relationships' ? <Stack spacing={3} sx={{ minWidth: 0 }}>
+      {name === 'Releases' ? tab === index && record && <LabelReleases key={record.id} labelId={record.id} /> : name === 'Artists' ? tab === index && record && <LabelArtists key={record.id} labelId={record.id} /> : name === 'Details' ? children : name === 'Relationships' ? <Stack spacing={3} sx={{ minWidth: 0 }}>
         <LabelRelationships />
         <LabelGroupSections />
       </Stack> : <Typography color="text.secondary">

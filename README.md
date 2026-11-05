@@ -101,6 +101,8 @@ The host and GUI support label list/read/create/edit, alias/provider-reference i
 
 ### React-admin GUI
 
+Read-only Artist browsing is available from the sidebar, linked Release/placement credits and the Label's Artists tab. Search name/sort-name/aliases, page identities and filter primary/remixer credits. Artist detail shows safe identity/provider metadata, grouped release appearances and paged explicit track credits; repeated placements, unplaced Recordings and unresolved compounds remain distinct. Label context reflects credits on linked releases, not artist signing/ownership. Artist editing, portraits and split/merge workflows remain deferred. This uses schema 9+ without a new migration or live database changes. See [Artist API](docs/api-design.md#read-only-canonical-artists).
+
 The [admin application](src/TrackStash.Catalog.Admin/README.md) provides searchable, sortable label lists, paged results, detail/alias/provider-reference inspection, and safe create/edit forms. It retains API keys in memory only, disables framework telemetry, and rejects stale edits using the form's original ETag.
 
 Build it before building the API:

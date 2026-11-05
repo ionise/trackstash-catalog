@@ -43,6 +43,7 @@ See the [data-grounded release import design](docs/purchase-release-import-desig
 - [x] Implement minimal Artist/Release/Recording/placement/credit models, conditional versions and conflict-safe provider bindings using forward migration 9, tested on temporary databases only
 - [x] Implement immutable import reviews and atomic idempotent apply, preserving curator decisions and permanent provenance/audit (migration 10, temporary catalogs only)
 - [x] Add read-only Releases menu/list/detail, label-filtered searchable Releases tab, paged placements/credits and import-outcome deep link, without live migrations
+- [x] Add read-only Artists menu/search/detail, clickable Release/placement credits, Label Artists tab with primary/remixer filters, grouped release appearances and paged explicit track credits; preserve unresolved identities/scopes and avoid affiliation claims or live migrations
 - [x] Implement conditional manual placement reordering in shared storage, retaining stable IDs, source positions and official numbers
 - [ ] Wire manual ordering into reviewed reimport reconciliation and GUI/API without resetting curator order
 - [x] Prepare versioned Artist/Release/Recording text documents, dependent invalidation and transaction-enlisted durable outbox (migration 10); no model is activated
