@@ -192,6 +192,8 @@ See the [implemented contract and remaining decisions](docs/api-design.md#implem
 
 ### Next: Reviewed Purchase-to-Release Import
 
+Canonical **Releases** can now be browsed from the left menu or a label's filtered **Releases** tab. Search title/catalog number, page results and click a title to view release metadata, label links, release credits and ordered Recording placements with their own credits. Import outcomes also link directly to **View release**. Browsing is read-only and requires schema 9+; no migration, media inventory or purchase accounting occurs.
+
 The [release-centred import design](docs/purchase-release-import-design.md) uses a purchase/corpus candidate to review one complete Beatport release, resolve its existing label, and create accepted recording placements and individual artist/remixer credits. The first **read-only inspector** is available in **Purchase releases** in the admin sidebar and through:
 
 - `GET /api/v1/purchase-release-candidates?q=325565&page=1&pageSize=25`

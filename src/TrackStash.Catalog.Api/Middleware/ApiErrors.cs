@@ -44,6 +44,9 @@ internal sealed class ApiExceptionHandler(ILogger<ApiExceptionHandler> logger) :
     {
         var (status, code, title, detail, field) = exception switch
         {
+            ReleaseQueryValidationException query => (400, "validation_failed", "Invalid release query", (string?)query.Message, (string?)null),
+            ReleaseBrowseUnavailableException => (409, "release_schema_required", "Release browsing unavailable",
+                (string?)"Canonical release browsing requires schema 9 or later. A live migration must be approved separately.", (string?)null),
             ReleaseImportException import => (import.Status, import.Code, "Release import not completed", (string?)import.Message, (string?)null),
             CatalogFoundationValidationException foundation => (400, "validation_failed", "Invalid catalog decision", (string?)foundation.Message, (string?)null),
             CatalogFoundationConflictException => (409, "import_conflict", "Catalog identity conflict", (string?)"Review the source identities and existing catalog bindings.", (string?)null),

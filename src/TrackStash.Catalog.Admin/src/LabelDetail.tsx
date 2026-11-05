@@ -22,6 +22,7 @@ import type { LabelRecord } from './catalog'
 import { LabelMerge } from './LabelMerge'
 import { LabelRelationships } from './LabelRelationships'
 import { LabelGroupSections } from './LabelGroups'
+import { LabelReleases } from './Releases'
 import { countryPresentation, labelLinks, linkPresentation } from './labelPresentation'
 
 const serviceIcons = new Map([
@@ -119,6 +120,7 @@ const sections = ['Releases', 'Artists', 'Tracks', 'Details', 'Relationships']
 
 function RelatedContent({ children }: { children: ReactNode }) {
   const [tab, setTab] = useState(0)
+  const record = useRecordContext<LabelRecord>()
   return <Box component="section" aria-label="Related content" sx={{ minWidth: 0, width: '100%' }}>
     <Tabs value={tab} onChange={(_, value: number) => setTab(value)} aria-label="Label related content"
       variant="scrollable" scrollButtons="auto" allowScrollButtonsMobile
@@ -128,7 +130,7 @@ function RelatedContent({ children }: { children: ReactNode }) {
     </Tabs>
     {sections.map((name, index) => <Box key={name} role="tabpanel" hidden={tab !== index}
       id={`label-panel-${index}`} aria-labelledby={`label-tab-${index}`} sx={{ py: 3, minWidth: 0 }}>
-      {name === 'Details' ? children : name === 'Relationships' ? <Stack spacing={3} sx={{ minWidth: 0 }}>
+      {name === 'Releases' ? tab === index && record && <LabelReleases key={record.id} labelId={record.id} /> : name === 'Details' ? children : name === 'Relationships' ? <Stack spacing={3} sx={{ minWidth: 0 }}>
         <LabelRelationships />
         <LabelGroupSections />
       </Stack> : <Typography color="text.secondary">

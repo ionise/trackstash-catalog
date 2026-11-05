@@ -55,7 +55,28 @@ try {
     INSERT INTO label_external_ref (label_id, source, external_id, is_primary) VALUES
       ('merge-survivor', 'beatport', '10955', 1), ('merge-retired', 'beatport', '254639', 1),
       ('merge-retired', 'beatport', 'verified-third-test-id', 0);
+    INSERT INTO label(label_id,name) VALUES('release-fixture-label','Release Fixture Label'),('release-other-label','Other Release Label');
+    INSERT INTO artist(artist_id,name,identity_status) VALUES('release-fixture-artist','Fixture Composer','accepted'),('release-fixture-remixer','Fixture Remix Act','unresolved_compound');
+    INSERT INTO release(release_id,title,catalog_number,upc,publish_date,new_release_date) VALUES
+      ('release-fixture','Fixture Catalog Release','RELCAT001','012345','2020-01-01','2020-01-02'),
+      ('release-other','Unrelated Catalog Release','OTHER001',NULL,NULL,NULL);
+    INSERT INTO release_label_link(release_id,label_id,is_primary) VALUES
+      ('release-fixture','release-fixture-label',1),('release-other','release-other-label',1);
+    INSERT INTO release_external_ref(release_id,source,external_id) VALUES('release-fixture','beatport','999001');
+    INSERT INTO release_artist_credit(credit_id,release_id,artist_id,role,position,legacy) VALUES
+      ('release-fixture-credit','release-fixture','release-fixture-artist','primary',1,0);
   `])
+  const placementSql = Array.from({ length: 26 }, (_, index) => `
+    INSERT INTO recording(recording_id,title,mix_name,isrc,duration_ms)
+      VALUES('release-recording-${index}','Catalog Track ${index + 1}','${index === 0 ? 'Fixture Remix' : 'Original Mix'}','RELTEST${index}',123456);
+    INSERT INTO release_recording(placement_id,release_id,recording_id,display_order,source_position,order_source,legacy)
+      VALUES('release-placement-${index}','release-fixture','release-recording-${index}',${index + 1},${26 - index},'manual',0);
+    INSERT INTO placement_artist_credit(credit_id,placement_id,artist_id,role,position,credit_name)
+      VALUES('release-placement-credit-${index}','release-placement-${index}','release-fixture-artist','primary',1,'Fixture Composer');
+    ${index === 0 ? `INSERT INTO placement_artist_credit(credit_id,placement_id,artist_id,role,position)
+      VALUES('release-remixer-credit','release-placement-0','release-fixture-remixer','remixer',1);` : ''}
+  `).join('\n')
+  execFileSync('sqlite3', [database, placementSql])
   api = spawn('dotnet', [join(root, 'trackstash-catalog/src/TrackStash.Catalog.Api/bin/Debug/net8.0/TrackStash.Catalog.Api.dll')], {
     stdio: 'inherit',
     env: { ...process.env, CatalogApi__DatabasePath: database, CatalogApi__Port: '5199', CatalogApi__ArtworkRoot: join(temporary, 'artwork-data'),

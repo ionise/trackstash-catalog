@@ -266,6 +266,8 @@ New shared-foundation operations require schema 9. The existing label/inspector 
 
 ### Implemented reviewed import (migration 10, temporary databases only)
 
+Read-only canonical browsing now follows admission: **Releases** in the left menu provides title/catalog-number search and stable paginated results; each label's **Releases** tab queries only releases linked to that label. Release titles and the import outcome's **View release** link open the same detail page. It shows canonical label links, catalog number/UPC/dates, release-level credits, provider identities and paged Recording placements with placement-specific credits, unresolved-compound markers and separate display/source/official numbering. Artist/Recording IDs are displayed without links until their own pages exist. Browsing requires schema 9+ and never migrates, edits, infers ownership or accesses media files; schema 8 label/inspector use remains available.
+
 The [shared import contract](../../trackstash-core/src/TrackStash.Core/Storage/ReleaseImports.cs), [SQLite repository](../../trackstash-core/src/TrackStash.Core.Sqlite/SqliteReleaseImportRepository.cs), [application service](../src/TrackStash.Catalog.Application/ReleaseImportService.cs), [HTTP endpoints](../src/TrackStash.Catalog.Api/ReleaseImportEndpoints.cs) and [review UI](../src/TrackStash.Catalog.Admin/src/ReleaseImportReview.tsx) implement:
 
 - Cache-only complete-release acquisition before canonical writes. Full bounded track pages must have identical whole-bundle digests/counts; inconsistent snapshots fail rather than being combined. Frozen plans contain sanitized observations and timestamps, not raw private provider payloads.

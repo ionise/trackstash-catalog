@@ -186,6 +186,7 @@ export function ReleaseImportReview({ releaseId }: { releaseId: number }) {
           onSave={decision => void create([decision])} />
       </>}
       {preview.outcome ? <Alert severity="success">Saved {preview.outcome.noOp ? 'no-op' : 'import'} outcome for Release {preview.outcome.releaseId}.
+        {' '}<Link to={`/releases/${encodeURIComponent(preview.outcome.releaseId)}/show`}>View release</Link>.
         {' '}{preview.outcome.createdArtists} Artists, {preview.outcome.createdRecordings} Recordings, {preview.outcome.createdPlacements} placements created. Audit {preview.outcome.auditId}.
         {' '}Embedding work remains pending; this does not assert purchases or media ownership.</Alert> : <Stack spacing={1} sx={{ my: 2 }}>
         <TextField label="Import review reason" multiline value={reason} disabled={busy} onChange={e => setReason(e.target.value)} slotProps={{ htmlInput: { maxLength: 2000 } }} />

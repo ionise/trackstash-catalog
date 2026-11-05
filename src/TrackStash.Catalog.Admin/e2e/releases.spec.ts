@@ -1,0 +1,50 @@
+import { expect, test } from '@playwright/test'
+
+const key = 'test-only-browser-key-not-a-production-secret'
+
+test('browse catalog releases from menu and label-filtered tab with shared detail and track paging, read-only', async ({ page }) => {
+  const writes: string[] = []
+  const errors: string[] = []
+  page.on('request', request => { if (request.url().includes('/api/v1/') && request.method() !== 'GET') writes.push(request.method()) })
+  page.on('pageerror', error => errors.push(error.message))
+  await page.goto('/admin/#/releases')
+  await page.getByLabel('API key').fill(key)
+  await page.getByRole('button', { name: 'Connect', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Releases', exact: true, level: 1 })).toBeVisible()
+  await page.getByRole('textbox', { name: 'Search releases', exact: true }).fill('RELCAT001')
+  const list = page.getByRole('table', { name: 'Catalog releases', exact: true })
+  await expect(list.getByRole('row')).toHaveCount(2)
+  await list.getByRole('link', { name: 'Fixture Catalog Release', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Fixture Catalog Release', exact: true, level: 1 })).toBeVisible()
+  await expect(page.getByText(/Catalog number: RELCAT001; UPC: 012345/)).toBeVisible()
+  const tracks = page.getByRole('table', { name: 'Catalog release tracks', exact: true })
+  await expect(tracks.getByRole('row')).toHaveCount(26)
+  await expect(tracks.getByRole('row').nth(1)).toContainText('Fixture Remix')
+  await expect(tracks.getByRole('row').nth(1)).toContainText('Fixture Remix Act - remixer [unresolved compound]')
+  await expect(tracks.getByRole('row').nth(1)).toContainText('26')
+  await expect(tracks.getByRole('row').nth(1)).toContainText('Official disc/track: ?/?')
+  await page.getByRole('button', { name: 'Next page', exact: true }).click()
+  await expect(tracks.getByRole('row')).toHaveCount(2)
+  await expect(tracks).toContainText('Catalog Track 26')
+  await page.getByRole('link', { name: 'Release Fixture Label (primary label)', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Release Fixture Label', exact: true })).toBeVisible()
+  const labelList = page.getByRole('table', { name: 'Label releases', exact: true })
+  await expect(labelList.getByRole('row')).toHaveCount(2)
+  await expect(labelList).not.toContainText('Unrelated Catalog Release')
+  await page.getByRole('textbox', { name: 'Search label releases', exact: true }).fill('does not exist')
+  await expect(page.getByText('No catalog releases match this view.', { exact: true })).toBeVisible()
+  await page.getByRole('textbox', { name: 'Search label releases', exact: true }).fill('RELCAT001')
+  await labelList.getByRole('link', { name: 'Fixture Catalog Release', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Fixture Catalog Release', exact: true, level: 1 })).toBeVisible()
+  await page.getByRole('menuitem', { name: 'Releases', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Releases', exact: true, level: 1 })).toBeVisible()
+  expect(writes).toEqual([]); expect(errors).toEqual([])
+})
+
+test('missing release errors are visible without a success-shaped empty page', async ({ page }) => {
+  await page.goto('/admin/#/releases/missing/show')
+  await page.getByLabel('API key').fill(key)
+  await page.getByRole('button', { name: 'Connect', exact: true }).click()
+  await expect(page.getByRole('alert').filter({ hasText: 'Catalog release was not found.' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Tracks', exact: true })).toHaveCount(0)
+})

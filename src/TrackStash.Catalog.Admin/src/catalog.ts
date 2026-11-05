@@ -80,6 +80,26 @@ export interface ImportOutcome {
   operationId: string; releaseId: string; appliedUtc: string; noOp: boolean
   createdArtists: number; createdRecordings: number; createdPlacements: number; auditId: string
 }
+export interface CatalogRelease {
+  id: string; title: string | null; catalogNumber: string | null; publishDate: string | null
+  labelId: string | null; labelName: string | null; placementCount: number
+}
+export interface ReleaseCredit {
+  artistId: string; artistName: string | null; creditedName: string | null; role: string
+  position: number | null; identityStatus: string
+}
+export interface ReleaseDetail {
+  id: string; title: string | null; catalogNumber: string | null; upc: string | null
+  publishDate: string | null; newReleaseDate: string | null
+  labels: { id: string; name: string | null; role: string | null; isPrimary: boolean }[]
+  credits: ReleaseCredit[]; externalReferences: { source: string; externalId: string; isPrimary: boolean }[]
+}
+export interface ReleaseTrack {
+  placementId: string; recordingId: string; title: string | null; mixName: string | null; isrc: string | null
+  durationMs: number | null; displayOrder: number; sourcePosition: number | null; orderSource: string
+  discNumber: number | null; trackNumber: number | null; credits: ReleaseCredit[]
+  externalReferences: { source: string; externalId: string; isPrimary: boolean }[]
+}
 export interface ImportPreview {
   operationId: string; expiresUtc: string; sourceReleaseId: number; title: string | null
   releaseId: string; labelId: string; sourceDigest: string; noOp: boolean; identityCount: number; trackCount: number
@@ -404,7 +424,15 @@ export function createCatalogClient(fetcher: typeof fetch = fetch) {
         headers: { 'Content-Type': 'application/json', 'If-Match': preview.etag },
         body: JSON.stringify({ reason, confirmed }) }, 'release-import-previews')).json(),
   }
-  return { dataProvider, authProvider, mergeClient, artworkClient, backupsClient, relationshipsClient, groupClient, purchaseReleaseClient, releaseImportClient }
+  const releaseClient = {
+    list: async (query: URLSearchParams, signal?: AbortSignal): Promise<GroupPage<CatalogRelease>> =>
+      (await request(`?${query}`, { signal }, 'releases')).json(),
+    get: async (id: string, signal?: AbortSignal): Promise<ReleaseDetail> =>
+      (await request(`/${encodeURIComponent(id)}`, { signal }, 'releases')).json(),
+    tracks: async (id: string, page: number, signal?: AbortSignal): Promise<GroupPage<ReleaseTrack>> =>
+      (await request(`/${encodeURIComponent(id)}/tracks?page=${page}&pageSize=25`, { signal }, 'releases')).json(),
+  }
+  return { dataProvider, authProvider, mergeClient, artworkClient, backupsClient, relationshipsClient, groupClient, purchaseReleaseClient, releaseImportClient, releaseClient }
 }
 
-export const { dataProvider, authProvider, mergeClient, artworkClient, backupsClient, relationshipsClient, groupClient, purchaseReleaseClient, releaseImportClient } = createCatalogClient()
+export const { dataProvider, authProvider, mergeClient, artworkClient, backupsClient, relationshipsClient, groupClient, purchaseReleaseClient, releaseImportClient, releaseClient } = createCatalogClient()

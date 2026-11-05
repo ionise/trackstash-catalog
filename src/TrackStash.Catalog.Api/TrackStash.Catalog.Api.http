@@ -20,6 +20,23 @@
 @membershipEtag = "replace-with-membership-etag"
 @importOperationId = replace-with-operation-id-from-import-preview
 @importEtag = "replace-with-original-import-preview-etag"
+@releaseId = replace-with-canonical-release-id
+
+### Read-only canonical release list (schema 9+); search title/catalog number
+GET {{baseUrl}}/api/v1/releases?q=Block%20House&page=1&pageSize=25
+Authorization: Bearer {{apiKey}}
+
+### Release list filtered by its catalog Label, not a provider label ID
+GET {{baseUrl}}/api/v1/releases?labelId={{labelId}}&page=1&pageSize=25
+Authorization: Bearer {{apiKey}}
+
+### Canonical release detail and separate release-level credits
+GET {{baseUrl}}/api/v1/releases/{{releaseId}}
+Authorization: Bearer {{apiKey}}
+
+### Paged Recording placements with listing credits and display/source/official numbering
+GET {{baseUrl}}/api/v1/releases/{{releaseId}}/tracks?page=1&pageSize=25
+Authorization: Bearer {{apiKey}}
 
 ### Schema 10 only: create immutable review without canonical writes
 POST {{baseUrl}}/api/v1/release-import-previews

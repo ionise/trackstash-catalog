@@ -10,6 +10,12 @@ Status: shared label foundation, reviewed pairwise label merges, loopback-only H
 
 ## Purpose and Scope
 
+### Read-only canonical Releases
+
+`GET /api/v1/releases` accepts `q` (literal case-insensitive title/catalog-number substring, up to 200 characters), optional canonical `labelId`, `page` and `pageSize` (1-100). Results are ordered by title case-insensitively then canonical ID, and include primary/display label and placement count. Filtering uses all release-label links, not only the displayed primary label. `GET /api/v1/releases/{id}` returns safe metadata, labels, release credits and provider identities with an ETag; `GET /api/v1/releases/{id}/tracks` pages placements in display order with listing credits and distinct source/official numbering. Unknown/repeated query fields return 400; missing release detail/tracks return 404. All routes use existing bearer/origin protection, cancellation and no-store responses. Raw payloads, private data and media locations are excluded.
+
+Browsing requires schema 9+ and returns `409 release_schema_required` on schema 8 without migrating it. Existing label/inspector routes retain their schema 8 compatibility. No release write endpoints, Artist/Recording editors, purchase ownership or media/NAS assertions are introduced.
+
 Provide a provider-independent HTTP interface to Trackstash's canonical music catalog. Start with labels, then expand without changing identity semantics or requiring clients to know the database backend.
 
 Primary clients:

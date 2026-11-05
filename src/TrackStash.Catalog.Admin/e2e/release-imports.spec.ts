@@ -76,4 +76,7 @@ test('bulk accept straightforward identities across pages without typed reasons,
   await review.getByRole('button', { name: 'Apply reviewed no-op' }).click()
   await expect(review.getByText(/Saved no-op outcome for Release/)).toBeVisible()
   await expect(review).toContainText('0 Artists, 0 Recordings, 0 placements created')
+  await review.getByRole('link', { name: 'View release', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Inspector complete release', exact: true, level: 1 })).toBeVisible()
+  await expect(page.getByRole('table', { name: 'Catalog release tracks', exact: true }).getByRole('row')).toHaveCount(26)
 })

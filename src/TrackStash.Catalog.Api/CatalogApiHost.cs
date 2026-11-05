@@ -68,6 +68,7 @@ public static class CatalogApiHost
         });
         builder.Services.TryAddScoped<IPurchaseReleaseInspector, PurchaseReleaseInspector>();
         builder.Services.TryAddScoped<IReleaseImportService, ReleaseImportService>();
+        builder.Services.TryAddScoped<IReleaseService, ReleaseService>();
         builder.Services.AddSingleton<ICatalogBackupService>(services => new CatalogBackupService(
             new SqliteCatalogSnapshotSource(builder.Configuration["CatalogApi:DatabasePath"]!),
             services.GetRequiredService<IArtworkContentStore>(), builder.Configuration["CatalogApi:BackupRoot"]));
@@ -159,6 +160,7 @@ public static class CatalogApiHost
         app.MapLabelGroups();
         app.MapPurchaseReleases();
         app.MapReleaseImports();
+        app.MapReleases();
         app.MapBackups();
         var webRoot = Path.Combine(AppContext.BaseDirectory, "wwwroot");
         if (File.Exists(Path.Combine(webRoot, "admin", "index.html")))
