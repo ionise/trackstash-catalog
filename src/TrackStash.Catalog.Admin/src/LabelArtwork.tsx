@@ -5,8 +5,8 @@ import {
   FormControlLabel, MenuItem, Stack, TextField, Typography,
 } from '@mui/material'
 import { useLogoutIfAccessDenied, useRecordContext, useRefresh } from 'react-admin'
-import { artworkClient } from './catalog'
-import type { ArtworkGallery, ArtworkItem, LabelRecord } from './catalog'
+import { artworkClient, releaseArtworkClient } from './catalog'
+import type { ArtworkCandidates, ArtworkGallery, ArtworkItem, LabelRecord } from './catalog'
 
 export function ArtworkImage({ assetId, caption, size = 160 }: { assetId: string; caption: string; size?: number }) {
   return <AssetImage key={assetId} assetId={assetId} caption={caption} size={size} />
@@ -47,10 +47,13 @@ interface LabelArtworkProps {
 
 export function LabelArtwork({ children }: LabelArtworkProps) {
   const record = useRecordContext<LabelRecord>()
-  return record ? <LabelArtworkPanel key={record.id} id={record.id} name={record.name} version={record.version}>{children}</LabelArtworkPanel> : null
+  return record ? <ArtworkPanel key={record.id} id={record.id} name={record.name} version={record.version}>{children}</ArtworkPanel> : null
 }
 
-function LabelArtworkPanel({ id, name, version, children }: LabelArtworkProps & { id: string; name: string | null; version: string }) {
+export function ArtworkPanel({ id, name, version, children, release = false }: LabelArtworkProps & {
+  id: string; name: string | null; version: string; release?: boolean
+}) {
+  const client = release ? releaseArtworkClient : artworkClient
   const refresh = useRefresh()
   const logout = useLogoutIfAccessDenied()
   const [gallery, setGallery] = useState<ArtworkGallery>()
@@ -60,18 +63,21 @@ function LabelArtworkPanel({ id, name, version, children }: LabelArtworkProps & 
   const [busy, setBusy] = useState(false)
   const [file, setFile] = useState<File>()
   const fileInput = useRef<HTMLInputElement>(null)
-  const [role, setRole] = useState('logo')
+  const [role, setRole] = useState(release ? 'cover' : 'logo')
   const [caption, setCaption] = useState('')
   const [sourceUrl, setSourceUrl] = useState('')
   const [attribution, setAttribution] = useState('')
   const [rights, setRights] = useState('')
   const [preferred, setPreferred] = useState(false)
   const [replacement, setReplacement] = useState<string>()
+  const [candidates, setCandidates] = useState<ArtworkCandidates>()
+  const [candidateRights, setCandidateRights] = useState('')
+  const [candidateConfirmed, setCandidateConfirmed] = useState(false)
   const uploadSection = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (open) return
     const abort = new AbortController()
-    void artworkClient.get(id, abort.signal).then(result => {
+    void client.get(id, abort.signal).then(result => {
       if (!abort.signal.aborted) { setGallery(result); setDraft(result.items) }
     }).catch(failure => {
       if (!abort.signal.aborted) {
@@ -80,7 +86,7 @@ function LabelArtworkPanel({ id, name, version, children }: LabelArtworkProps & 
       }
     })
     return () => abort.abort()
-  }, [id, version, open, logout])
+  }, [id, version, open, logout, client])
 
   const dirty = JSON.stringify(draft) !== JSON.stringify(gallery?.items ?? [])
   async function execute(action: () => Promise<void>) {
@@ -112,7 +118,7 @@ function LabelArtworkPanel({ id, name, version, children }: LabelArtworkProps & 
     form.set('usageRights', rights); form.set('isPreferred', String(preferred))
     if (replacement) form.set('replaceEntryId', replacement)
     void execute(async () => {
-      accept(await artworkClient.upload(id!, gallery.etag, form))
+      accept(await client.upload(id!, gallery.etag, form))
       setFile(undefined); setCaption(''); setSourceUrl(''); setAttribution(''); setRights(''); setPreferred(false)
       setReplacement(undefined)
       if (fileInput.current) fileInput.current.value = ''
@@ -121,7 +127,7 @@ function LabelArtworkPanel({ id, name, version, children }: LabelArtworkProps & 
 
   function manage() {
     setOpen(true); setDraft(gallery?.items ?? []); setReplacement(undefined); setError('')
-    if (!gallery) void execute(async () => accept(await artworkClient.get(id)))
+    if (!gallery) void execute(async () => accept(await client.get(id)))
   }
   const galleryView = <Box sx={{ width: '100%', py: 2 }}>
     <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
@@ -140,18 +146,18 @@ function LabelArtworkPanel({ id, name, version, children }: LabelArtworkProps & 
   return <>
     {children ? children({ gallery, error, busy, manage }, galleryView) : galleryView}
     <Dialog open={open} onClose={() => { if (!busy) setOpen(false) }} fullWidth maxWidth="md">
-      <DialogTitle>Label artwork and gallery</DialogTitle>
+      <DialogTitle>{release ? 'Release covers and gallery' : 'Label artwork and gallery'}</DialogTitle>
       <DialogContent>
         <Stack spacing={2} sx={{ pt: 1 }}>
           {error && <Alert severity="error">{error}</Alert>}
           <Alert severity="info">Uploads are saved immediately. Gallery edits are saved separately. Removing an entry detaches it; stored images and history are retained. Source and rights belong to the immutable upload.</Alert>
-          <Button disabled={busy} onClick={() => void execute(async () => { accept(await artworkClient.get(id)); setReplacement(undefined) })}>Reload artwork (discard unsaved gallery changes)</Button>
+          <Button disabled={busy} onClick={() => void execute(async () => { accept(await client.get(id)); setReplacement(undefined) })}>Reload artwork (discard unsaved gallery changes)</Button>
           {draft.map((item, index) => <Stack key={item.id} spacing={1} sx={{ p: 2, border: 1, borderColor: 'divider', borderRadius: 1 }}>
             <ArtworkImage assetId={item.assetId} caption={item.caption || `Artwork ${index + 1}`} />
             <Typography>Image {index + 1}: {item.originalFilename || item.assetId}</Typography>
             <TextField select label={`Role for image ${index + 1}`} value={item.role} disabled={busy}
               onChange={event => edit(index, { role: event.target.value })}>
-              <MenuItem value="logo">Logo</MenuItem><MenuItem value="image">Gallery image</MenuItem>
+              <MenuItem value={release ? 'cover' : 'logo'}>{release ? 'Cover' : 'Logo'}</MenuItem><MenuItem value="image">Gallery image</MenuItem>
             </TextField>
             <TextField label={`Caption for image ${index + 1}`} value={item.caption ?? ''} disabled={busy}
               onChange={event => edit(index, { caption: event.target.value || null })} slotProps={{ htmlInput: { maxLength: 1000 } }} />
@@ -174,7 +180,7 @@ function LabelArtworkPanel({ id, name, version, children }: LabelArtworkProps & 
               }}>Replace image {index + 1}</Button>
             </Stack>
           </Stack>)}
-          <Button variant="contained" disabled={busy || !gallery || !dirty} onClick={() => void execute(async () => accept(await artworkClient.save(id, gallery!.etag, draft)))}>
+          <Button variant="contained" disabled={busy || !gallery || !dirty} onClick={() => void execute(async () => accept(await client.save(id, gallery!.etag, draft)))}>
             Save gallery changes
           </Button>
           <Box ref={uploadSection}><Typography variant="h6">{replacement ? 'Replace artwork' : 'Upload artwork'}</Typography></Box>
@@ -188,7 +194,7 @@ function LabelArtworkPanel({ id, name, version, children }: LabelArtworkProps & 
               <input aria-label="Artwork file" type="file" accept="image/jpeg,image/png" disabled={busy || dirty}
                 ref={fileInput} onChange={event => setFile(event.target.files?.[0])} />
               <TextField select label="Upload role" value={role} disabled={busy || dirty} onChange={event => setRole(event.target.value)}>
-                <MenuItem value="logo">Logo</MenuItem><MenuItem value="image">Gallery image</MenuItem>
+                <MenuItem value={release ? 'cover' : 'logo'}>{release ? 'Cover' : 'Logo'}</MenuItem><MenuItem value="image">Gallery image</MenuItem>
               </TextField>
               <TextField label="Upload caption" value={caption} disabled={busy || dirty} onChange={event => setCaption(event.target.value)} />
               <TextField label="Artwork source URL" type="url" value={sourceUrl} disabled={busy || dirty} onChange={event => setSourceUrl(event.target.value)} />
@@ -199,6 +205,30 @@ function LabelArtworkPanel({ id, name, version, children }: LabelArtworkProps & 
               <Button type="submit" variant="contained" disabled={busy || dirty || !file || !rights.trim() || !gallery}>Upload image</Button>
             </Stack>
           </Box>
+          {release && <Box component="section" aria-label="External artwork candidates">
+            <Typography component="h3" variant="h6">External artwork candidates</Typography>
+            <Typography>No third-party image is loaded automatically. A configured adapter supplies release-scoped candidates; explicit attachment stores a local copy with your rights statement.</Typography>
+            <Button disabled={busy || dirty} onClick={() => void execute(async () => {
+              setCandidates(await releaseArtworkClient.candidates(id)); setCandidateConfirmed(false)
+            })}>Look up artwork candidates</Button>
+            {candidates && !candidates.providers.length && <Alert severity="info">No external artwork providers are configured. Beatport, MusicBrainz/Cover Art Archive and Discogs adapters can be connected separately.</Alert>}
+            {candidates && candidates.providers.length > 0 && !candidates.items.length && <Typography>No artwork candidates returned by configured providers.</Typography>}
+            {!!candidates?.items.length && <>
+              <TextField label="Candidate usage rights" value={candidateRights} onChange={e => { setCandidateRights(e.target.value); setCandidateConfirmed(false) }}
+                slotProps={{ htmlInput: { maxLength: 2000 } }} />
+              <FormControlLabel control={<Checkbox checked={candidateConfirmed} disabled={busy} onChange={e => setCandidateConfirmed(e.target.checked)} />}
+                label="I confirm the release match and usage rights and request a managed copy" />
+              {candidates.items.map(candidate => <Box key={`${candidate.provider}:${candidate.candidateId}`} sx={{ my: 2 }}>
+                <Typography>{candidate.title} ({candidate.provider})</Typography>
+                <Typography sx={{ overflowWrap: 'anywhere' }}>Source: {candidate.sourceUrl}; attribution: {candidate.attribution ?? 'not supplied'}</Typography>
+                <Button disabled={busy || dirty || !gallery || !candidateRights.trim() || !candidateConfirmed}
+                  onClick={() => void execute(async () => {
+                    accept(await releaseArtworkClient.attach(id, gallery!.etag, candidate, candidateRights, candidateConfirmed))
+                    setCandidateConfirmed(false); setCandidateRights('')
+                  })}>Attach as preferred cover</Button>
+              </Box>)}
+            </>}
+          </Box>}
         </Stack>
       </DialogContent>
       <DialogActions><Button disabled={busy} onClick={() => setOpen(false)}>Close artwork</Button></DialogActions>

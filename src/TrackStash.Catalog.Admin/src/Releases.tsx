@@ -1,9 +1,13 @@
 import { useEffect, useState } from 'react'
-import { Alert, Box, Button, LinearProgress, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material'
+import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, ButtonBase, Chip, Divider, LinearProgress, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material'
+import AlbumIcon from '@mui/icons-material/Album'
+import CameraAltIcon from '@mui/icons-material/CameraAlt'
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import { Title, useAuthenticated, useLogoutIfAccessDenied } from 'react-admin'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { releaseClient } from './catalog'
 import type { CatalogRelease, GroupPage, ReleaseCredit, ReleaseDetail, ReleaseTrack } from './catalog'
+import { ArtworkImage, ArtworkPanel } from './LabelArtwork'
 
 function Pager({ page, total, onPage }: { page: number; total: number; onPage: (page: number) => void }) {
   return <Stack direction="row" spacing={2} sx={{ alignItems: 'center', my: 2 }}>
@@ -99,8 +103,13 @@ function Tracks({ id, page, onPage }: { id: string; page: number; onPage: (page:
       <TableHead><TableRow><TableCell>Order</TableCell><TableCell>Track / version</TableCell><TableCell>Placement credits</TableCell><TableCell>Source identity</TableCell></TableRow></TableHead>
       <TableBody>{data.items.map(track => <TableRow key={track.placementId}>
         <TableCell>{track.displayOrder} ({track.orderSource})<Typography variant="body2">Source position: {track.sourcePosition ?? 'unknown'}<br />Official disc/track: {track.discNumber ?? '?'}/{track.trackNumber ?? '?'}</Typography></TableCell>
-        <TableCell>{track.title ?? 'Untitled recording'}<br />{track.mixName}
-          <Typography variant="body2">ISRC: {track.isrc ?? 'unknown'}; duration: {track.durationMs === null ? 'unknown' : `${track.durationMs} ms`}<br />Recording ID: {track.recordingId}</Typography></TableCell>
+        <TableCell><Typography sx={{ fontWeight: 600 }}>{track.title ?? 'Untitled recording'}</Typography>
+          <Typography variant="body2" color="text.secondary">{track.mixName}</Typography>
+          <Typography variant="body2">{track.durationMs === null ? 'Duration unknown' : `${Math.floor(track.durationMs / 60000)}:${String(Math.floor(track.durationMs / 1000) % 60).padStart(2, '0')}`}</Typography>
+          <Accordion disableGutters elevation={0} sx={{ bgcolor: 'transparent' }}><AccordionSummary expandIcon={<ExpandMoreIcon />}><Typography variant="caption">Track details</Typography></AccordionSummary>
+            <AccordionDetails><Typography variant="caption" sx={{ overflowWrap: 'anywhere' }}>ISRC: {track.isrc ?? 'unknown'}<br />Recording ID: {track.recordingId}<br />Placement ID: {track.placementId}</Typography></AccordionDetails>
+          </Accordion>
+        </TableCell>
         <TableCell><Credits items={track.credits} /></TableCell>
         <TableCell>{track.externalReferences.map(r => <Typography key={`${r.source}:${r.externalId}`}>{r.source}: {r.externalId}</Typography>)}</TableCell>
       </TableRow>)}</TableBody>
@@ -122,21 +131,56 @@ function Detail({ id }: { id: string }) {
   }, [id, logout])
   if (error) return <Alert severity="error">{error}</Alert>
   if (!data) return <LinearProgress aria-label="Loading catalog release" />
-  return <Stack spacing={2}>
-    <Title title={data.title ?? 'Release'} /><Typography component="h1" variant="h4">{data.title ?? 'Untitled release'}</Typography>
-    <Alert severity="info">Catalog metadata only. Track placements do not establish purchases, media availability or NAS backup coverage.</Alert>
-    <Stack direction="row" spacing={2}>{data.labels.map(label =>
-      <Link key={label.id} to={`/labels/${encodeURIComponent(label.id)}/show`}>{label.name ?? label.id}{label.isPrimary ? ' (primary label)' : ''}</Link>)}</Stack>
-    <Typography>Catalog number: {data.catalogNumber ?? 'Unknown'}; UPC: {data.upc ?? 'Unknown'}</Typography>
-    <Typography>Publish date: {data.publishDate ?? 'Unknown'}; new release date: {data.newReleaseDate ?? 'Unknown'}</Typography>
-    <Typography component="h2" variant="h6">Release credits</Typography><Credits items={data.credits} />
+  return <ArtworkPanel key={data.id} id={data.id} name={data.title} version={data.version} release>{(artwork, gallery) => {
+    const preferredCover = artwork.gallery?.items.find(item => item.isPreferred && item.role === 'cover')
+    return <Stack spacing={3} sx={{ mt: 2, minWidth: 0 }}>
+    <Title title={data.title ?? 'Release'} />
+    <Stack component="header" direction={{ xs: 'column', sm: 'row' }} spacing={3} sx={{ alignItems: 'flex-start' }}>
+      <Box sx={{ width: 240, maxWidth: '100%', flexShrink: 0 }}>
+        <ButtonBase aria-label="Change release artwork" disabled={artwork.busy} onClick={artwork.manage}
+          sx={{ position: 'relative', width: 240, maxWidth: '100%', borderRadius: 2, overflow: 'hidden',
+            '& .cover-action': { opacity: 0 },
+            '&:hover .cover-action, &.Mui-focusVisible .cover-action': { opacity: 1 },
+            '&.Mui-focusVisible': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: 2 },
+            '@media (hover: none)': { '& .cover-action': { opacity: 1 } } }}>
+        {preferredCover ?
+          <ArtworkImage assetId={preferredCover.assetId} caption={`${data.title ?? 'Release'} cover`} size={240} />
+          : <Stack sx={{ width: 240, maxWidth: '100%', height: 240, bgcolor: 'action.hover', borderRadius: 2, justifyContent: 'center', alignItems: 'center' }} spacing={1}>
+            <AlbumIcon sx={{ fontSize: 80 }} color="disabled" />
+            <Typography color="text.secondary">{artwork.error ? 'Cover unavailable' : artwork.gallery ? 'No preferred cover' : 'Loading cover...'}</Typography>
+          </Stack>}
+          <Box className="cover-action" sx={{ position: 'absolute', right: 8, bottom: 8, p: 1,
+            display: 'flex', borderRadius: '50%', bgcolor: 'background.paper', color: 'text.primary', boxShadow: 2 }}>
+            <CameraAltIcon />
+          </Box>
+        </ButtonBase>
+        <Button fullWidth disabled={artwork.busy} onClick={artwork.manage} sx={{ mt: 1 }}>Manage release artwork</Button>
+        {artwork.error && <Alert severity="warning">{artwork.error}</Alert>}
+      </Box>
+      <Stack spacing={2} sx={{ minWidth: 0 }}>
+        <Chip label="Release" variant="outlined" size="small" sx={{ alignSelf: 'flex-start' }} />
+        <Typography component="h1" variant="h3" sx={{ fontWeight: 600, overflowWrap: 'anywhere' }}>{data.title ?? 'Untitled release'}</Typography>
+        <Stack direction="row" useFlexGap spacing={1} sx={{ flexWrap: 'wrap' }}>{data.labels.map(label =>
+          <Link key={label.id} to={`/labels/${encodeURIComponent(label.id)}/show`}>{label.name ?? label.id}{label.isPrimary ? ' (primary label)' : ''}</Link>)}</Stack>
+        <Typography>Catalog number: {data.catalogNumber ?? 'Unknown'}; UPC: {data.upc ?? 'Unknown'}</Typography>
+        <Typography>Publish date: {data.publishDate ?? 'Unknown'}; new release date: {data.newReleaseDate ?? 'Unknown'}</Typography>
+        <Box><Typography component="h2" variant="h6">Release credits</Typography><Credits items={data.credits} /></Box>
+      </Stack>
+    </Stack>
+    <Divider />
     <Typography component="h2" variant="h6">Tracks</Typography>
-    <Typography>Display order is separate from source sequence and official disc/track numbers. Unknown numbers are not inferred.</Typography>
+    <Typography variant="body2" color="text.secondary">Display order is separate from source sequence and official disc/track numbers. Unknown numbers are not inferred.</Typography>
     <Tracks key={`${id}:${page}`} id={id} page={page} onPage={setPage} />
-    <Typography component="h2" variant="h6">Release identities</Typography>
-    <Typography>Catalog ID: {data.id}</Typography>
-    {data.externalReferences.map(r => <Typography key={`${r.source}:${r.externalId}`}>{r.source}: {r.externalId}{r.isPrimary ? ' (primary)' : ''}</Typography>)}
+    {gallery}
+    <Accordion><AccordionSummary expandIcon={<ExpandMoreIcon />}><Typography>Details and provider identities</Typography></AccordionSummary>
+      <AccordionDetails>
+        <Typography sx={{ overflowWrap: 'anywhere' }}>Catalog ID: {data.id}</Typography>
+        {data.externalReferences.map(r => <Typography key={`${r.source}:${r.externalId}`}>{r.source}: {r.externalId}{r.isPrimary ? ' (primary)' : ''}</Typography>)}
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>Catalog metadata only. Track placements do not establish purchases, media availability or NAS backup coverage.</Typography>
+      </AccordionDetails>
+    </Accordion>
   </Stack>
+  }}</ArtworkPanel>
 }
 export function ReleaseShow() {
   const { id } = useParams()

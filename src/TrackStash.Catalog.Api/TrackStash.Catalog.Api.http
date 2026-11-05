@@ -21,6 +21,64 @@
 @importOperationId = replace-with-operation-id-from-import-preview
 @importEtag = "replace-with-original-import-preview-etag"
 @releaseId = replace-with-canonical-release-id
+@artworkProvider = replace-with-configured-provider
+@artworkCandidateId = replace-with-candidate-id-from-lookup
+@artworkCandidateRevision = replace-with-candidate-revision-from-lookup
+
+### Release managed gallery (schema 11); retain this response ETag
+GET {{baseUrl}}/api/v1/releases/{{releaseId}}/artwork
+Authorization: Bearer {{apiKey}}
+
+### Upload a release cover with recorded rights; replace ./cover.png locally
+POST {{baseUrl}}/api/v1/releases/{{releaseId}}/artwork
+Authorization: Bearer {{apiKey}}
+If-Match: {{etag}}
+Content-Type: multipart/form-data; boundary=release-cover-boundary
+
+--release-cover-boundary
+Content-Disposition: form-data; name="file"; filename="cover.png"
+Content-Type: image/png
+
+< ./cover.png
+--release-cover-boundary
+Content-Disposition: form-data; name="role"
+
+cover
+--release-cover-boundary
+Content-Disposition: form-data; name="usageRights"
+
+Permission recorded for this managed copy
+--release-cover-boundary
+Content-Disposition: form-data; name="isPreferred"
+
+true
+--release-cover-boundary--
+
+### Detach all release gallery entries without deleting retained assets/history
+PATCH {{baseUrl}}/api/v1/releases/{{releaseId}}/artwork
+Authorization: Bearer {{apiKey}}
+If-Match: {{etag}}
+Content-Type: application/json
+
+{ "items": [] }
+
+### Deliberate candidate lookup (currently no live providers are registered)
+GET {{baseUrl}}/api/v1/releases/{{releaseId}}/artwork-candidates
+Authorization: Bearer {{apiKey}}
+
+### Explicit managed-copy attachment; no arbitrary source/image URL accepted
+POST {{baseUrl}}/api/v1/releases/{{releaseId}}/artwork-candidates/attach
+Authorization: Bearer {{apiKey}}
+If-Match: {{etag}}
+Content-Type: application/json
+
+{
+  "provider": "{{artworkProvider}}",
+  "candidateId": "{{artworkCandidateId}}",
+  "revision": "{{artworkCandidateRevision}}",
+  "usageRights": "Permission recorded for this managed copy",
+  "confirmed": true
+}
 
 ### Read-only canonical release list (schema 9+); search title/catalog number
 GET {{baseUrl}}/api/v1/releases?q=Block%20House&page=1&pageSize=25

@@ -18,7 +18,7 @@ public sealed record ReleaseCreditResponse(string ArtistId, string? ArtistName, 
 /// <summary>A public provider identity; no cached payload is exposed.</summary>
 public sealed record ReleaseReferenceResponse(string Source, string ExternalId, bool IsPrimary);
 /// <summary>Canonical release metadata, label links and release-level credits.</summary>
-public sealed record ReleaseResponse(string Id, string? Title, string? CatalogNumber, string? Upc, string? PublishDate,
+public sealed record ReleaseResponse(string Id, string? Title, string Version, string? CatalogNumber, string? Upc, string? PublishDate,
     string? NewReleaseDate, IReadOnlyList<ReleaseLabelResponse> Labels, IReadOnlyList<ReleaseCreditResponse> Credits,
     IReadOnlyList<ReleaseReferenceResponse> ExternalReferences);
 /// <summary>A stable release placement of a Recording, including listing credits and separate display/source/official numbering.</summary>
@@ -69,7 +69,7 @@ internal static class ReleaseEndpoints
     {
         var result = await service.GetAsync(id, ct) ?? throw new ApiRequestException(404, "release_not_found", "Catalog release was not found.");
         Headers(context); context.Response.Headers.ETag = LabelRequests.ETag(result.Version);
-        return TypedResults.Ok(new ReleaseResponse(result.Id, result.Title, result.CatalogNumber, result.Upc, result.PublishDate,
+        return TypedResults.Ok(new ReleaseResponse(result.Id, result.Title, result.Version, result.CatalogNumber, result.Upc, result.PublishDate,
             result.NewReleaseDate, result.Labels.Select(l => new ReleaseLabelResponse(l.Id, l.Name, l.Role, l.IsPrimary)).ToArray(),
             result.Credits.Select(Credit).ToArray(), result.ExternalReferences.Select(Reference).ToArray()));
     }

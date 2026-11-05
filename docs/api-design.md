@@ -14,7 +14,25 @@ Status: shared label foundation, reviewed pairwise label merges, loopback-only H
 
 `GET /api/v1/releases` accepts `q` (literal case-insensitive title/catalog-number substring, up to 200 characters), optional canonical `labelId`, `page` and `pageSize` (1-100). Results are ordered by title case-insensitively then canonical ID, and include primary/display label and placement count. Filtering uses all release-label links, not only the displayed primary label. `GET /api/v1/releases/{id}` returns safe metadata, labels, release credits and provider identities with an ETag; `GET /api/v1/releases/{id}/tracks` pages placements in display order with listing credits and distinct source/official numbering. Unknown/repeated query fields return 400; missing release detail/tracks return 404. All routes use existing bearer/origin protection, cancellation and no-store responses. Raw payloads, private data and media locations are excluded.
 
-Browsing requires schema 9+ and returns `409 release_schema_required` on schema 8 without migrating it. Existing label/inspector routes retain their schema 8 compatibility. No release write endpoints, Artist/Recording editors, purchase ownership or media/NAS assertions are introduced.
+Browsing requires schema 9+ and returns `409 release_schema_required` on schema 8 without migrating it. Existing label/inspector routes retain their schema 8 compatibility. Release metadata editing, Artist/Recording editors, purchase ownership and media/NAS assertions remain outside this browsing slice.
+
+### Managed Release artwork and provider candidates (schema 11)
+
+All routes are bearer/origin protected, cancellable and no-store. Release artwork uses the Release aggregate ETag. Artwork on schema 9/10 returns `409 release_artwork_unavailable` without upgrading the database.
+
+| Method | Route | Purpose |
+| --- | --- | --- |
+| GET | `/releases/{id}/artwork` | Ordered managed gallery and ETag |
+| POST | `/releases/{id}/artwork` | Bounded multipart upload/replace; 201 with protected original Location |
+| PATCH | `/releases/{id}/artwork` | Conditional full replacement of existing entries; order/caption/role/preference/detach |
+| GET | `/releases/{id}/artwork-candidates` | Deliberate lookup through configured provider adapters; no artwork writes |
+| POST | `/releases/{id}/artwork-candidates/attach` | Explicit conditional candidate attachment; 201 with protected original Location |
+
+Multipart fields match Label artwork (`file`, `usageRights`, optional `sourceUrl`, `attribution`, `caption`, `replaceEntryId`, `role`, `isPreferred`), except roles are `cover`/`image`. Gallery PATCH accepts only `items` with existing `id`, `assetId`, `role`, nullable `caption`, `isPreferred`; unknown/repeated fields reject. Upload and attachment preserve old assets and immutable history. JPEG/PNG limits and protected `/artwork-assets/{id}/original` and `/thumbnail` serving are shared.
+
+Attachment JSON requires `provider`, `candidateId`, `revision`, `usageRights`, `confirmed: true` and original `If-Match`; arbitrary image URLs are not accepted. Candidate/revision must still belong to that Release in a refreshed adapter lookup. A stale Release yields 412 without reading provider image bytes; changed/missing candidates yield 409 and require deliberate lookup again. Asset provenance stores source/attribution/rights; permanent gallery history additionally retains provider/candidate/revision identity.
+
+No live adapters are registered. Candidate lookup currently returns empty `providers`/`items`, explicitly explained by the GUI. The adapter contract is a foundation for separately approved Beatport, MusicBrainz/Cover Art Archive, Discogs, etc.; there is no automatic refresh/download, remote-image rendering, Label-logo fallback or Recording inheritance. See [shared artwork design](../../trackstash-core/docs/artwork-design.md).
 
 Provide a provider-independent HTTP interface to Trackstash's canonical music catalog. Start with labels, then expand without changing identity semantics or requiring clients to know the database backend.
 

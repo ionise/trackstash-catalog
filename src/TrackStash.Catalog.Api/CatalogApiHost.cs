@@ -69,6 +69,7 @@ public static class CatalogApiHost
         builder.Services.TryAddScoped<IPurchaseReleaseInspector, PurchaseReleaseInspector>();
         builder.Services.TryAddScoped<IReleaseImportService, ReleaseImportService>();
         builder.Services.TryAddScoped<IReleaseService, ReleaseService>();
+        builder.Services.TryAddScoped<IReleaseArtworkSourceService, ReleaseArtworkSourceService>();
         builder.Services.AddSingleton<ICatalogBackupService>(services => new CatalogBackupService(
             new SqliteCatalogSnapshotSource(builder.Configuration["CatalogApi:DatabasePath"]!),
             services.GetRequiredService<IArtworkContentStore>(), builder.Configuration["CatalogApi:BackupRoot"]));

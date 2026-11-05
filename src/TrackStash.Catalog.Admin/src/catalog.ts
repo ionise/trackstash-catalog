@@ -89,7 +89,7 @@ export interface ReleaseCredit {
   position: number | null; identityStatus: string
 }
 export interface ReleaseDetail {
-  id: string; title: string | null; catalogNumber: string | null; upc: string | null
+  id: string; title: string | null; version: string; catalogNumber: string | null; upc: string | null
   publishDate: string | null; newReleaseDate: string | null
   labels: { id: string; name: string | null; role: string | null; isPrimary: boolean }[]
   credits: ReleaseCredit[]; externalReferences: { source: string; externalId: string; isPrimary: boolean }[]
@@ -148,7 +148,11 @@ export interface ArtworkItem extends ArtworkEntry {
   attribution: string | null
   usageRights: string
 }
-export interface ArtworkGallery { labelId: string; items: ArtworkItem[]; etag: string }
+export interface ArtworkGallery { labelId?: string; releaseId?: string; items: ArtworkItem[]; etag: string }
+export interface ArtworkCandidate {
+  provider: string; candidateId: string; revision: string; title: string; sourceUrl: string; attribution: string | null
+}
+export interface ArtworkCandidates { providers: string[]; items: ArtworkCandidate[] }
 export interface BackupInfo { id: string; filename: string; createdUtc: string; bytes: number }
 export type BackupKind = 'catalog' | 'scanner'
 export interface BackupSource { kind: BackupKind; name: string; configured: boolean }
@@ -322,21 +326,32 @@ export function createCatalogClient(fetcher: typeof fetch = fetch) {
     if (!etag) throw new Error('Artwork response is missing its ETag; editing is unavailable.')
     return { ...await response.json(), etag }
   }
-  const artworkClient = {
+  function artworkFor(resource: 'labels' | 'releases') { return {
     get: async (id: string, signal?: AbortSignal) =>
-      gallery(await request(`/${encodeURIComponent(id)}/artwork`, { signal })),
+      gallery(await request(`/${encodeURIComponent(id)}/artwork`, { signal }, resource)),
     upload: async (id: string, etag: string, form: FormData) =>
       gallery(await request(`/${encodeURIComponent(id)}/artwork`, {
         method: 'POST', headers: { 'If-Match': etag }, body: form,
-      })),
+      }, resource)),
     save: async (id: string, etag: string, items: ArtworkEntry[]) =>
       gallery(await request(`/${encodeURIComponent(id)}/artwork`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json', 'If-Match': etag },
         body: JSON.stringify({ items: items.map(({ id, assetId, role, caption, isPreferred }) =>
           ({ id, assetId, role, caption: caption || null, isPreferred })) }),
-      })),
+      }, resource)),
     image: async (assetId: string, original = false, signal?: AbortSignal) =>
       (await request(`/${encodeURIComponent(assetId)}/${original ? 'original' : 'thumbnail'}`, { signal }, 'artwork-assets')).blob(),
+  } }
+  const artworkClient = artworkFor('labels')
+  const releaseArtworkClient = {
+    ...artworkFor('releases'),
+    candidates: async (id: string, signal?: AbortSignal): Promise<ArtworkCandidates> =>
+      (await request(`/${encodeURIComponent(id)}/artwork-candidates`, { signal }, 'releases')).json(),
+    attach: async (id: string, etag: string, candidate: ArtworkCandidate, usageRights: string, confirmed: boolean) =>
+      gallery(await request(`/${encodeURIComponent(id)}/artwork-candidates/attach`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'If-Match': etag },
+        body: JSON.stringify({ provider: candidate.provider, candidateId: candidate.candidateId, revision: candidate.revision, usageRights, confirmed }),
+      }, 'releases')),
   }
   async function relationships(response: Response): Promise<LabelRelationships> {
     const etag = response.headers.get('ETag')
@@ -432,7 +447,7 @@ export function createCatalogClient(fetcher: typeof fetch = fetch) {
     tracks: async (id: string, page: number, signal?: AbortSignal): Promise<GroupPage<ReleaseTrack>> =>
       (await request(`/${encodeURIComponent(id)}/tracks?page=${page}&pageSize=25`, { signal }, 'releases')).json(),
   }
-  return { dataProvider, authProvider, mergeClient, artworkClient, backupsClient, relationshipsClient, groupClient, purchaseReleaseClient, releaseImportClient, releaseClient }
+  return { dataProvider, authProvider, mergeClient, artworkClient, releaseArtworkClient, backupsClient, relationshipsClient, groupClient, purchaseReleaseClient, releaseImportClient, releaseClient }
 }
 
-export const { dataProvider, authProvider, mergeClient, artworkClient, backupsClient, relationshipsClient, groupClient, purchaseReleaseClient, releaseImportClient, releaseClient } = createCatalogClient()
+export const { dataProvider, authProvider, mergeClient, artworkClient, releaseArtworkClient, backupsClient, relationshipsClient, groupClient, purchaseReleaseClient, releaseImportClient, releaseClient } = createCatalogClient()

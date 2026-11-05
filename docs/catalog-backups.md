@@ -1,12 +1,14 @@
 # Catalog and scanner inventory ZIP backups
 
-The shared native backup service supports the catalog CLI and the authenticated admin GUI/API. It supports two separate SQLite backup types: **Catalog + artwork** (catalog schemas 6-10) and **Scanner inventory**. It does not migrate either database, copy audio/media files, or restore over a live database. These are database protection operations, not media replication.
+The shared native backup service supports the catalog CLI and the authenticated admin GUI/API. It supports two separate SQLite backup types: **Catalog + artwork** (catalog schemas 6-11) and **Scanner inventory**. It does not migrate either database, copy audio/media files, or restore over a live database. These are database protection operations, not media replication.
 
 Schema 6 and 7 archives remain verifiable/restorable after upgrading to schema 8. Schema 7 snapshots include label relationships and permanent relationship history; schema 8 additionally includes groups, memberships and both permanent group histories automatically. Restore preserves the archived schema; it does not upgrade it. The current API requires schema 8: take a verified pre-upgrade backup and explicitly migrate the catalog before restarting it. Scanner backup/schema handling is unchanged.
 
 Schema 9 archives additionally preserve canonical Artist/Release/Recording metadata and versions, stable multi-role credits, repeated release placements and their provider bindings/source credits, and permanent foundation operation history. Schema 6/7/8 archives remain verifiable/restorable after that upgrade. Migration 9 is tested on temporary databases only and has not been approved/applied live; the label/inspector API still works on schema 8. Live activation requires a separate verified backup, rehearsal and approval.
 
 Schema 10 archives additionally preserve immutable import previews/supersessions, accepted source bindings, permanent apply outcomes/audit, canonical text document revisions and durable pending embedding work. Replayed operations retain their original outcomes after restore, even after preview expiry. No model or provider access is required for verification/restore. Schema 6-9 archives remain accepted, and restoring them does not upgrade them. Migration 10 is also temporary-database-only until separately approved live.
+
+Schema 11 archives additionally preserve Release cover/gallery associations, permanent gallery history and attached provider candidate identities, together with all shared original/thumbnail files, including replaced or detached covers. Schema 6-10 archives remain verifiable/restorable; restore does not upgrade them or contact artwork providers. Migration 11 is temporary-database-only until separately approved live.
 
 ## What is saved
 

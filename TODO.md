@@ -64,7 +64,7 @@ See the [single-user-first identity design](docs/user-identity-design.md). Share
 
 ## Shared artwork infrastructure
 
-See [shared artwork design intent](../trackstash-core/docs/artwork-design.md) for decisions, implementation status, dependencies, and acceptance gates. Migration 6 implements shared assets with configurable managed files outside Git, protected uploads/thumbnails, and label galleries. Finish Labels before Artists; Releases come after label and artist workflows are ready.
+See [shared artwork design intent](../trackstash-core/docs/artwork-design.md) for decisions, implementation status, dependencies, and acceptance gates. Migration 6 implements shared assets with configurable managed files outside Git, protected uploads/thumbnails, and Label galleries. Migration 11 reuses that infrastructure for Release covers.
 
 - [x] Record shared assets, foreign-key-backed entity associations, galleries, and explicit release-context fallback intent
 - [x] A: Specify shared asset and label association contracts, provenance/rights boundaries, managed-file storage, roles/order/preference, protected browser serving, processing limits, retention, and concurrency (recording resolution remains D)
@@ -76,7 +76,10 @@ See [shared artwork design intent](../trackstash-core/docs/artwork-design.md) fo
 - [x] Add an admin Backups page to trigger jobs, show progress/results and offer authenticated download of completed ZIPs already saved on disk; download exports the same archive rather than creating a second backup. Include catalog snapshot, retained artwork and versioned checksum manifest, exclude credentials/unrelated media, and define temporary-file cleanup, newest-10 verified retention and large-download handling. Keep restore to a separate destination via CLI initially; downloading alone does not establish a NAS backup
 - [x] Add separately configured scanner inventory ZIP backup via shared native snapshot/archive services, CLI and System Backup type selection, with exact database preservation, independent retention, authenticated download and safe separate-directory restore; exclude external media and preserve catalog archive compatibility
 - [ ] Add deliberate orphan reconciliation and thumbnail regeneration; do not prune retained history assets or perform automatic destructive cleanup
-- [ ] D (after B and relevant entity workflows): Reuse assets/associations for artists and releases; implement recording overrides, release-context resolution, explicit preferred-release fallback, and missing/ambiguous results
+- [x] Reuse shared assets/processing/protected gallery UI for managed Release covers with a polished detail page, immutable history/version safeguards and schema-11 backup/restore tests; no live migration
+- [x] Add provider-neutral, release-scoped candidate lookup and explicit rights-confirmed attachment with managed local copies and immutable candidate identity provenance; no default live adapters or browser remote images
+- [ ] Implement approved live artwork provider adapters (Beatport, MusicBrainz/Cover Art Archive, Discogs, etc.) with endpoint/redirect/size/time/credential/terms safeguards and adapter-specific tests
+- [ ] D (after B and relevant entity workflows): Reuse assets/associations for Artists; implement Recording overrides, release-context resolution, explicit preferred-release fallback, and missing/ambiguous results
 - [ ] D: Verify original-release/compilation/reissue context and release-change cache invalidation; never pick an arbitrary first release or copy inherited artwork onto recordings
 - [ ] E (after shared contracts and applicable workflows): Extend portable YAML/import/export and CLI dry-run/apply/get through provider-independent services; define binary packaging and distinguish inherited from explicit artwork
 - [x] Validate the label artwork increment with core/API/browser tests and an approved live pre-v6 backup, migration and read-only smoke check; future increments require their own validation/upgrade approval

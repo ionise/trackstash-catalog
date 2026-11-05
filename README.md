@@ -157,7 +157,11 @@ Upload limits: static JPEG/PNG, 10 MiB, 25 megapixels, 16384 pixels per side. SV
 
 **Back up the artwork root together with a consistent database snapshot.** A database-only backup cannot restore new artwork. A coordinated native backup/restore feature is on the [TODO list](TODO.md#shared-artwork-infrastructure); until then stop writers and preserve both matching stores. Detached assets are retained for history, not garbage-collected. Migration 6 exports populated legacy BLOB artwork to the configured root; it never edits migration 5. Unsupported legacy bytes remain preserved, but serving reports an explicit error. See [artwork design and operational rules](../trackstash-core/docs/artwork-design.md).
 
-This increment completes label artwork only. Artists are next after Labels are satisfactory; Releases follow label/artist workflows. Recording release-context inheritance remains documented future work, not implemented fallback.
+Release covers now reuse this infrastructure on **schema 11**. The release detail page has a responsive cover/identity header, readable track durations and collapsed technical details. **Manage release artwork** uploads/replaces static JPEG/PNG covers with rights/source/attribution, and edits gallery order/captions/preference/detachment. The header uses only an explicitly preferred cover, never a Label logo.
+
+Provider-neutral candidate lookup and explicit attachment are implemented, but **no live Beatport, MusicBrainz/Cover Art Archive or Discogs adapter is registered yet**. Without configured adapters, lookup explicitly reports this. Future adapters supply release-scoped candidate/revision IDs; attachment requires rights and confirmation and stores a validated local copy with immutable provenance. No automatic external-image loading or downloads occur.
+
+Use a backed-up disposable catalog for testing: stop the trial API, migrate that same trial database to 11 with the same artwork-root configuration, then rebuild/restart the trial API and refresh the browser. Do not migrate the live catalog without separate approval. Existing schema 9/10 Release browsing still works but artwork explicitly requires 11. Artist artwork and Recording release-context inheritance remain future work. See [shared artwork design](../trackstash-core/docs/artwork-design.md) and [API routes](docs/api-design.md#managed-release-artwork-and-provider-candidates-schema-11).
 
 ### Reviewed Duplicate-label Merges
 

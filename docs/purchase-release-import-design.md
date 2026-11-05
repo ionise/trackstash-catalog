@@ -334,6 +334,8 @@ After the pilot, cover a multi-primary-artist track, a genuine named duo, a malf
 
 ## 8. Delivery and acceptance
 
+Release browsing and detail presentation now include managed covers/gallery on schema 11, separate from source import. Manual upload and provider-neutral candidate/explicit attachment reuse shared artwork validation, rights, version/history and backup rules. No live provider adapters, automatic downloads, Label-logo fallback or Recording inheritance are enabled. See [shared artwork design](../../trackstash-core/docs/artwork-design.md) and [artwork API](api-design.md#managed-release-artwork-and-provider-candidates-schema-11). Live migration remains separately gated.
+
 1. Completed: read-only cached bundle inspector and paged corpus-flag queue, with no canonical writes. Expose missing details/order and structured credits. Receipt ingestion and deliberate provider refresh remain separate adapter work.
 2. Completed: minimum Artist/Release/Recording/placement/credit/reference/version foundations and migration 9, including unresolved compound state and source-credit expression/evidence for later split resolution, tested without live activation. The actual split-resolution workflow remains future work.
 3. Implement immutable review plans, candidate resolution and atomic idempotent apply with domain-specific audit, embedding text builders/invalidation and transaction-enlisted durable work.
