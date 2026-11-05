@@ -103,15 +103,15 @@ The initial slice is complete when the same label can be listed, inspected, crea
 
 - Add/remove aliases, with original text retained and server-generated comparison keys.
 - Maintain provider references with provenance and duplicate-link conflict checks.
-- Add/read/update/remove label relationships.
+- Reviewed imprint/distributor relationship read/edit/removal is implemented below.
 - Preview deletion dependencies and delete through existing shared safe-delete/tombstone services.
 - Reviewed pairwise merges with retired-ID redirects are implemented below; automatic/bulk deduplication remains excluded.
 
-Do not expose unsupported placeholder endpoints as successful operations. Exact child-resource routes and identifiers remain to be settled: current aliases/references use composite keys; label relationships now have schema-only persistence, not public operations.
+Do not expose unsupported placeholder endpoints as successful operations. Alias/reference mutation routes remain to be settled; relationship routes use permanent server-generated edge IDs.
 
 ### Manual Label Profiles
 
-SQLite migration 5 adds manual metadata and a future enrichment foundation; the current API requires version 6 for shared artwork and never auto-migrates. `GET /labels/{id}` always includes a profile, with empty defaults for labels not yet curated. Lightweight list items remain unchanged. Creation remains name/sort-name only: create first, then edit.
+SQLite migration 5 adds manual metadata and a future enrichment foundation; the current API requires version 7 for reviewed relationships and never auto-migrates. `GET /labels/{id}` always includes a profile, with empty defaults for labels not yet curated. Lightweight list items remain unchanged. Creation remains name/sort-name only: create first, then edit.
 
 `PATCH /labels/{id}` accepts optional `profile` alongside name/sortName, using the same original ETag and atomic transaction. Omission preserves all metadata; a supplied profile is a **complete nested replacement**, not a recursive merge. Send all nine fields shown above. Null profile, missing fields, unknown/wrong-case/duplicate properties, and invalid types return `400 validation_failed`. Nullable text/year clears with null; `links: []` clears links.
 
@@ -119,9 +119,9 @@ Limits: description/notes 12,000 characters each, city 200, country two uppercas
 
 Every successful explicit profile save records immutable before/after JSON and original label ID. Actor `manual` identifies the entry method, not a human authenticated by the shared bearer key. History is local storage only, not a public endpoint/UI yet. Legacy CLI imports/upserts and name-only patches preserve profile metadata.
 
-Merge previews show the combined profile. Compatible/equal scalar fields coalesce, unknown/unreviewed are treated as unset, favourites OR, and links union by exact URL. Conflicting nonempty fields/link metadata or a union exceeding the link limit block apply until reconciled by conditional edits. Histories and source observations transfer with original IDs intact; profile/link/evidence changes invalidate outstanding reviews. Artwork transfer is supported in migration 6 below; unsupported relationship rows still block merge and metadata-bearing labels cannot yet be safely deleted.
+Merge previews show the combined profile. Compatible/equal scalar fields coalesce, unknown/unreviewed are treated as unset, favourites OR, and links union by exact URL. Conflicting nonempty fields/link metadata or a union exceeding the link limit block apply until reconciled by conditional edits. Histories and source observations transfer with original IDs intact; profile/link/evidence changes invalidate outstanding reviews. Artwork and relationship transfer are supported below; metadata-bearing labels cannot yet be safely deleted.
 
-Migration 5 also prepares source observations with provenance/licence/retention/review status, local artwork BLOBs with source/attribution/rights, and distinct-label `imprint_of`/`distributed_by` relationships with source/notes. Observations and relationships remain **schema only**; artwork upload/serving is implemented by migration 6 below. No relationship mutation, automated source scraping/fetching, enrichment module, or label embedding generation is included. Web links are manually managed navigation/evidence, not verified foreign identities. A future pluggable enrichment module should submit reviewable observations rather than directly overwrite accepted profile fields.
+Migration 5 also prepares source observations with provenance/licence/retention/review status, local artwork BLOBs with source/attribution/rights, and distinct-label `imprint_of`/`distributed_by` relationships with source/notes. Observations remain **schema only**; artwork upload/serving and reviewed relationships are implemented below. No automated source scraping/fetching, enrichment module, or label embedding generation is included. Web links are manually managed navigation/evidence, not verified foreign identities. A future pluggable enrichment module should submit reviewable observations rather than directly overwrite accepted profile fields.
 
 ### Shared Artwork: Label Slice Implemented
 
@@ -157,7 +157,7 @@ Start with a **pairwise, explicitly reviewed label merge**. The operator chooses
 
 For Univack, a preview can combine the existing labels' known Beatport references. A third provider identity must be independently verified and attached through a future reviewed reference workflow; merge must not invent or fetch an unconfirmed third ID.
 
-This increment excludes automatic deduplication, multi-selection/bulk merges, undo/unmerge, provider-reference editing, artist/release/recording merge endpoints, and media tag/file changes. It may precede label relationship editing, but must reject dependencies it cannot safely transfer.
+This increment excludes automatic deduplication, multi-selection/bulk merges, undo/unmerge, provider-reference editing, artist/release/recording merge endpoints, and media tag/file changes. Supported relationship transfer is described below; unknown dependencies still block apply.
 
 #### Preview and Confirmation
 
@@ -260,18 +260,28 @@ Implemented tests cover the following acceptance gates:
 
 Artists, releases, and recordings should reuse the identity/reference/retirement principles, not blindly reuse label transfer rules. Artist credits/relationships, release placements/dates, and recording media associations/matches/fingerprints require separate dependency and conflict policies. Multiple Beatport track IDs can identify one recording; remasters remain separate recordings under the agreed policy.
 
-### Relationship Semantics
+### Reviewed Label Relationships
 
-- Alias: another name for the same canonical label GUID.
-- Relationship: two distinct label GUIDs, not an excuse to merge identities.
-- Proposed directional vocabulary: `parent_of` (parent -> child), `imprint_of` and `brand_of` (child -> parent), `distributed_by` (represented label -> distributor).
-- Choose one stored representation for an equivalent hierarchy edge; derive inverse views rather than store redundant `parent_of`/child-parent assertions.
-- Preserve source, confidence/review state, notes, territory, and effective dates where known.
-- Reject self-links. Define cycle checks for hierarchical relationship types; distribution links are not automatically ownership hierarchy.
-- Do not impose a universal single-parent rule without considering territory/time and joint ownership.
-- Support a sublabel/parent view in the GUI using the same relationship API, not separate identities.
+Relationships connect **distinct identities**; aliases and merges describe the same identity. Store only child-to-parent `imprint_of` and represented-label-to-distributor `distributed_by`. Multiple parents/distributors are allowed. The GUI derives **Imprint** and **Distributes** inverse views without redundant rows. Self-links, duplicate `(from,to,type)` edges and imprint cycles are rejected; distribution is not an ownership hierarchy and may contain cycles. Dates, territory, confidence and separate review-status fields are not supported in this increment.
 
-See core's [label schema](../../trackstash-core/docs/label-schema.md) for the existing design. Resolve directional naming and storage-contract details there before implementation.
+| Method | Route | Contract |
+| --- | --- | --- |
+| GET | `/labels/{id}/relationships` | `{labelId,items}` with both incoming/outgoing edges, source/evidence/notes/date and named endpoint identities/versions; aggregate ETag |
+| PATCH | `/labels/{id}/relationships` | JSON `{items:[...]}` replaces **only outgoing** edges under original `If-Match`; `items:[]` removes outgoing edges, never incoming |
+
+Each input has nullable `id`, `toLabelId`, `type`, mandatory nonblank `source` (200 characters), nullable `sourceUrl` (HTTP(S), 2,048 characters, no embedded credentials), nullable `notes` (2,000 characters), and mandatory `targetVersion` from the last read/search of that related label. Null/omitted ID creates a server-assigned edge; existing IDs must belong to this origin. IDs and original creation timestamps survive metadata edits. At most **100 outgoing** edges are supported, still subject to the **16 KiB total JSON request cap** (413). Unknown/duplicate fields, invalid types, missing targets and graph violations return 400 without changes. Missing owner returns 404; missing precondition 428; changed owner or target returns 412 `relationship_state_changed`; retired reads redirect 308 and writes reject 409.
+
+Both endpoint aggregate versions change transactionally for edge mutations, invalidating profile/artwork edits and merge reviews. The GUI requires explicit confirmation, retains the original ETag, and never retries a stale write. Reload discards unsaved changes and requires fresh confirmation. Incoming edges are edited at their origin. No automatic evidence fetching occurs.
+
+Forward migration **7** preserves existing edges/tokens, records a baseline snapshot for every existing edge, and adds permanent immutable before/after relationship history plus database-level imprint-cycle guards. A pre-existing imprint cycle explicitly fails and rolls back migration 7, rather than rewriting the graph. Conditional writes and merges use savepoints so a caught failure cannot leave partial edges/history/versions. Metadata edits currently record delete/insert snapshots of the same stable edge ID; SQL updates record update snapshots. History retains original IDs through merges and is included in catalog ZIP backups, not exposed by a public history endpoint.
+
+Merge preview plan format 4 shows resulting incident edges in both directions. Survivor-owned edges win deterministic identity/timestamp preference; identical typed edges coalesce **only if source, evidence URL and notes match exactly**. Conflicting provenance, resulting self-links, imprint cycles or more than 100 outgoing edges block apply until reconciled. The reviewed hash covers the full relationship graph, so even distant graph edits require a fresh review. Apply transfers edges, records history/audit and updates third-label tokens atomically; it never silently drops a self-link or conflicting evidence.
+
+See core's [implemented relationship contracts](../../trackstash-core/docs/label-schema.md) and the [HTTP examples](../src/TrackStash.Catalog.Api/TrackStash.Catalog.Api.http).
+
+### Label Groups and Families (Design Only)
+
+The [label groups design](label-groups-design.md) separates family/brand groups from organisation groups, with flat label memberships initially. Membership is affiliation, not an imprint, legal ownership or distribution claim. The design covers evidence, current/former/unknown status, precision-preserving dates, editing one membership from either endpoint, derived related-label reasons, merge/history/concurrency safeguards and staged delivery. None of its proposed endpoints or tables are implemented by schema 7. Former-name history and temporal imprint relationships remain separate work.
 
 ## List and Search Contract
 
@@ -305,7 +315,7 @@ Implemented response:
 - `POST` returns `201 Created`, `Location`, resource, and ETag. Reads return `200` and an opaque ETag.
 - Updates use JSON Merge Patch (`application/merge-patch+json`) with an explicit editable-field allowlist. Omitted values remain unchanged; null clears nullable fields; name cannot be cleared.
 - Require `If-Match` for updates/deletes and related aggregate mutations: missing precondition -> `428`; stale version -> `412`. Define an adapter-neutral persisted version with atomic compare-and-write; timestamps alone are not sufficient.
-- Alias/reference/relationship changes must invalidate the affected aggregate version consistently. Resolve cross-label version ownership before relationship editing ships.
+- Alias/reference/relationship changes invalidate affected aggregate versions consistently; relationship mutations invalidate both endpoint labels.
 - Use `400` for invalid requests, `404` for missing resources, `409` for domain conflicts/deletion blockers, `401`/`403` for access failures.
 - Errors use standard Problem Details (`application/problem+json`) with stable domain error codes, field errors where applicable, and a trace ID. Do not expose SQL, credentials, or stack traces.
 - Return canonical IDs and explicit conflict evidence; never silently merge or redirect a write to another identity.
@@ -341,7 +351,7 @@ The [React-admin application](../src/TrackStash.Catalog.Admin/README.md) impleme
 
 Production builds are served at `/admin/` by the API when built assets are present. Vite development uses localhost:5173 with a local API proxy and explicit origin configuration. [Unit tests](../src/TrackStash.Catalog.Admin/src/catalog.test.ts) and [browser tests](../src/TrackStash.Catalog.Admin/e2e/labels.spec.ts) verify transport, authentication, list navigation, edits, and stale-write preservation using temporary catalogs.
 
-Remaining work includes CLI adoption of the service interface, the PowerShell HTTP client, relationship/lifecycle UI, authenticated remote deployment, and create idempotency. Do not automatically retry POST until the latter has a persisted design.
+Remaining work includes CLI adoption of the service interfaces, the PowerShell HTTP client, safe deletion, authenticated remote deployment, and create idempotency. Do not automatically retry POST until the latter has a persisted design.
 
 ### PowerShell HTTP Client
 
@@ -391,7 +401,7 @@ The [core contracts](../../trackstash-core/src/TrackStash.Core/Storage/LabelQuer
 
 SQLite migration **3, `label-aggregate-version`**, backfills existing labels without changing their IDs or metadata. Database triggers refresh opaque tokens for label insertion/scalar updates and alias/reference insertion/update/deletion, including existing upserts, YAML replace cleanup, and restore. Conditional updates compare ID and version in the UPDATE statement, not an earlier application-level read. A rolled-back edit also rolls back its token. Restore generates a new token so pre-deletion edits cannot be replayed.
 
-Legacy upserts remain unconditional for compatibility; they invalidate tokens but do not themselves reject stale callers. Child-only changes invalidate the aggregate token without promising a change to `updated_utc`. Future adapters must implement equivalent atomic comparison and invalidation for every supported writer; future relationship editing must explicitly define whether it joins this aggregate.
+Legacy upserts remain unconditional for compatibility; they invalidate tokens but do not themselves reject stale callers. Child-only changes invalidate the aggregate token without promising a change to `updated_utc`. Future adapters must implement equivalent atomic comparison and invalidation for every supported writer, including both endpoints of relationship mutations.
 
 Apply migrations explicitly through the existing bootstrap workflow before using the new code against an existing catalog. Only temporary databases were migrated during implementation; the live catalog and scanner databases were not changed.
 

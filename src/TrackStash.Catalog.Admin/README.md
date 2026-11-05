@@ -4,7 +4,7 @@ React-admin label maintenance application using React, TypeScript, and Vite. Its
 
 ## Build and Use
 
-Requirements for building: Node.js 22.12 or newer and npm. The API requires .NET 8 and an existing canonical catalog migrated to version 6 or later.
+Requirements for building: Node.js 22.12 or newer and npm. The API requires .NET 8 and an existing canonical catalog migrated to version 7 or later.
 
 From this directory:
 
@@ -34,9 +34,10 @@ The app supports:
 - On **Show**, hover/focus the logo to reveal its camera action, or use **Details > Manage artwork** (touch devices also show the camera). The header uses only an explicitly preferred image; choose a preference in the manager if an existing gallery has none. Upload logos/gallery images with mandatory rights text and optional source/attribution. JPEG/PNG only, static, up to 10 MiB/25 megapixels/16384 pixels per side. Uploads save immediately; ordered gallery edits, captions, role/preference and detachment use a separate conditional save. **Replace image** keeps its gallery position and old asset/history. Reload explicitly after a stale edit. Closing the dialog discards only unsaved gallery edits, not completed uploads.
 - Artwork and merge-review images use bearer-authenticated fetch and temporary blob URLs, revoked on unmount; no public asset exemption or credentials in image URLs. Originals and thumbnails are stored in the API's configured external managed directory and must be backed up with the database; see [storage configuration](../../README.md#label-artwork-and-galleries).
 - Preserve the original detail-response ETag for a pessimistic conditional save. A 412 displays a stale-edit warning and does not retry or overwrite a competing edit; reload before making a fresh edit.
+- **Label relationships**, above the related-content tabs, shows parent/imprint and distributor/distributes links with provenance, evidence and notes. **Manage relationships** edits this label's outgoing edges with paged label search, multiple parents/distributors, explicit review confirmation and conditional save. Incoming edges are edited from their originating label. Removing a draft row is not persisted until Save; Cancel makes no changes. Self-links, duplicates and imprint cycles are rejected. A changed owner/target freezes Save until deliberate Reload, which discards drafts/candidate versions and resets confirmation. No dates/territory or automatic evidence fetching yet.
 - Review a pairwise duplicate-label merge from survivor detail using **More actions** (the three-dot menu beside Edit) > **Merge label...**: paged name/provider search, combined aliases/provider IDs/release links, blockers, switch-survivor, reason, and explicit confirmation. Opening the menu/action does not merge anything. Cancel does not change identities; refreshing a 15-minute review requires confirmation again. A stale apply is rejected without automatic retry, and successful apply refreshes lists/detail.
 
-Deletion, bulk mutation, relationship editing, automated enrichment, and alias/reference mutation are intentionally unavailable. Relationships and source observations have schema-only foundations. No label embedding generation or automatic site fetching runs. Merge galleries retain survivor order, append retired artwork and preserve the winning preference; detached assets remain retained.
+Deletion, bulk mutation, automated enrichment, and alias/reference mutation are intentionally unavailable. Source observations have schema-only foundations. No label embedding generation or automatic site fetching runs. Merge galleries retain survivor order, append retired artwork and preserve the winning preference; detached assets remain retained. Merge reviews also show resulting relationship transfers; conflicting provenance, self-links and imprint cycles block apply rather than lose evidence.
 
 ## Credentials and Browser Access
 

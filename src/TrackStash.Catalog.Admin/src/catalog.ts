@@ -56,6 +56,17 @@ export interface MergePreview {
   etag: string
   profile?: LabelProfile
   artwork?: ArtworkEntry[]
+  relationships?: { id: string; fromLabelId: string; toLabelId: string; type: string; source: string; sourceUrl: string | null; notes: string | null }[]
+}
+export interface RelatedLabel { id: string; name: string | null; version: string }
+export interface LabelRelationship {
+  id: string; from: RelatedLabel; to: RelatedLabel; type: 'imprint_of' | 'distributed_by'
+  source: string; sourceUrl: string | null; notes: string | null; createdUtc: string
+}
+export interface LabelRelationships { labelId: string; items: LabelRelationship[]; etag: string }
+export interface RelationshipInput {
+  id: string | null; toLabelId: string; type: 'imprint_of' | 'distributed_by'; source: string
+  sourceUrl: string | null; notes: string | null; targetVersion: string
 }
 
 export interface ArtworkEntry {
@@ -99,7 +110,7 @@ export function createCatalogClient(fetcher: typeof fetch = fetch) {
       const problem: Problem = await response.json()
       const message = response.status === 404 && (resource === 'backup-sources' || resource === 'backups' && (path === '' || path.startsWith('?')))
         ? 'The running catalog API does not provide backup support. Restart the API with the updated backend, then refresh backups.'
-        : response.status === 412 && problem.code !== 'merge_state_changed'
+        : response.status === 412 && problem.code !== 'merge_state_changed' && problem.code !== 'relationship_state_changed'
         ? 'This label changed since you opened it. Your edit was not saved. Reload the label before editing again.'
         : problem.detail ?? problem.title ?? `Catalog request failed (${response.status}).`
       throw new HttpError(message, response.status, {
@@ -249,6 +260,19 @@ export function createCatalogClient(fetcher: typeof fetch = fetch) {
     image: async (assetId: string, original = false, signal?: AbortSignal) =>
       (await request(`/${encodeURIComponent(assetId)}/${original ? 'original' : 'thumbnail'}`, { signal }, 'artwork-assets')).blob(),
   }
+  async function relationships(response: Response): Promise<LabelRelationships> {
+    const etag = response.headers.get('ETag')
+    if (!etag) throw new Error('Relationships response is missing its ETag; editing is unavailable.')
+    return { ...await response.json(), etag }
+  }
+  const relationshipsClient = {
+    get: async (id: string, signal?: AbortSignal) =>
+      relationships(await request(`/${encodeURIComponent(id)}/relationships`, { signal })),
+    save: async (id: string, etag: string, items: RelationshipInput[]) =>
+      relationships(await request(`/${encodeURIComponent(id)}/relationships`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json', 'If-Match': etag }, body: JSON.stringify({ items }),
+      })),
+  }
   const backupsClient = {
     sources: async (signal?: AbortSignal): Promise<BackupSource[]> => (await request('', { signal }, 'backup-sources')).json(),
     list: async (signal?: AbortSignal, kind: BackupKind = 'catalog'): Promise<BackupList> =>
@@ -260,7 +284,7 @@ export function createCatalogClient(fetcher: typeof fetch = fetch) {
     download: async (id: string, signal?: AbortSignal, kind: BackupKind = 'catalog') =>
       request(`/${encodeURIComponent(id)}/download${kind === 'scanner' ? '?kind=scanner' : ''}`, { signal }, 'backups'),
   }
-  return { dataProvider, authProvider, mergeClient, artworkClient, backupsClient }
+  return { dataProvider, authProvider, mergeClient, artworkClient, backupsClient, relationshipsClient }
 }
 
-export const { dataProvider, authProvider, mergeClient, artworkClient, backupsClient } = createCatalogClient()
+export const { dataProvider, authProvider, mergeClient, artworkClient, backupsClient, relationshipsClient } = createCatalogClient()

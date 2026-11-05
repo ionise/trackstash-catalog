@@ -15,7 +15,7 @@ public sealed record LabelMergePreviewResponse(
     string OperationId, DateTimeOffset ExpiresUtc, MergeParticipantResponse Survivor, MergeParticipantResponse Retired,
     IReadOnlyList<LabelAliasResponse> Aliases, IReadOnlyList<LabelReferenceResponse> ExternalReferences,
     IReadOnlyList<MergeReleaseLinkResponse> ReleaseLinks, IReadOnlyList<string> Blockers, IReadOnlyList<string> Warnings,
-    LabelProfileResponse? Profile, IReadOnlyList<ArtworkEntryRequest> Artwork);
+    LabelProfileResponse? Profile, IReadOnlyList<ArtworkEntryRequest> Artwork, IReadOnlyList<MergeRelationshipResponse> Relationships);
 /// <summary>A release association in the proposed resulting label.</summary>
 public sealed record MergeReleaseLinkResponse(string ReleaseId, bool IsPrimary, string? Role);
 /// <summary>Durable operation result, not a current survivor representation.</summary>
@@ -97,5 +97,6 @@ internal static class LabelMergeEndpoints
         preview.ExternalReferences.Select(r => new LabelReferenceResponse(r.Source, r.ExternalId, r.IsPrimary, r.LastSeenUtc)).ToArray(),
         preview.ReleaseLinks.Select(l => new MergeReleaseLinkResponse(l.ReleaseId, l.IsPrimary, l.Role)).ToArray(),
         preview.Blockers, preview.Warnings, preview.Profile is null ? null : LabelEndpoints.ToProfileResponse(preview.Profile),
-        (preview.Artwork ?? []).Select(item => new ArtworkEntryRequest(item.Id, item.AssetId, item.Role, item.Caption, item.IsPreferred)).ToArray());
+        (preview.Artwork ?? []).Select(item => new ArtworkEntryRequest(item.Id, item.AssetId, item.Role, item.Caption, item.IsPreferred)).ToArray(),
+        (preview.Relationships ?? []).Select(LabelRelationshipEndpoints.ToMergeResponse).ToArray());
 }

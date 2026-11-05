@@ -10,6 +10,8 @@
 @backupJobId = replace-with-job-id
 @backupId = replace-with-backup-id
 @scannerBackupId = replace-with-scanner-backup-id
+@relatedLabelId = replace-with-parent-or-distributor-id
+@relatedLabelVersion = replace-with-unquoted-related-label-version
 
 ### Authenticated OpenAPI
 GET {{baseUrl}}/openapi/v1.json
@@ -63,6 +65,34 @@ If-Match: {{etag}}
       }
     ]
   }
+}
+
+### Read incoming/outgoing relationships and capture current owner ETag
+GET {{baseUrl}}/api/v1/labels/{{labelId}}/relationships
+Authorization: Bearer {{apiKey}}
+
+### Replace outgoing relationships only (also capture the related label version from GET/search)
+# Null ID creates; use an existing returned edge ID to preserve its identity/date.
+# Incoming edges are never replaced. [] clears outgoing edges.
+# Missing If-Match: 428; changed owner/target: 412 relationship_state_changed.
+# Self-links, duplicates, imprint cycles or invalid evidence: 400; retired write: 409.
+PATCH {{baseUrl}}/api/v1/labels/{{labelId}}/relationships
+Authorization: Bearer {{apiKey}}
+Content-Type: application/json
+If-Match: {{etag}}
+
+{
+  "items": [
+    {
+      "id": null,
+      "toLabelId": "{{relatedLabelId}}",
+      "type": "imprint_of",
+      "source": "manual",
+      "sourceUrl": "https://example.test/label-history",
+      "notes": "Reviewed parent relationship; these are distinct identities.",
+      "targetVersion": "{{relatedLabelVersion}}"
+    }
+  ]
 }
 
 ### Alias inspection

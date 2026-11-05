@@ -116,7 +116,7 @@ Then start the API as below and open <http://localhost:5187/admin/>. Enter the k
 
 ### Running the API Locally
 
-From this module directory, configure an existing canonical catalog migrated to version 6 or later:
+From this module directory, configure an existing canonical catalog migrated to version 7 or later:
 
 ```bash
 export CatalogApi__DatabasePath="/absolute/path/to/Trackstash.Catalog.db"
@@ -182,7 +182,9 @@ Migration 4 adds review/audit/retirement storage and guards, but does not merge 
 
 Queries return `{ items, total, page, pageSize }`, search names/aliases with shared strict normalization, preserve ambiguous candidates, and support stable sorting and pages up to 100. Updates require the last-read opaque version and distinguish missing labels from stale edits. Explicit field flags preserve omitted values and allow clearing nullable sort names.
 
-The SQLite adapter requires explicit migration to version 6 before use. Its aggregate-version triggers invalidate tokens when existing CLI/import workflows change a label, alias, provider reference, or release-label link. Unconditional writers still invalidate versions but must reject retired-ID reuse. The HTTP host uses `ILabelService` and `ILabelMergeService`; no new CLI commands are included.
+The HTTP host requires explicit catalog migration to version 7 before use; it never migrates at startup. Take a verified catalog/artwork backup before upgrading. Existing schema 6 backups remain supported. Aggregate-version triggers invalidate tokens for label, alias, provider reference, release-label, profile/artwork and both endpoints of relationship changes. Unconditional writers still invalidate versions but must reject retired-ID reuse. The HTTP host uses `ILabelService`, `ILabelMergeService` and `ILabelRelationshipService`; no new CLI commands are included.
+
+Label detail supports reviewed **imprint/parent** and **distributor** relationships, inverse navigation, source/evidence/notes, multiple parents, and deliberate conditional save/removal. Migration 7 preserves existing edges, baselines immutable history and rejects imprint cycles. Merge review transfers both directions, coalesces only matching evidence, and blocks conflicts/self-links/cycles. See [relationship contracts](docs/api-design.md#reviewed-label-relationships); dates/territory and automatic enrichment are deferred.
 
 See the [implemented contract and remaining decisions](docs/api-design.md#implemented-foundation) for details.
 

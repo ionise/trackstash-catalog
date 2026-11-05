@@ -51,6 +51,7 @@ internal sealed class ApiExceptionHandler(ILogger<ApiExceptionHandler> logger) :
             ArtworkUnavailableException => (409, "artwork_unavailable", "Artwork unavailable",
                 (string?)"The stored image is missing, damaged or unsupported. Check artwork storage and restore its backup if needed.", (string?)null),
             RetiredLabelException => (409, "label_retired", "Label is retired", (string?)"Review the canonical label before writing.", (string?)null),
+            LabelRelationshipValidationException relationship => (400, "validation_failed", "Invalid label relationship", (string?)relationship.Message, (string?)"items"),
             ApiRequestException request => (request.Status, request.Code, "Request rejected", (string?)request.Message, request.Field),
             JsonException => (400, "invalid_json", "Invalid JSON", null, null),
             BadHttpRequestException bad => (bad.StatusCode,

@@ -136,6 +136,11 @@ export function LabelMerge() {
               <Typography key={`${reference.source}/${reference.externalId}`}>{reference.source}: {reference.externalId}{reference.isPrimary ? ' (preferred)' : ''}</Typography>)}
             <Typography variant="h6">Resulting release links ({preview.releaseLinks.length})</Typography>
             {preview.releaseLinks.map(link => <Typography key={link.releaseId}>{link.releaseId}: {link.role ?? '(no role)'}{link.isPrimary ? ' (primary)' : ''}</Typography>)}
+            <Typography variant="h6">Resulting label relationships ({preview.relationships?.length ?? 0})</Typography>
+            {preview.relationships?.map(edge => <Box key={edge.id} sx={{ overflowWrap: 'anywhere' }}>
+              <Typography>{edge.fromLabelId} {edge.type === 'imprint_of' ? 'is an imprint of' : 'is distributed by'} {edge.toLabelId}</Typography>
+              <Typography variant="body2">Source: {edge.source}; evidence: {edge.sourceUrl ?? '(none)'}; notes: {edge.notes ?? '(none)'}</Typography>
+            </Box>)}
             {preview.warnings.map(warning => <Alert key={warning} severity="warning">{warning}</Alert>)}
             {preview.blockers.map(blocker => <Alert key={blocker} severity="error">{blocker}</Alert>)}
             <TextField label="Reason for merge" value={reason} onChange={event => setReason(event.target.value)} disabled={busy} required multiline slotProps={{ htmlInput: { maxLength: 2000 } }} />

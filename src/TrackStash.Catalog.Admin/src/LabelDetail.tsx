@@ -20,6 +20,7 @@ import { ArtworkImage, LabelArtwork } from './LabelArtwork'
 import type { LabelArtworkState } from './LabelArtwork'
 import type { LabelRecord } from './catalog'
 import { LabelMerge } from './LabelMerge'
+import { LabelRelationships } from './LabelRelationships'
 import { countryPresentation, labelLinks, linkPresentation } from './labelPresentation'
 
 const serviceIcons = new Map([
@@ -144,6 +145,7 @@ export function LabelDetail() {
       </Typography>
     </Box>
     <Divider />
+    <LabelRelationships key={record.id} />
     <RelatedContent>
     <Stack spacing={3} sx={{ minWidth: 0 }}>
     <Box component="section" aria-label="Artwork gallery">{gallery}</Box>

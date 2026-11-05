@@ -1,6 +1,8 @@
 # Catalog and scanner inventory ZIP backups
 
-The shared native backup service supports the catalog CLI and the authenticated admin GUI/API. It supports two separate SQLite backup types: **Catalog + artwork** (catalog schema 6) and **Scanner inventory**. It does not migrate either database, copy audio/media files, or restore over a live database. These are database protection operations, not media replication.
+The shared native backup service supports the catalog CLI and the authenticated admin GUI/API. It supports two separate SQLite backup types: **Catalog + artwork** (catalog schemas 6 and 7) and **Scanner inventory**. It does not migrate either database, copy audio/media files, or restore over a live database. These are database protection operations, not media replication.
+
+Schema 6 archives remain verifiable/restorable after upgrading to schema 7. Schema 7 snapshots include all label relationships and permanent relationship history automatically. Restore preserves the archived schema; it does not upgrade it. The current API requires schema 7: take a verified pre-upgrade backup and explicitly migrate the catalog before restarting it. Scanner backup/schema handling is unchanged.
 
 ## What is saved
 
@@ -105,7 +107,7 @@ Scanner creation resolves its source from `--db-path`, then `TRACKSTASH_SCAN_DAT
 
 Restore requires a **new destination directory with an existing parent**, outside Git. It validates all paths, exact inventory, declared sizes, checksums, SQLite integrity/foreign keys, schema and any artwork inventory, extracts to private sibling staging, then publishes the new directory. It never replaces existing data. Catalog restore produces `catalog.db` plus `artwork/`; scanner restore produces only `inventory.db`. Only after reviewing the restore, stop and reconfigure the relevant API/scanner to use the restored paths. Recorded media locations are preserved unchanged, not relocated or checked for accessibility during restore.
 
-Verification/restore accept format 1 (catalog schema 6 or the scanner contract above), at most 100,000 manifest files, a 16 MiB manifest and 100 GiB declared uncompressed data. Streamed extraction enforces declared per-file limits. Archive checksums detect damage, not malicious authorship; only restore trusted backups. No GUI restore-over-live operation is exposed.
+Verification/restore accept format 1 (catalog schema 6 or 7, or the scanner contract above), at most 100,000 manifest files, a 16 MiB manifest and 100 GiB declared uncompressed data. Streamed extraction enforces declared per-file limits. Archive checksums detect damage, not malicious authorship; only restore trusted backups. No GUI restore-over-live operation is exposed.
 
 ## Consistency and failure boundaries
 

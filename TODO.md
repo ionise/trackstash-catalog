@@ -15,7 +15,9 @@ See [API design intent](docs/api-design.md) for contracts, boundaries, open deci
 - [ ] Add a separate `TrackStash.Catalog.Client` PowerShell HTTP module
 - [x] Add manual label profiles, typed web links, personal metadata, immutable revisions, API/Edit/Show, and profile-aware reviewed merges
 - [x] Prepare source-attributed observations, local artwork with source/rights, and typed label relationship schema (migration 5)
-- [ ] Implement reviewed label relationship workflows and hierarchy validation; initial schema includes direction/source/notes, not dates or territory
+- [x] Implement reviewed imprint/distributor relationships, inverse views, hierarchy validation, permanent history and relationship-aware merge preview/transfer (migration 7); dates/territory remain excluded
+- [x] Design distinct family/organisation label groups with flat memberships, evidence/date/status qualifiers, both-endpoint editing and derived related-label semantics (see [group design](docs/label-groups-design.md)); design only
+- [ ] Implement label groups/memberships, reviewed merge transfer, paged group/related-label views, backup compatibility and approved rollout following the [delivery gates](docs/label-groups-design.md#8-delivery-and-acceptance)
 - [x] Deliver label artwork as the first consumer of shared artwork infrastructure (stages below)
 - [x] Polish the Label detail UI: identity header, preferred logo with accessible artwork action, biography, favourite toggle, external-link icons, local country flags, secondary record details, and honest future-content placeholders (see [UI plan](docs/label-detail-ui-plan.md))
 - [ ] Once related entity/query infrastructure exists, add label-scoped Tracks, Releases and related Artists subpages with backend search/filtering, stable sorting, pagination and URL query state (see [longer-term list plan](docs/label-detail-ui-plan.md#longer-term-searchable-subpages))

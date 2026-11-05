@@ -60,7 +60,8 @@ internal sealed class LabelOperationFilter : IOperationFilter
         foreach (var response in operation.Responses.Where(x => x.Key is "200" or "201"))
         {
             if (operation.OperationId is "GetLabel" or "CreateLabel" or "UpdateLabel" or "CreateLabelMergePreview" or "GetLabelMergePreview"
-                or "GetLabelArtwork" or "UploadLabelArtwork" or "ReplaceLabelArtwork")
+                or "GetLabelArtwork" or "UploadLabelArtwork" or "ReplaceLabelArtwork"
+                or "GetLabelRelationships" or "ReplaceLabelRelationships")
                 response.Value.Headers["ETag"] = new OpenApiHeader
                 {
                     Description = "Opaque strong entity/review tag. Send the original tag in If-Match when editing or confirming a merge.",

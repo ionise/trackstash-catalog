@@ -54,6 +54,7 @@ public static class CatalogApiHost
         builder.Services.TryAddScoped<ILabelService, LabelService>();
         builder.Services.TryAddSingleton(TimeProvider.System);
         builder.Services.TryAddScoped<ILabelMergeService, LabelMergeService>();
+        builder.Services.TryAddScoped<ILabelRelationshipService, LabelRelationshipService>();
         builder.Services.AddSingleton<ICatalogBackupService>(services => new CatalogBackupService(
             new SqliteCatalogSnapshotSource(builder.Configuration["CatalogApi:DatabasePath"]!),
             services.GetRequiredService<IArtworkContentStore>(), builder.Configuration["CatalogApi:BackupRoot"]));
@@ -139,6 +140,7 @@ public static class CatalogApiHost
         app.MapLabels();
         app.MapLabelMerges();
         app.MapArtwork();
+        app.MapLabelRelationships();
         app.MapBackups();
         var webRoot = Path.Combine(AppContext.BaseDirectory, "wwwroot");
         if (File.Exists(Path.Combine(webRoot, "admin", "index.html")))

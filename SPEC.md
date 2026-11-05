@@ -40,7 +40,8 @@ In scope for the first delivery phases:
 - manual label description, links, location/lifecycle, notes, favourite and review status through conditional profile replacement, with immutable revision history and profile-aware merges
 - shared artwork assets with external managed files, protected upload/serving, and label galleries with source/rights, ordered associations, atomic replacement and survivor-first merge transfer (migration 6)
 - separately configured scanner inventory database ZIP backup through shared native snapshot/archive services and CLI/admin clients; no scanner migrations, media copying or live overwrite
-- schema-only future source observations and parent/imprint/distributor relationships; provider enrichment, relationship workflows, and label embeddings remain deferred
+- reviewed imprint/distributor relationships with inverse navigation, conditional outgoing replacement, permanent history, imprint-cycle guards and relationship-aware merge transfer (migration 7)
+- schema-only future source observations; provider enrichment and label embeddings remain deferred
 
 Out of scope for the first delivery phases:
 
@@ -91,7 +92,7 @@ Owns:
 
 The [Catalog API design intent](docs/api-design.md) extends catalog with the implemented `TrackStash.Catalog.Api` HTTP host and `TrackStash.Catalog.Application` label services. It does not replace the existing local CLI or artifact workflows.
 
-Label list/read/create/edit, alias/provider-reference inspection, and reviewed pairwise label merge are implemented, including OpenAPI and temporary-database HTTP/browser tests. The React-admin GUI uses memory-only authentication and original-response ETags for conditional edits and merge confirmation. The host is loopback-only, requires a bearer key for all API/OpenAPI routes, and permits only same-origin or explicitly configured loopback browser origins; only the static GUI shell/assets are public. It requires schema version 6 and does not migrate at startup. Merges preserve multiple provider IDs, audit relational state, and retain retired-ID redirects; legacy import/restore writers reject retired-ID reuse. Relationship editing and safe deletion endpoints remain future work. The PowerShell HTTP client remains planned. HTTP handlers use `ILabelService` and `ILabelMergeService`; no merge CLI command is introduced.
+Label list/read/create/edit, alias/provider-reference inspection, reviewed imprint/distributor relationships, and reviewed pairwise label merge are implemented, including OpenAPI and temporary-database HTTP/browser tests. The React-admin GUI uses memory-only authentication and original-response ETags for conditional edits and merge confirmation. The host is loopback-only, requires a bearer key for all API/OpenAPI routes, and permits only same-origin or explicitly configured loopback browser origins; only the static GUI shell/assets are public. It requires schema version 7 and does not migrate at startup. Merges preserve multiple provider IDs, audit relational state, retain retired-ID redirects, and transfer relationships without silently losing conflicting evidence; legacy import/restore writers reject retired-ID reuse. Safe deletion endpoints remain future work. The PowerShell HTTP client remains planned. HTTP handlers use `ILabelService`, `ILabelRelationshipService` and `ILabelMergeService`; no merge/relationship CLI command is introduced.
 
 Public contracts remain storage-provider independent. Future artists, releases, recordings, genre taxonomies, and playlists should follow the same identity and service boundaries. The API document distinguishes implemented HTTP behavior from future plans; the command sections below describe CLI behavior.
 
