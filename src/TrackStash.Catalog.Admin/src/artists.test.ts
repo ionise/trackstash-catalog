@@ -2,6 +2,44 @@ import { describe, expect, it, vi } from 'vitest'
 import { createCatalogClient } from './catalog'
 
 describe('Artist browsing transport', () => {
+  it('requests grouped server-paged appearance routes without changing raw credit access', async () => {
+    const fetcher = vi.fn<typeof fetch>()
+    const { authProvider, artistClient } = createCatalogClient(fetcher)
+    fetcher.mockResolvedValueOnce(Response.json({ items: [] }))
+    await authProvider.login({ apiKey: 'test-key' }); fetcher.mockClear()
+    const signal = new AbortController().signal
+    fetcher.mockResolvedValueOnce(Response.json({ items: [], total: 0 }))
+    await artistClient.appearances('artist/one', true, 2, signal)
+    expect(fetcher.mock.calls[0][0]).toBe('/api/v1/artists/artist%2Fone/track-appearances?page=2&pageSize=25')
+    expect(fetcher.mock.calls[0][1]?.signal).toBe(signal)
+    fetcher.mockResolvedValueOnce(Response.json({ items: [], total: 0 }))
+    await artistClient.appearances('artist/one', false, 1, signal)
+    expect(fetcher.mock.calls[1][0]).toBe('/api/v1/artists/artist%2Fone/release-appearances?page=1&pageSize=25')
+  })
+  it('uses the original profile ETag and Artist multipart route, with explicit stale errors and no retry', async () => {
+    const fetcher = vi.fn<typeof fetch>()
+    const { authProvider, artistClient, artistArtworkClient } = createCatalogClient(fetcher)
+    fetcher.mockResolvedValueOnce(Response.json({ items: [] }))
+    await authProvider.login({ apiKey: 'test-key' }); fetcher.mockClear()
+    const profile = { biography: 'Bio', biographySourceUrl: null, favourite: true, notes: 'Private', reviewStatus: 'unreviewed', links: [] }
+    fetcher.mockResolvedValueOnce(Response.json(profile, { headers: { ETag: '"original"' } }))
+    const loaded = await artistClient.profile('artist/one')
+    fetcher.mockResolvedValueOnce(Response.json(profile, { headers: { ETag: '"saved"' } }))
+    await artistClient.saveProfile('artist/one', loaded.etag, profile)
+    expect(fetcher.mock.calls[1][0]).toBe('/api/v1/artists/artist%2Fone/profile')
+    expect(new Headers(fetcher.mock.calls[1][1]?.headers).get('If-Match')).toBe('"original"')
+    expect(fetcher.mock.calls[1][1]?.body).toBe(JSON.stringify(profile))
+    fetcher.mockResolvedValueOnce(Response.json({ detail: 'Stale', code: 'stale_version' }, { status: 412 }))
+    await expect(artistClient.saveProfile('artist/one', loaded.etag, profile)).rejects.toMatchObject({ status: 412, message: expect.stringContaining('Artist changed') })
+    expect(fetcher).toHaveBeenCalledTimes(3)
+    const form = new FormData(); form.append('role', 'portrait')
+    fetcher.mockResolvedValueOnce(Response.json({ artistId: 'artist/one', items: [] }, { headers: { ETag: '"portrait"' } }))
+    await artistArtworkClient.upload('artist/one', '"saved"', form)
+    expect(fetcher.mock.calls[3][0]).toBe('/api/v1/artists/artist%2Fone/artwork')
+    expect(fetcher.mock.calls[3][1]?.body).toBe(form)
+    expect(new Headers(fetcher.mock.calls[3][1]?.headers).get('Content-Type')).toBeNull()
+    expect(new Headers(fetcher.mock.calls[3][1]?.headers).get('If-Match')).toBe('"saved"')
+  })
   it('passes search/label/role and pagination, escapes IDs and supports cancellation without writes', async () => {
     const fetcher = vi.fn<typeof fetch>()
     const { authProvider, artistClient } = createCatalogClient(fetcher)

@@ -65,6 +65,7 @@ try {
     INSERT INTO release_external_ref(release_id,source,external_id) VALUES('release-fixture','beatport','999001');
     INSERT INTO release_artist_credit(credit_id,release_id,artist_id,role,position,legacy) VALUES
       ('release-fixture-credit','release-fixture','release-fixture-artist','primary',1,0);
+    INSERT INTO artist_external_ref(artist_id,source,external_id,is_primary) VALUES('release-fixture-artist','beatport','12345',1);
   `])
   const placementSql = Array.from({ length: 26 }, (_, index) => `
     INSERT INTO recording(recording_id,title,mix_name,isrc,duration_ms)
@@ -73,6 +74,8 @@ try {
       VALUES('release-placement-${index}','release-fixture','release-recording-${index}',${index + 1},${26 - index},'manual',0);
     INSERT INTO placement_artist_credit(credit_id,placement_id,artist_id,role,position,credit_name)
       VALUES('release-placement-credit-${index}','release-placement-${index}','release-fixture-artist','primary',1,'Fixture Composer');
+    INSERT INTO recording_artist_credit(credit_id,recording_id,artist_id,role,position,credit_name)
+      VALUES('release-recording-credit-${index}','release-recording-${index}','release-fixture-artist','primary',1,'Fixture Composer');
     ${index === 0 ? `INSERT INTO placement_artist_credit(credit_id,placement_id,artist_id,role,position)
       VALUES('release-remixer-credit','release-placement-0','release-fixture-remixer','remixer',1);` : ''}
   `).join('\n')

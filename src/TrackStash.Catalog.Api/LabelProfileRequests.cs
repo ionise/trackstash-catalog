@@ -9,16 +9,7 @@ internal static class LabelProfileRequests
     public static LabelProfile Read(JsonElement element)
     {
         var fields = Object(element, ["description", "countryCode", "city", "foundedYear", "lifecycleStatus", "notes", "favourite", "reviewStatus", "links"]);
-        if (fields["links"].ValueKind != JsonValueKind.Array) throw Invalid("links must be an array.");
-        var links = fields["links"].EnumerateArray().Select(link =>
-        {
-            var item = Object(link, ["kind", "url", "title", "sourceUrl"]);
-            return new LabelWebLink
-            {
-                Kind = Required(item, "kind"), Url = Required(item, "url"),
-                Title = Nullable(item, "title"), SourceUrl = Nullable(item, "sourceUrl"),
-            };
-        }).ToArray();
+        var links = ReadLinks(fields["links"]);
         var profile = new LabelProfile
         {
             Description = Nullable(fields, "description"), CountryCode = Nullable(fields, "countryCode"),
@@ -34,16 +25,30 @@ internal static class LabelProfileRequests
         profile.Validate();
         return profile;
     }
+    internal static LabelWebLink[] ReadLinks(JsonElement element)
+    {
+        if (element.ValueKind != JsonValueKind.Array) throw Invalid("links must be an array.");
+        return element.EnumerateArray().Select((link, index) =>
+        {
+            var item = Object(link, ["kind", "url", "title", "sourceUrl"], $"Link {index + 1}");
+            return new LabelWebLink
+            {
+                Kind = Required(item, "kind"), Url = Required(item, "url"),
+                Title = Nullable(item, "title"), SourceUrl = Nullable(item, "sourceUrl"),
+            };
+        }).ToArray();
+    }
 
-    private static Dictionary<string, JsonElement> Object(JsonElement element, string[] allowed)
+    private static Dictionary<string, JsonElement> Object(JsonElement element, string[] allowed, string context = "Profile")
     {
         if (element.ValueKind != JsonValueKind.Object) throw Invalid("Profile and link values must be objects.");
         var fields = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
         foreach (var property in element.EnumerateObject())
             if (!allowed.Contains(property.Name, StringComparer.Ordinal) || !fields.TryAdd(property.Name, property.Value))
                 throw Invalid("Unknown or duplicate profile/link property.");
-        if (allowed.Any(name => !fields.ContainsKey(name)))
-            throw Invalid("A profile replacement must include every profile field; each link must include kind, url, title, and sourceUrl. Use null for empty optional text.");
+        var missing = allowed.Where(name => !fields.ContainsKey(name)).ToArray();
+        if (missing.Length > 0)
+            throw Invalid($"{context} is missing fields: {string.Join(", ", missing)}. Use null for empty optional text.");
         return fields;
     }
 

@@ -1,24 +1,31 @@
 import countries from 'flag-icons/country.json'
-import type { LabelRecord } from './catalog'
+import type { ArtistDetail, ArtistProfile, LabelRecord } from './catalog'
 
 export function labelLinks(record: LabelRecord) {
-  const links = [...(record.profile?.links ?? [])]
+  return beatportLinks('label', record.name, record.profile?.links ?? [], record.externalReferences ?? [])
+}
+export function artistLinks(record: ArtistDetail, profile?: ArtistProfile) {
+  return beatportLinks('artist', record.name, profile?.links ?? [], record.externalReferences)
+}
+function beatportLinks(entity: 'label' | 'artist', name: string | null, curated: ArtistProfile['links'],
+  external: { source: string; externalId: string; isPrimary: boolean }[]) {
+  const links = [...curated]
   const linkedIds = new Set(links.flatMap(link => {
     const url = new URL(link.url)
     if (url.hostname !== 'beatport.com' && url.hostname !== 'www.beatport.com') return []
-    const match = /^\/label\/[^/]+\/([1-9]\d*)\/?$/.exec(url.pathname)
+    const match = new RegExp(`^/${entity}/[^/]+/([1-9]\\d*)/?$`).exec(url.pathname)
     return match ? [match[1]] : []
   }))
-  const slug = record.name?.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'label'
-  const references = (record.externalReferences ?? []).filter(reference =>
+  const slug = name?.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || entity
+  const references = external.filter(reference =>
     reference.source.toLowerCase() === 'beatport' && /^[1-9]\d*$/.test(reference.externalId))
     .sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary) || a.externalId.localeCompare(b.externalId))
   for (const reference of references) {
     if (linkedIds.has(reference.externalId)) continue
     links.push({
-      kind: 'beatport', url: `https://www.beatport.com/label/${slug}/${reference.externalId}`,
-      title: `Label ${reference.externalId}${reference.isPrimary ? ' (preferred)' : ''}`, sourceUrl: null,
+      kind: 'beatport', url: `https://www.beatport.com/${entity}/${slug}/${reference.externalId}`,
+      title: `${entity === 'artist' ? 'Artist' : 'Label'} ${reference.externalId}${reference.isPrimary ? ' (preferred)' : ''}`, sourceUrl: null,
     })
     linkedIds.add(reference.externalId)
   }

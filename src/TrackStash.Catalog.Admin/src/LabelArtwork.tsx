@@ -5,7 +5,7 @@ import {
   FormControlLabel, MenuItem, Stack, TextField, Typography,
 } from '@mui/material'
 import { useLogoutIfAccessDenied, useRecordContext, useRefresh } from 'react-admin'
-import { artworkClient, releaseArtworkClient } from './catalog'
+import { artworkClient, releaseArtworkClient, artistArtworkClient } from './catalog'
 import type { ArtworkCandidates, ArtworkGallery, ArtworkItem, LabelRecord } from './catalog'
 
 export function ArtworkImage({ assetId, caption, size = 160 }: { assetId: string; caption: string; size?: number }) {
@@ -50,10 +50,11 @@ export function LabelArtwork({ children }: LabelArtworkProps) {
   return record ? <ArtworkPanel key={record.id} id={record.id} name={record.name} version={record.version}>{children}</ArtworkPanel> : null
 }
 
-export function ArtworkPanel({ id, name, version, children, release = false }: LabelArtworkProps & {
-  id: string; name: string | null; version: string; release?: boolean
+export function ArtworkPanel({ id, name, version, children, release = false, artist = false, onChanged }: LabelArtworkProps & {
+  id: string; name: string | null; version: string; release?: boolean; artist?: boolean; onChanged?: () => void
 }) {
-  const client = release ? releaseArtworkClient : artworkClient
+  const client = artist ? artistArtworkClient : release ? releaseArtworkClient : artworkClient
+  const mainRole = artist ? 'portrait' : release ? 'cover' : 'logo'
   const refresh = useRefresh()
   const logout = useLogoutIfAccessDenied()
   const [gallery, setGallery] = useState<ArtworkGallery>()
@@ -63,7 +64,7 @@ export function ArtworkPanel({ id, name, version, children, release = false }: L
   const [busy, setBusy] = useState(false)
   const [file, setFile] = useState<File>()
   const fileInput = useRef<HTMLInputElement>(null)
-  const [role, setRole] = useState(release ? 'cover' : 'logo')
+  const [role, setRole] = useState(mainRole)
   const [caption, setCaption] = useState('')
   const [sourceUrl, setSourceUrl] = useState('')
   const [attribution, setAttribution] = useState('')
@@ -98,7 +99,7 @@ export function ArtworkPanel({ id, name, version, children, release = false }: L
       await logout(failure)
     } finally { setBusy(false) }
   }
-  function accept(result: ArtworkGallery) { setGallery(result); setDraft(result.items); setReplacement(undefined); refresh() }
+  function accept(result: ArtworkGallery) { setGallery(result); setDraft(result.items); setReplacement(undefined); refresh(); onChanged?.() }
   function edit(index: number, patch: Partial<ArtworkItem>) {
     setDraft(items => items.map((item, i) => i === index ? { ...item, ...patch } : item))
   }
@@ -146,7 +147,7 @@ export function ArtworkPanel({ id, name, version, children, release = false }: L
   return <>
     {children ? children({ gallery, error, busy, manage }, galleryView) : galleryView}
     <Dialog open={open} onClose={() => { if (!busy) setOpen(false) }} fullWidth maxWidth="md">
-      <DialogTitle>{release ? 'Release covers and gallery' : 'Label artwork and gallery'}</DialogTitle>
+      <DialogTitle>{artist ? 'Artist portrait and gallery' : release ? 'Release covers and gallery' : 'Label artwork and gallery'}</DialogTitle>
       <DialogContent>
         <Stack spacing={2} sx={{ pt: 1 }}>
           {error && <Alert severity="error">{error}</Alert>}
@@ -157,7 +158,7 @@ export function ArtworkPanel({ id, name, version, children, release = false }: L
             <Typography>Image {index + 1}: {item.originalFilename || item.assetId}</Typography>
             <TextField select label={`Role for image ${index + 1}`} value={item.role} disabled={busy}
               onChange={event => edit(index, { role: event.target.value })}>
-              <MenuItem value={release ? 'cover' : 'logo'}>{release ? 'Cover' : 'Logo'}</MenuItem><MenuItem value="image">Gallery image</MenuItem>
+              <MenuItem value={mainRole}>{artist ? 'Portrait' : release ? 'Cover' : 'Logo'}</MenuItem><MenuItem value="image">Gallery image</MenuItem>
             </TextField>
             <TextField label={`Caption for image ${index + 1}`} value={item.caption ?? ''} disabled={busy}
               onChange={event => edit(index, { caption: event.target.value || null })} slotProps={{ htmlInput: { maxLength: 1000 } }} />
@@ -194,7 +195,7 @@ export function ArtworkPanel({ id, name, version, children, release = false }: L
               <input aria-label="Artwork file" type="file" accept="image/jpeg,image/png" disabled={busy || dirty}
                 ref={fileInput} onChange={event => setFile(event.target.files?.[0])} />
               <TextField select label="Upload role" value={role} disabled={busy || dirty} onChange={event => setRole(event.target.value)}>
-                <MenuItem value={release ? 'cover' : 'logo'}>{release ? 'Cover' : 'Logo'}</MenuItem><MenuItem value="image">Gallery image</MenuItem>
+                <MenuItem value={mainRole}>{artist ? 'Portrait' : release ? 'Cover' : 'Logo'}</MenuItem><MenuItem value="image">Gallery image</MenuItem>
               </TextField>
               <TextField label="Upload caption" value={caption} disabled={busy || dirty} onChange={event => setCaption(event.target.value)} />
               <TextField label="Artwork source URL" type="url" value={sourceUrl} disabled={busy || dirty} onChange={event => setSourceUrl(event.target.value)} />

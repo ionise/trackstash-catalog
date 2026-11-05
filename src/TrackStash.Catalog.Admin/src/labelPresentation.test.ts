@@ -1,7 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { countryPresentation, labelLinks, linkPresentation } from './labelPresentation'
+import { artistLinks, countryPresentation, labelLinks, linkPresentation } from './labelPresentation'
 
 describe('label presentation', () => {
+  it('generates Artist provider links safely, retains multiple identities and prefers curated URLs', () => {
+    const artist = { id: 'artist', name: 'Ärtist & Friends', sortName: null, kind: 'person', identityStatus: 'unresolved_compound', version: 'v1', aliases: [],
+      externalReferences: [{ source: 'beatport', externalId: '22', isPrimary: true }, { source: 'beatport', externalId: '11', isPrimary: false },
+        { source: 'beatport', externalId: '../bad', isPrimary: false }, { source: 'beatport', externalId: '22', isPrimary: false }] }
+    expect(artistLinks(artist).map(link => link.url)).toEqual(['https://www.beatport.com/artist/artist-friends/22', 'https://www.beatport.com/artist/artist-friends/11'])
+    const curated = { kind: 'beatport', url: 'https://www.beatport.com/artist/custom/22?ref=manual', title: 'Manual', sourceUrl: null }
+    expect(artistLinks(artist, { biography: null, biographySourceUrl: null, favourite: false, notes: null, reviewStatus: 'unreviewed', links: [curated] })[0]).toEqual(curated)
+    expect(artistLinks({ ...artist, name: null })[0].url).toBe('https://www.beatport.com/artist/artist/22')
+  })
   it('derives distinct Beatport links preferred first without mutating curated data', () => {
     const record = {
       id: 'one', name: 'Univäck Records', sortName: null, version: 'v1',

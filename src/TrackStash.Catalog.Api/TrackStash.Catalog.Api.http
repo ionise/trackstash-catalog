@@ -1,5 +1,64 @@
 @baseUrl = http://localhost:5187
 @artistId = replace-with-canonical-artist-id
+@artistEtag = "replace-with-original-artist-etag"
+@artistArtworkEntryId = replace-with-artist-gallery-entry-id
+@artistAssetId = replace-with-artist-asset-id
+
+### Manual Artist profile (schema 12); retain this ETag for profile/artwork writes
+GET {{baseUrl}}/api/v1/artists/{{artistId}}/profile
+Authorization: Bearer {{apiKey}}
+
+### Complete manual profile replacement; missing If-Match 428, stale 412, older schema 409
+PATCH {{baseUrl}}/api/v1/artists/{{artistId}}/profile
+Authorization: Bearer {{apiKey}}
+If-Match: {{artistEtag}}
+Content-Type: application/json
+
+{
+  "biography": "Manually written Artist biography.",
+  "biographySourceUrl": "https://example.test/artist/bio",
+  "favourite": true,
+  "notes": "Private catalog notes.",
+  "reviewStatus": "in_progress",
+  "links": [{"kind":"official","url":"https://example.test/artist","title":"Official website","sourceUrl":null}]
+}
+
+### Artist portrait/gallery; capture a fresh aggregate ETag before the next write
+GET {{baseUrl}}/api/v1/artists/{{artistId}}/artwork
+Authorization: Bearer {{apiKey}}
+
+### Upload a portrait with recorded rights; choose a local ./portrait.png
+POST {{baseUrl}}/api/v1/artists/{{artistId}}/artwork
+Authorization: Bearer {{apiKey}}
+If-Match: {{artistEtag}}
+Content-Type: multipart/form-data; boundary=artist-portrait-boundary
+
+--artist-portrait-boundary
+Content-Disposition: form-data; name="file"; filename="portrait.png"
+Content-Type: image/png
+
+< ./portrait.png
+--artist-portrait-boundary
+Content-Disposition: form-data; name="role"
+
+portrait
+--artist-portrait-boundary
+Content-Disposition: form-data; name="usageRights"
+
+Permission recorded for this managed copy
+--artist-portrait-boundary
+Content-Disposition: form-data; name="isPreferred"
+
+true
+--artist-portrait-boundary--
+
+### Full Artist gallery replacement; omitted entries detach, assets/history remain
+PATCH {{baseUrl}}/api/v1/artists/{{artistId}}/artwork
+Authorization: Bearer {{apiKey}}
+If-Match: {{artistEtag}}
+Content-Type: application/json
+
+{"items":[{"id":"{{artistArtworkEntryId}}","assetId":"{{artistAssetId}}","role":"portrait","caption":null,"isPreferred":true}]}
 
 ### Search canonical Artists by literal name/sort-name/alias substring
 GET {{baseUrl}}/api/v1/artists?q=Fixture&page=1&pageSize=25
@@ -19,6 +78,14 @@ Authorization: Bearer {{apiKey}}
 
 ### Explicit placement/Recording credits, including unplaced Recordings
 GET {{baseUrl}}/api/v1/artists/{{artistId}}/tracks?page=1&pageSize=25
+Authorization: Bearer {{apiKey}}
+
+### One row per credited placement, combining scopes before paging
+GET {{baseUrl}}/api/v1/artists/{{artistId}}/track-appearances?page=1&pageSize=25
+Authorization: Bearer {{apiKey}}
+
+### One row per release with all credit evidence, managed cover ID and linked Labels
+GET {{baseUrl}}/api/v1/artists/{{artistId}}/release-appearances?page=1&pageSize=25
 Authorization: Bearer {{apiKey}}
 
 ### Missing Artist returns 404, not an empty successful detail

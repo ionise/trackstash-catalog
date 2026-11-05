@@ -16,6 +16,8 @@ public sealed record ArtworkItemResponse(
 public sealed record LabelArtworkResponse(string LabelId, IReadOnlyList<ArtworkItemResponse> Items);
 /// <summary>An ordered managed release gallery protected by the release ETag.</summary>
 public sealed record ReleaseArtworkResponse(string ReleaseId, IReadOnlyList<ArtworkItemResponse> Items);
+/// <summary>A managed Artist portrait/gallery protected by the Artist aggregate ETag.</summary>
+public sealed record ArtistArtworkResponse(string ArtistId, IReadOnlyList<ArtworkItemResponse> Items);
 /// <summary>A provider-supplied release artwork observation, not attached artwork or a permission grant.</summary>
 public sealed record ReleaseArtworkCandidateResponse(string Provider, string CandidateId, string Revision, string Title, string SourceUrl, string? Attribution);
 /// <summary>Configured artwork providers and their explicitly requested candidates.</summary>
@@ -26,6 +28,8 @@ public sealed record AttachReleaseArtworkRequest(string Provider, string Candida
 public sealed record ReplaceLabelArtworkRequest(IReadOnlyList<ArtworkEntryRequest> Items);
 /// <summary>Full ordered replacement of existing Release gallery entries; omission retains the asset and permanent history.</summary>
 public sealed record ReplaceReleaseArtworkRequest(IReadOnlyList<ArtworkEntryRequest> Items);
+/// <summary>The complete ordered Artist gallery; omitted associations are detached, not deleted.</summary>
+public sealed record ReplaceArtistArtworkRequest(IReadOnlyList<ArtworkEntryRequest> Items);
 /// <summary>An existing association whose role, caption, order and preference may be changed.</summary>
 public sealed record ArtworkEntryRequest(string Id, string AssetId, string Role, string? Caption, bool IsPreferred);
 /// <summary>A bounded JPEG/PNG upload with mandatory usage-rights text. Source and attribution are optional.</summary>
@@ -37,6 +41,16 @@ internal static class ArtworkEndpoints
     private const int UploadBodyLimit = ArtworkRules.MaximumBytes + 64 * 1024;
     public static void MapArtwork(this WebApplication app)
     {
+        app.MapGet("/api/v1/artists/{id}/artwork", GetArtistAsync).WithTags("Artwork").WithName("GetArtistArtwork")
+            .WithSummary("Read managed Artist portrait and gallery").Produces<ArtistArtworkResponse>().ProducesProblem(404).ProducesProblem(409);
+        app.MapPost("/api/v1/artists/{id}/artwork", UploadArtistAsync).WithTags("Artwork").WithName("UploadArtistArtwork")
+            .WithSummary("Upload or replace static Artist portrait/image with recorded rights and original Artist ETag")
+            .Accepts<UploadArtworkRequest>("multipart/form-data").Produces<ArtistArtworkResponse>(201)
+            .ProducesProblem(400).ProducesProblem(404).ProducesProblem(409).ProducesProblem(412).ProducesProblem(413).ProducesProblem(415).ProducesProblem(428);
+        app.MapPatch("/api/v1/artists/{id}/artwork", ReplaceArtistAsync).WithTags("Artwork").WithName("ReplaceArtistArtwork")
+            .WithSummary("Conditionally edit, order, prefer or detach existing Artist artwork")
+            .Accepts<ReplaceArtistArtworkRequest>("application/json").Produces<ArtistArtworkResponse>()
+            .ProducesProblem(400).ProducesProblem(404).ProducesProblem(409).ProducesProblem(412).ProducesProblem(428);
         app.MapGet("/api/v1/releases/{id}/artwork", GetReleaseAsync).WithTags("Artwork").WithName("GetReleaseArtwork")
             .WithSummary("Read managed release covers and gallery").Produces<ReleaseArtworkResponse>().ProducesProblem(404).ProducesProblem(409);
         app.MapPost("/api/v1/releases/{id}/artwork", UploadReleaseAsync).WithTags("Artwork").WithName("UploadReleaseArtwork")
@@ -93,7 +107,9 @@ internal static class ArtworkEndpoints
         => UploadForAsync(id, context, service, false, ct);
     private static Task<IResult> UploadReleaseAsync(string id, HttpContext context, IArtworkService service, CancellationToken ct)
         => UploadForAsync(id, context, service, true, ct);
-    private static async Task<IResult> UploadForAsync(string id, HttpContext context, IArtworkService service, bool release, CancellationToken ct)
+    private static Task<IResult> UploadArtistAsync(string id, HttpContext context, IArtworkService service, CancellationToken ct)
+        => UploadForAsync(id, context, service, false, ct, true);
+    private static async Task<IResult> UploadForAsync(string id, HttpContext context, IArtworkService service, bool release, CancellationToken ct, bool artist = false)
     {
         var version = LabelRequests.ExpectedVersion(context.Request);
         if (!context.Request.HasFormContentType || !context.Request.ContentType!.StartsWith("multipart/form-data", StringComparison.OrdinalIgnoreCase))
@@ -129,9 +145,9 @@ internal static class ArtworkEndpoints
         var preferred = Text("isPreferred") switch { "true" => true, "false" or null => false,
             _ => throw new ApiRequestException(400, "validation_failed", "isPreferred must be true or false.") };
         var upload = new ArtworkUpload(content.ToArray(), file.FileName,
-            Text("sourceUrl"), Text("attribution"), Text("usageRights") ?? "", Text("role") ?? (release ? "cover" : "image"), Text("caption"), preferred, Text("replaceEntryId"));
-        var result = release ? await service.UploadReleaseAsync(id, version, upload, ct) : await service.UploadLabelAsync(id, version, upload, ct);
-        return WriteResult(context, result, created: true, release);
+            Text("sourceUrl"), Text("attribution"), Text("usageRights") ?? "", Text("role") ?? (artist ? "portrait" : release ? "cover" : "image"), Text("caption"), preferred, Text("replaceEntryId"));
+        var result = artist ? await service.UploadArtistAsync(id, version, upload, ct) : release ? await service.UploadReleaseAsync(id, version, upload, ct) : await service.UploadLabelAsync(id, version, upload, ct);
+        return WriteResult(context, result, created: true, release, artist);
         string? Text(string key) => form.TryGetValue(key, out var value) && !string.IsNullOrEmpty(value[0]) ? value[0] : null;
     }
 
@@ -182,14 +198,17 @@ internal static class ArtworkEndpoints
         return entries;
     }
 
-    private static IResult WriteResult(HttpContext context, ArtworkWriteResult result, bool created, bool release = false)
+    private static IResult WriteResult(HttpContext context, ArtworkWriteResult result, bool created, bool release = false, bool artist = false)
     {
-        if (result.Status == LabelUpdateStatus.NotFound) return release ? ReleaseMissing(context) : Missing(context);
+        if (result.Status == LabelUpdateStatus.NotFound) return artist ? ArtistMissing(context) : release ? ReleaseMissing(context) : Missing(context);
         if (result.Status == LabelUpdateStatus.Stale)
             return TypedResults.Problem(ApiErrors.Create(context, 412, "stale_version", "Catalog entity changed. Reload artwork before editing again."));
         var gallery = result.Gallery ?? throw new InvalidOperationException("Artwork write did not return a gallery.");
         context.Response.Headers.ETag = LabelRequests.ETag(gallery.Version);
         context.Response.Headers.CacheControl = "no-store";
+        if (artist)
+            return created ? TypedResults.Created($"/api/v1/artwork-assets/{result.CreatedAssetId ?? throw new InvalidOperationException("Created asset ID is missing.")}/original", new ArtistArtworkResponse(gallery.EntityId, Items(gallery)))
+                : TypedResults.Ok(new ArtistArtworkResponse(gallery.EntityId, Items(gallery)));
         if (release)
             return created ? TypedResults.Created($"/api/v1/artwork-assets/{result.CreatedAssetId ?? throw new InvalidOperationException("Created asset ID is missing.")}/original", new ReleaseArtworkResponse(gallery.EntityId, Items(gallery)))
                 : TypedResults.Ok(new ReleaseArtworkResponse(gallery.EntityId, Items(gallery)));
@@ -219,6 +238,21 @@ internal static class ArtworkEndpoints
         item.Asset.Attribution, item.Asset.UsageRights, item.Asset.CreatedUtc,
         $"/api/v1/artwork-assets/{item.Asset.Id}/original", $"/api/v1/artwork-assets/{item.Asset.Id}/thumbnail")).ToArray();
     private static IResult ReleaseMissing(HttpContext context) => TypedResults.Problem(ApiErrors.Create(context, 404, "release_not_found", "Release not found"));
+    private static IResult ArtistMissing(HttpContext context) => TypedResults.Problem(ApiErrors.Create(context, 404, "artist_not_found", "Artist not found"));
+    private static async Task<IResult> GetArtistAsync(string id, HttpContext context, IArtworkService service, CancellationToken ct)
+    {
+        context.Response.Headers.CacheControl = "no-store";
+        var gallery = await service.GetArtistAsync(id, ct);
+        if (gallery is null) return ArtistMissing(context);
+        context.Response.Headers.ETag = LabelRequests.ETag(gallery.Version);
+        return TypedResults.Ok(new ArtistArtworkResponse(id, Items(gallery)));
+    }
+    private static async Task<IResult> ReplaceArtistAsync(string id, HttpContext context, IArtworkService service, CancellationToken ct)
+    {
+        var version = LabelRequests.ExpectedVersion(context.Request);
+        var items = await ReadEntriesAsync(context, ct);
+        return WriteResult(context, await service.ReplaceArtistAsync(id, version, items, ct), false, artist: true);
+    }
     private static async Task<IResult> GetReleaseAsync(string id, HttpContext context, IArtworkService service, CancellationToken ct)
     {
         context.Response.Headers.CacheControl = "no-store";

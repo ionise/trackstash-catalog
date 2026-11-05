@@ -89,6 +89,9 @@ public sealed class ArtworkImageProcessor : IArtworkImageProcessor
 
 public interface IArtworkService
 {
+    ValueTask<ArtworkDetail?> GetArtistAsync(string id, CancellationToken ct = default);
+    ValueTask<ArtworkWriteResult> UploadArtistAsync(string id, string version, ArtworkUpload upload, CancellationToken ct = default);
+    ValueTask<ArtworkWriteResult> ReplaceArtistAsync(string id, string version, IReadOnlyList<ArtworkEntry> items, CancellationToken ct = default);
     ValueTask<ArtworkDetail?> GetLabelAsync(string id, CancellationToken ct = default);
     ValueTask<ArtworkWriteResult> UploadLabelAsync(string id, string expectedVersion, ArtworkUpload upload, CancellationToken ct = default);
     ValueTask<ArtworkWriteResult> ReplaceLabelAsync(string id, string expectedVersion, IReadOnlyList<ArtworkEntry> items, CancellationToken ct = default);
@@ -106,8 +109,13 @@ public sealed class ArtworkService(IStorageProvider storage, IArtworkContentStor
         if (await storage.Migrations.GetCurrentVersionAsync(ct).ConfigureAwait(false) < 11)
             throw new ReleaseArtworkUnavailableException("Release artwork requires schema 11. Migrate only a separately approved catalog.");
     }
-    private static async ValueTask<GalleryState?> GalleryAsync(IUnitOfWork unit, string id, bool release, CancellationToken ct)
+    private static async ValueTask<GalleryState?> GalleryAsync(IUnitOfWork unit, string id, bool release, CancellationToken ct, bool artist = false)
     {
+        if (artist)
+        {
+            var gallery = await unit.Artwork.GetArtistGalleryAsync(id, ct).ConfigureAwait(false);
+            return gallery is null ? null : new(id, gallery.Version, gallery.Items);
+        }
         if (release)
         {
             var gallery = await unit.Artwork.GetReleaseGalleryAsync(id, ct).ConfigureAwait(false);
@@ -116,16 +124,24 @@ public sealed class ArtworkService(IStorageProvider storage, IArtworkContentStor
         var label = await unit.Artwork.GetLabelGalleryAsync(id, ct).ConfigureAwait(false);
         return label is null ? null : new(id, label.Version, label.Items);
     }
-    private static async ValueTask<LabelUpdateStatus> SaveGalleryAsync(IUnitOfWork unit, string id, string version, IReadOnlyList<ArtworkEntry> items, bool release, CancellationToken ct, ArtworkSourceIdentity? source = null)
-        => release ? (await unit.Artwork.ReplaceReleaseGalleryAsync(id, version, items, ct, source).ConfigureAwait(false)).Status
+    private static async ValueTask<LabelUpdateStatus> SaveGalleryAsync(IUnitOfWork unit, string id, string version, IReadOnlyList<ArtworkEntry> items, bool release, CancellationToken ct, ArtworkSourceIdentity? source = null, bool artist = false)
+        => artist ? (await unit.Artwork.ReplaceArtistGalleryAsync(id, version, items, ct).ConfigureAwait(false)).Status
+            : release ? (await unit.Artwork.ReplaceReleaseGalleryAsync(id, version, items, ct, source).ConfigureAwait(false)).Status
             : (await unit.Artwork.ReplaceLabelGalleryAsync(id, version, items, ct).ConfigureAwait(false)).Status;
     public ValueTask<ArtworkDetail?> GetLabelAsync(string id, CancellationToken ct = default) => GetAsync(id, false, ct);
     public ValueTask<ArtworkDetail?> GetReleaseAsync(string id, CancellationToken ct = default) => GetAsync(id, true, ct);
-    private async ValueTask<ArtworkDetail?> GetAsync(string id, bool release, CancellationToken ct)
+    public ValueTask<ArtworkDetail?> GetArtistAsync(string id, CancellationToken ct = default) => GetAsync(id, false, ct, true);
+    private async ValueTask RequireArtistSchema(CancellationToken ct)
     {
+        if (await storage.Migrations.GetCurrentVersionAsync(ct).ConfigureAwait(false) < 12)
+            throw new ArtistProfileUnavailableException();
+    }
+    private async ValueTask<ArtworkDetail?> GetAsync(string id, bool release, CancellationToken ct, bool artist = false)
+    {
+        if (artist) await RequireArtistSchema(ct).ConfigureAwait(false);
         if (release) await RequireReleaseSchema(ct).ConfigureAwait(false);
         await using var unit = await storage.BeginUnitOfWorkAsync(ct).ConfigureAwait(false);
-        var gallery = await GalleryAsync(unit, id, release, ct).ConfigureAwait(false);
+        var gallery = await GalleryAsync(unit, id, release, ct, artist).ConfigureAwait(false);
         return gallery is null ? null : await DetailsAsync(unit, gallery, ct).ConfigureAwait(false);
     }
 
@@ -142,8 +158,11 @@ public sealed class ArtworkService(IStorageProvider storage, IArtworkContentStor
         => UploadAsync(id, expectedVersion, upload, false, ct);
     public ValueTask<ArtworkWriteResult> UploadReleaseAsync(string id, string expectedVersion, ArtworkUpload upload, CancellationToken ct = default)
         => UploadAsync(id, expectedVersion, upload, true, ct);
-    private async ValueTask<ArtworkWriteResult> UploadAsync(string id, string expectedVersion, ArtworkUpload upload, bool release, CancellationToken ct)
+    public ValueTask<ArtworkWriteResult> UploadArtistAsync(string id, string version, ArtworkUpload upload, CancellationToken ct = default)
+        => UploadAsync(id, version, upload, false, ct, true);
+    private async ValueTask<ArtworkWriteResult> UploadAsync(string id, string expectedVersion, ArtworkUpload upload, bool release, CancellationToken ct, bool artist = false)
     {
+        if (artist) await RequireArtistSchema(ct).ConfigureAwait(false);
         if (release) await RequireReleaseSchema(ct).ConfigureAwait(false);
         ArtworkRules.ValidateSource(upload.Source);
         if (!release && upload.Source is not null) throw new ArgumentException("Provider candidate attachment is currently release-only.", nameof(upload));
@@ -153,10 +172,10 @@ public sealed class ArtworkService(IStorageProvider storage, IArtworkContentStor
         if (upload.SourceUrl is not null) LabelProfile.ValidateUrl(upload.SourceUrl, nameof(upload.SourceUrl));
         var assetId = Guid.NewGuid().ToString("N");
         var entry = new ArtworkEntry(upload.ReplaceEntryId ?? Guid.NewGuid().ToString("N"), assetId, upload.Role, upload.Caption, upload.IsPreferred);
-        ArtworkRules.ValidateGallery([entry], release);
+        ArtworkRules.ValidateGallery([entry], release, artist);
         var processed = await images.ProcessAsync(upload.Content, ct).ConfigureAwait(false);
         await using var unit = await storage.BeginUnitOfWorkAsync(ct).ConfigureAwait(false);
-        var before = await GalleryAsync(unit, id, release, ct).ConfigureAwait(false);
+        var before = await GalleryAsync(unit, id, release, ct, artist).ConfigureAwait(false);
         if (before is null) return new(LabelUpdateStatus.NotFound);
         if (before.Version != expectedVersion) return new(LabelUpdateStatus.Stale);
         if (upload.ReplaceEntryId is not null && !before.Items.Any(item => item.Id == upload.ReplaceEntryId))
@@ -165,7 +184,7 @@ public sealed class ArtworkService(IStorageProvider storage, IArtworkContentStor
             : i with { IsPreferred = i.IsPreferred && !entry.IsPreferred });
         if (upload.ReplaceEntryId is null) entries = entries.Append(entry);
         var orderedEntries = entries.ToArray();
-        ArtworkRules.ValidateGallery(orderedEntries, release);
+        ArtworkRules.ValidateGallery(orderedEntries, release, artist);
         var asset = new ArtworkAsset(assetId, Convert.ToHexString(SHA256.HashData(upload.Content)), processed.MediaType,
             upload.Content.Length, processed.Width, processed.Height, Path.GetFileName(upload.Filename.Replace('\\', '/')),
             upload.SourceUrl, upload.Attribution, upload.UsageRights, DateTimeOffset.UtcNow);
@@ -173,9 +192,9 @@ public sealed class ArtworkService(IStorageProvider storage, IArtworkContentStor
         try
         {
             await unit.Artwork.AddAssetAsync(asset, ct).ConfigureAwait(false);
-            var status = await SaveGalleryAsync(unit, id, expectedVersion, orderedEntries, release, ct, upload.Source).ConfigureAwait(false);
+            var status = await SaveGalleryAsync(unit, id, expectedVersion, orderedEntries, release, ct, upload.Source, artist).ConfigureAwait(false);
             if (status != LabelUpdateStatus.Updated) throw new InvalidOperationException("Artwork gallery changed within its transaction.");
-            var detail = await DetailsAsync(unit, (await GalleryAsync(unit, id, release, ct).ConfigureAwait(false))!, ct).ConfigureAwait(false);
+            var detail = await DetailsAsync(unit, (await GalleryAsync(unit, id, release, ct, artist).ConfigureAwait(false))!, ct).ConfigureAwait(false);
             await unit.CommitAsync(ct).ConfigureAwait(false);
             return new(LabelUpdateStatus.Updated, detail, assetId);
         }
@@ -191,19 +210,22 @@ public sealed class ArtworkService(IStorageProvider storage, IArtworkContentStor
         => ReplaceAsync(id, expectedVersion, items, false, ct);
     public ValueTask<ArtworkWriteResult> ReplaceReleaseAsync(string id, string expectedVersion, IReadOnlyList<ArtworkEntry> items, CancellationToken ct = default)
         => ReplaceAsync(id, expectedVersion, items, true, ct);
-    private async ValueTask<ArtworkWriteResult> ReplaceAsync(string id, string expectedVersion, IReadOnlyList<ArtworkEntry> items, bool release, CancellationToken ct)
+    public ValueTask<ArtworkWriteResult> ReplaceArtistAsync(string id, string version, IReadOnlyList<ArtworkEntry> items, CancellationToken ct = default)
+        => ReplaceAsync(id, version, items, false, ct, true);
+    private async ValueTask<ArtworkWriteResult> ReplaceAsync(string id, string expectedVersion, IReadOnlyList<ArtworkEntry> items, bool release, CancellationToken ct, bool artist = false)
     {
+        if (artist) await RequireArtistSchema(ct).ConfigureAwait(false);
         if (release) await RequireReleaseSchema(ct).ConfigureAwait(false);
-        ArtworkRules.ValidateGallery(items, release);
+        ArtworkRules.ValidateGallery(items, release, artist);
         await using var unit = await storage.BeginUnitOfWorkAsync(ct).ConfigureAwait(false);
-        var before = await GalleryAsync(unit, id, release, ct).ConfigureAwait(false);
+        var before = await GalleryAsync(unit, id, release, ct, artist).ConfigureAwait(false);
         if (before is null) return new(LabelUpdateStatus.NotFound);
         if (before.Version != expectedVersion) return new(LabelUpdateStatus.Stale);
         if (items.Any(item => !before.Items.Any(old => old.Id == item.Id && old.AssetId == item.AssetId)))
             throw new ArgumentException("Only existing gallery entries can be edited. Upload new artwork separately.", nameof(items));
-        var status = await SaveGalleryAsync(unit, id, expectedVersion, items, release, ct).ConfigureAwait(false);
+        var status = await SaveGalleryAsync(unit, id, expectedVersion, items, release, ct, artist: artist).ConfigureAwait(false);
         if (status != LabelUpdateStatus.Updated) return new(status);
-        var detail = await DetailsAsync(unit, (await GalleryAsync(unit, id, release, ct).ConfigureAwait(false))!, ct).ConfigureAwait(false);
+        var detail = await DetailsAsync(unit, (await GalleryAsync(unit, id, release, ct, artist).ConfigureAwait(false))!, ct).ConfigureAwait(false);
         await unit.CommitAsync(ct).ConfigureAwait(false);
         return new(status, detail);
     }

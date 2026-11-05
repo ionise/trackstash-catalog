@@ -67,7 +67,7 @@ public sealed partial class LabelApiTests
         await Assert.ThrowsAsync<SqliteException>(() => ImportSql("DELETE FROM release_artwork_revision"));
         var backup = new CatalogBackupService(new SqliteCatalogSnapshotSource(_path), new ManagedArtworkStore(_path + ".artwork"), _path + ".backups");
         var saved = await backup.CreateAsync(); var archive = Path.Combine(_path + ".backups", saved.Backup.Filename);
-        Assert.Equal(11, (await backup.VerifyAsync(archive)).SchemaVersion);
+        Assert.Equal(12, (await backup.VerifyAsync(archive)).SchemaVersion);
         var root = _path + ".release-restored";
         try
         {
@@ -102,7 +102,7 @@ public sealed partial class LabelApiTests
     [Fact]
     public async Task ReleaseArtwork_SchemaTenBrowsingRemainsAvailableButArtworkIsExplicitlyGated()
     {
-        var id = await ArtworkRelease(); await ImportSql("DELETE FROM schema_migration WHERE version=11");
+        var id = await ArtworkRelease(); await ImportSql("DELETE FROM schema_migration WHERE version>=11");
         Assert.Equal(HttpStatusCode.OK, (await _client.GetAsync($"/api/v1/releases/{id}")).StatusCode);
         Assert.Null(Assert.Single((await _client.GetFromJsonAsync<ReleaseListResponse>("/api/v1/releases"))!.Items).CoverAssetId);
         await ProblemAsync(await _client.GetAsync($"/api/v1/releases/{id}/artwork"), 409, "release_artwork_unavailable");

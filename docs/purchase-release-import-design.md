@@ -334,8 +334,9 @@ After the pilot, cover a multi-primary-artist track, a genuine named duo, a malf
 
 ## Artist experience roadmap
 
-Agreed 2026-11-05. This is planned work, not a claim that Artist profile editing,
-artwork or association summaries are already implemented. Use the supplied
+Agreed 2026-11-05. Stage 1 (manual profile, managed artwork and tabbed shell) is
+implemented on schema 12; discovery projections and association summaries below
+remain planned. Use the supplied
 Beatport screenshots as information-layout references while retaining the
 TrackStash theme, accessibility and catalog boundaries; do not reproduce
 commerce, playback, Charts, hype/exclusivity or provider-follow controls.
@@ -408,7 +409,29 @@ commerce, playback, Charts, hype/exclusivity or provider-follow controls.
    Artist split/merge workflows need separate designs. Do not display inactive
    controls that suggest these features already work.
 
-Stage 1 is the next implementation increment. Stage 2 follows to complete the
+Stage 1 is implemented with Artist-specific profile fields (no Label-only
+founded-year or lifecycle fields), permanent profile/gallery history and shared
+aggregate concurrency. Featured starts with the biography and an explicit
+latest-release placeholder. Tracks/Releases now use server-grouped,
+title-ordered appearance projections and independent page state: one row per
+credited placement (unplaced Recordings separate), one row per distinct Release.
+Roles/spellings are aggregated and focusable evidence icons explain release,
+Recording and track-listing credit locations. Release rows include managed-cover
+thumbnails and linked Labels. Raw credit endpoints remain available for inspection.
+The biography heading has a pencil for a biography/source-only editor; the
+portrait camera replaces the redundant header management link. Favourite uses
+a heart, Beatport uses its locally bundled logo, and links/actions have tooltips.
+Associations is an honest sketch.
+Details contains private notes/review, gallery and identities. Profile drafts
+retain their original ETag until save, cancel or deliberate reload; completed
+uploads are immediate, unsaved gallery edits are separate. Biography and public
+links are not added to `catalog-text-v1` in this increment; private notes remain
+excluded. Profile/artwork changes invalidate import reviews without scheduling
+text generation, and source reimport preserves both.
+
+The grouping/cover/Label portion of stage 2 is now implemented without a schema
+change. Date-aware ordering, latest-release cards and supported filters still
+follow to complete the
 Featured/list experience; the whole roadmap is not one required implementation
 batch. No live migration or data write is authorized by this plan.
 
@@ -458,7 +481,7 @@ batch. No live migration or data write is authorized by this plan.
 
 ## 8. Delivery and acceptance
 
-Read-only Artist browsing now provides a sidebar list with literal name/sort-name/alias search, stable pagination, role filtering, identity details and provider references. Release and placement credits link to the Artist page; the Label's Artists tab derives related Artists through its linked releases and distinguishes primary/remixer roles. This is credit evidence, not a signing/ownership relationship. Artist detail pages show grouped release appearances by role/scope/credited spelling and paged track credits retaining repeated placements, separate Recording/placement scopes and unplaced Recordings. Unresolved compounds remain explicit; no splitting, merging, metadata editing, portraits, media matching or migrations are introduced.
+Read-only Artist browsing provides a sidebar list with literal name/sort-name/alias search, stable pagination, role filtering, identity details and provider references on schema 9+. Release and placement credits link to the Artist page; the Label's Artists tab derives related Artists through its linked releases and distinguishes primary/remixer roles. This is credit evidence, not a signing/ownership relationship. Artist detail pages show grouped release appearances by role/scope/credited spelling and paged track credits retaining repeated placements, separate Recording/placement scopes and unplaced Recordings. Schema 12 adds the tabbed profile/portrait increment described above. Unresolved compounds remain explicit; no splitting, merging, identity editing or media matching is introduced, and no live migration is performed.
 
 Label-scoped Release browsing shows a tiny managed preferred-cover thumbnail and release-level primary Artist credits instead of repeating the current Label. Collaborating primary credits retain their order/spelling; absent release credits are not inferred from tracks or remixers. The global Release list retains Label links. This listing projection is read-only and does not change import identity decisions.
 

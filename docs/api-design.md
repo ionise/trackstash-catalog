@@ -16,7 +16,66 @@ Status: shared label foundation, reviewed pairwise label merges, loopback-only H
 
 `GET /api/v1/artists/{id}` returns safe name/sort-name, kind, identity status, aliases and provider identities with the aggregate ETag; arbitrary payloads are excluded. `GET /api/v1/artists/{id}/releases` pages appearances grouped by release/role/credit scope/credited spelling (not one row per repeated track). `GET /api/v1/artists/{id}/tracks` pages explicit placement and Recording credits, retaining repeated placements and unplaced Recordings (nullable release/placement IDs). Both accept only `page`/`pageSize`. Release-level credits are not fabricated as Recording or placement credits.
 
-All routes are read-only, bearer/origin protected, cancellable and no-store. Unknown/repeated query fields or invalid bounds return 400; missing Artist detail/credits returns 404. Schema 9+ is required; schema 8 returns `409 artist_schema_required` without migration while Label/inspector routes remain usable. There are no Artist editing, portrait, split/merge or private purchase endpoints.
+These browsing routes are read-only, bearer/origin protected, cancellable and no-store. Unknown/repeated query fields or invalid bounds return 400; missing Artist detail/credits returns 404. Schema 9+ is required; schema 8 returns `409 artist_schema_required` without migration while Label/inspector routes remain usable. Identity editing, split/merge and private purchase endpoints remain out of scope.
+
+The Artist GUI uses additional grouped browsing routes:
+
+- `GET /api/v1/artists/{id}/track-appearances`: one row per credited placement,
+  combining Recording and placement credits; unplaced Recordings get one row
+  with null release/placement IDs. Repeated placements remain distinct, even
+  for the same Recording. Release-only credits never fabricate track credit.
+- `GET /api/v1/artists/{id}/release-appearances`: one row per distinct Release,
+  combining release, Recording and placement credit evidence.
+
+Both accept only `page`/`pageSize`, require schema 9+, and count/group on the
+server before pagination. Stable ordering uses release title/ID then placement
+display order/ID or unplaced Recording ID. Same-title entities remain separate.
+Each item includes IDs, title/mix, distinct `credits` (`role`, `scope`,
+nullable `creditedName`), linked `labels` (`id`, `name`, `isPrimary`) and nullable
+`coverAssetId`. Covers use only the preferred managed `cover`, with null on
+schemas 9/10 and no arbitrary gallery/Label fallback. Label links indicate
+release context, not Artist signing. Existing raw credit routes remain unchanged
+for detailed inspection. No new migration is needed.
+
+### Artist manual profile and artwork (schema 12)
+
+| Method | Route | Purpose |
+| --- | --- | --- |
+| GET | `/artists/{id}/profile` | Artist-specific manual profile and aggregate ETag |
+| PATCH | `/artists/{id}/profile` | Conditional full six-field profile replacement |
+| GET | `/artists/{id}/artwork` | Ordered managed portrait/gallery and aggregate ETag |
+| POST | `/artists/{id}/artwork` | Bounded multipart upload/replace; 201 with protected original Location |
+| PATCH | `/artists/{id}/artwork` | Conditional full gallery replacement; order/caption/role/preference/detach |
+
+Profile JSON requires all fields: nullable `biography` (12,000 characters), nullable
+`biographySourceUrl` (HTTP(S), 2,048), `favourite` (boolean), nullable `notes`
+(12,000), `reviewStatus` (`unreviewed`/`in_progress`/`reviewed`) and `links`
+(at most 100 typed links, using Label link kinds/bounds/provenance rules).
+Missing, unknown or repeated fields reject; links require `kind`, `url`, nullable
+`title` and nullable `sourceUrl`. This PATCH is a complete profile replacement,
+not a scalar merge-patch. It cannot edit name/kind/identity or Label-only fields.
+Notes are private catalog data, not part of browsing detail or Featured content.
+Incomplete request errors name the missing profile fields or link row/fields.
+The biography pencil opens a two-field editor that retains the rest of the
+loaded profile and its original ETag; saves still use the complete API contract.
+
+Artist artwork shares Label multipart fields and image/rights limits, with roles
+`portrait`/`image`. Gallery PATCH contains `items` of existing `id`, `assetId`,
+`role`, nullable `caption`, `isPreferred`; omitted entries detach without deleting
+assets. Only an explicitly preferred portrait appears in the header, with no
+Label/Release fallback. Source attribution/rights are immutable on assets.
+
+All routes are authenticated, origin-protected, cancellable and no-store.
+Writes require the original strong `If-Match`: missing 428, stale 412
+`stale_version`, missing Artist 404. Profile/gallery edits invalidate each
+other's token and import reviews; no-op profile saves preserve the token/history.
+Both store permanent before/after revisions, block unsafe deletion/legacy
+replacement and participate in schema-12 catalog/artwork backups.
+On schemas 9-11 profile/artwork returns `409 artist_profile_schema_required`;
+browsing remains usable. The API never migrates automatically.
+Profile fields do not change `catalog-text-v1` or enqueue text jobs; private notes
+remain excluded and reimport preserves manual profile/artwork. There is no
+biography scraping, Artist artwork provider lookup or automatic enrichment.
 
 ### Read-only canonical Releases
 

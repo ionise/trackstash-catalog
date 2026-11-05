@@ -8,6 +8,39 @@ namespace TrackStash.Catalog.Tests;
 public sealed partial class LabelApiTests
 {
     [Fact]
+    public async Task ArtistGroupedAppearanceApiReturnsOneReleaseWithLabelsManagedCoverAndAllEvidence()
+    {
+        var service = await ImportService(); var preview = await Reviewed(service);
+        var outcome = await service.ApplyAsync(preview.Plan.OperationId, preview.Plan.Version, "Review", true);
+        var release = (await _client.GetFromJsonAsync<ReleaseResponse>($"/api/v1/releases/{outcome.ReleaseId}"))!;
+        var artist = release.Credits.First(c => c.Role == "primary").ArtistId;
+        var gallery = await _client.GetAsync($"/api/v1/releases/{outcome.ReleaseId}/artwork");
+        var upload = await ReleaseUpload(outcome.ReleaseId, gallery.Headers.ETag!.ToString());
+        Assert.Equal(HttpStatusCode.Created, upload.StatusCode);
+        var cover = Assert.Single((await upload.Content.ReadFromJsonAsync<ReleaseArtworkResponse>())!.Items);
+        var response = await _client.GetAsync($"/api/v1/artists/{artist}/release-appearances?pageSize=1");
+        Assert.True(response.Headers.CacheControl!.NoStore);
+        var page = (await response.Content.ReadFromJsonAsync<ArtistAppearancesResponse>())!;
+        Assert.Equal(1, page.Total); var item = Assert.Single(page.Items);
+        Assert.Equal(cover.AssetId, item.CoverAssetId);
+        Assert.Equal("source-label", Assert.Single(item.Labels).Id);
+        Assert.Contains(item.Credits, c => c.Scope == "release");
+        Assert.Contains(item.Credits, c => c.Scope == "placement");
+        var tracks = (await _client.GetFromJsonAsync<ArtistAppearancesResponse>($"/api/v1/artists/{artist}/track-appearances?pageSize=1"))!;
+        Assert.Equal(2, tracks.Total); Assert.Single(tracks.Items);
+        Assert.DoesNotContain(tracks.Items[0].Credits, c => c.Scope == "release");
+        var next = (await _client.GetFromJsonAsync<ArtistAppearancesResponse>($"/api/v1/artists/{artist}/track-appearances?pageSize=1&page=2"))!;
+        Assert.NotEqual(tracks.Items[0].PlacementId, Assert.Single(next.Items).PlacementId);
+        await ProblemAsync(await _client.GetAsync($"/api/v1/artists/{artist}/release-appearances?pageSize=101"), 400, "validation_failed");
+        await ProblemAsync(await _client.GetAsync($"/api/v1/artists/{artist}/track-appearances?role=primary"), 400, "validation_failed");
+        await ProblemAsync(await _client.GetAsync("/api/v1/artists/missing/release-appearances"), 404, "artist_not_found");
+        using var anonymous = _app.GetTestClient();
+        await ProblemAsync(await anonymous.GetAsync($"/api/v1/artists/{artist}/release-appearances"), 401, "unauthorized");
+        var profileResponse = await _client.GetAsync($"/api/v1/artists/{artist}/profile");
+        var incomplete = await SaveArtistProfile(artist, profileResponse.Headers.ETag!.ToString(), new { biography = "Draft" });
+        Assert.Contains("biographySourceUrl, favourite, notes, reviewStatus, links", await incomplete.Content.ReadAsStringAsync());
+    }
+    [Fact]
     public async Task ArtistBrowseListsLabelCreditsAndSafeDetailsAndPagedAppearancesWithoutWrites()
     {
         var service = await ImportService(); var preview = await Reviewed(service);

@@ -10,6 +10,11 @@ export interface LabelRecord {
   profile?: LabelProfile
   externalReferences?: { source: string; externalId: string; isPrimary: boolean }[]
 }
+export interface ArtistProfile {
+  biography: string | null; biographySourceUrl: string | null; favourite: boolean; notes: string | null
+  reviewStatus: string; links: { kind: string; url: string; title: string | null; sourceUrl: string | null }[]
+}
+export interface ArtistProfileSnapshot { profile: ArtistProfile; etag: string }
 
 export interface LabelProfile {
   description: string | null
@@ -101,6 +106,12 @@ export interface ArtistAppearance {
   recordingId: string | null; placementId: string | null; trackTitle: string | null; mixName: string | null
   role: string; scope: string; creditedName: string | null; position: number | null
 }
+export interface GroupedArtistAppearance {
+  releaseId: string | null; releaseTitle: string | null; recordingId: string | null; placementId: string | null
+  trackTitle: string | null; mixName: string | null; coverAssetId: string | null
+  labels: { id: string; name: string | null; isPrimary: boolean }[]
+  credits: { role: string; scope: string; creditedName: string | null }[]
+}
 export interface ReleaseDetail {
   id: string; title: string | null; version: string; catalogNumber: string | null; upc: string | null
   publishDate: string | null; newReleaseDate: string | null
@@ -161,7 +172,7 @@ export interface ArtworkItem extends ArtworkEntry {
   attribution: string | null
   usageRights: string
 }
-export interface ArtworkGallery { labelId?: string; releaseId?: string; items: ArtworkItem[]; etag: string }
+export interface ArtworkGallery { labelId?: string; releaseId?: string; artistId?: string; items: ArtworkItem[]; etag: string }
 export interface ArtworkCandidate {
   provider: string; candidateId: string; revision: string; title: string; sourceUrl: string; attribution: string | null
 }
@@ -206,7 +217,11 @@ export function createCatalogClient(fetcher: typeof fetch = fetch) {
       const message = response.status === 404 && (resource === 'backup-sources' || resource === 'backups' && (path === '' || path.startsWith('?')))
         ? 'The running catalog API does not provide backup support. Restart the API with the updated backend, then refresh backups.'
         : response.status === 412 && problem.code !== 'merge_state_changed' && problem.code !== 'relationship_state_changed' && problem.code !== 'group_state_changed'
-        ? 'This label changed since you opened it. Your edit was not saved. Reload the label before editing again.'
+        ? resource === 'artists'
+          ? 'This Artist changed since you opened it. Your edit was not saved. Reload the profile or artwork before editing again.'
+          : resource === 'releases'
+          ? 'This release changed since you opened it. Your edit was not saved. Reload the artwork before editing again.'
+          : 'This label changed since you opened it. Your edit was not saved. Reload the label before editing again.'
         : problem.detail ?? problem.title ?? `Catalog request failed (${response.status}).`
       throw new HttpError(message, response.status, {
         ...problem,
@@ -339,7 +354,7 @@ export function createCatalogClient(fetcher: typeof fetch = fetch) {
     if (!etag) throw new Error('Artwork response is missing its ETag; editing is unavailable.')
     return { ...await response.json(), etag }
   }
-  function artworkFor(resource: 'labels' | 'releases') { return {
+  function artworkFor(resource: 'labels' | 'releases' | 'artists') { return {
     get: async (id: string, signal?: AbortSignal) =>
       gallery(await request(`/${encodeURIComponent(id)}/artwork`, { signal }, resource)),
     upload: async (id: string, etag: string, form: FormData) =>
@@ -356,6 +371,7 @@ export function createCatalogClient(fetcher: typeof fetch = fetch) {
       (await request(`/${encodeURIComponent(assetId)}/${original ? 'original' : 'thumbnail'}`, { signal }, 'artwork-assets')).blob(),
   } }
   const artworkClient = artworkFor('labels')
+  const artistArtworkClient = artworkFor('artists')
   const releaseArtworkClient = {
     ...artworkFor('releases'),
     candidates: async (id: string, signal?: AbortSignal): Promise<ArtworkCandidates> =>
@@ -461,6 +477,22 @@ export function createCatalogClient(fetcher: typeof fetch = fetch) {
       (await request(`/${encodeURIComponent(id)}/tracks?page=${page}&pageSize=25`, { signal }, 'releases')).json(),
   }
   const artistClient = {
+    appearances: async (id: string, tracks: boolean, page: number, signal?: AbortSignal): Promise<GroupPage<GroupedArtistAppearance>> =>
+      (await request(`/${encodeURIComponent(id)}/${tracks ? 'track' : 'release'}-appearances?page=${page}&pageSize=25`, { signal }, 'artists')).json(),
+    profile: async (id: string, signal?: AbortSignal): Promise<ArtistProfileSnapshot> => {
+      const response = await request(`/${encodeURIComponent(id)}/profile`, { signal }, 'artists')
+      const etag = response.headers.get('ETag')
+      if (!etag) throw new Error('Artist profile is missing its ETag; editing is unavailable.')
+      return { profile: await response.json(), etag }
+    },
+    saveProfile: async (id: string, etag: string, profile: ArtistProfile): Promise<ArtistProfileSnapshot> => {
+      const response = await request(`/${encodeURIComponent(id)}/profile`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json', 'If-Match': etag }, body: JSON.stringify(profile),
+      }, 'artists')
+      const savedVersion = response.headers.get('ETag')
+      if (!savedVersion) throw new Error('Artist profile save is missing its ETag. Reload to verify the saved state.')
+      return { profile: await response.json(), etag: savedVersion }
+    },
     list: async (query: URLSearchParams, signal?: AbortSignal): Promise<GroupPage<CatalogArtist>> =>
       (await request(`?${query}`, { signal }, 'artists')).json(),
     get: async (id: string, signal?: AbortSignal): Promise<ArtistDetail> =>
@@ -468,7 +500,7 @@ export function createCatalogClient(fetcher: typeof fetch = fetch) {
     credits: async (id: string, tracks: boolean, page: number, signal?: AbortSignal): Promise<GroupPage<ArtistAppearance>> =>
       (await request(`/${encodeURIComponent(id)}/${tracks ? 'tracks' : 'releases'}?page=${page}&pageSize=25`, { signal }, 'artists')).json(),
   }
-  return { dataProvider, authProvider, mergeClient, artworkClient, releaseArtworkClient, backupsClient, relationshipsClient, groupClient, purchaseReleaseClient, releaseImportClient, releaseClient, artistClient }
+  return { dataProvider, authProvider, mergeClient, artworkClient, releaseArtworkClient, artistArtworkClient, backupsClient, relationshipsClient, groupClient, purchaseReleaseClient, releaseImportClient, releaseClient, artistClient }
 }
 
-export const { dataProvider, authProvider, mergeClient, artworkClient, releaseArtworkClient, backupsClient, relationshipsClient, groupClient, purchaseReleaseClient, releaseImportClient, releaseClient, artistClient } = createCatalogClient()
+export const { dataProvider, authProvider, mergeClient, artworkClient, releaseArtworkClient, artistArtworkClient, backupsClient, relationshipsClient, groupClient, purchaseReleaseClient, releaseImportClient, releaseClient, artistClient } = createCatalogClient()
