@@ -4,6 +4,7 @@ import { Title, useLogoutIfAccessDenied } from 'react-admin'
 import { Link } from 'react-router-dom'
 import { purchaseReleaseClient } from './catalog'
 import type { GroupPage, PurchaseCandidate, PurchaseInspection, SourceCredit } from './catalog'
+import { ReleaseImportReview } from './ReleaseImportReview'
 
 function Credits({ items }: { items: SourceCredit[] }) {
   return items.length ? <ul>{items.map((credit, index) =>
@@ -113,7 +114,7 @@ export function PurchaseReleases() {
   return <Box sx={{ p: 2 }}>
     <Title title="Purchase release inspector" />
     <Typography variant="h4" component="h1">Purchase release inspector</Typography>
-    <Alert severity="info" sx={{ my: 2 }}>Read-only cached data. No imports, network refresh, purchase accounting or media changes. Corpus flags do not prove receipt or file ownership.</Alert>
+    <Alert severity="info" sx={{ my: 2 }}>Inspection is read-only. Catalog import requires a separate immutable review and deliberate apply. No network refresh, purchase accounting or media changes. Corpus flags do not prove receipt or file ownership.</Alert>
     <Stack component="form" direction="row" spacing={2} sx={{ my: 2 }} onSubmit={event => {
       event.preventDefault(); setQuery(search); setPage(1); setSelected(undefined); setTrackPage(1)
     }}>
@@ -122,5 +123,6 @@ export function PurchaseReleases() {
     </Stack>
     <Queue key={`${query}:${page}`} page={page} search={query} onPage={setPage} onSelect={id => { setSelected(id); setTrackPage(1) }} />
     {selected !== undefined && <Inspection key={`${selected}:${trackPage}`} id={selected} page={trackPage} onPage={setTrackPage} />}
+    {selected !== undefined && <ReleaseImportReview key={selected} releaseId={selected} />}
   </Box>
 }

@@ -18,6 +18,46 @@
 @labelVersion = replace-with-unquoted-label-version
 @membershipId = replace-with-membership-id
 @membershipEtag = "replace-with-membership-etag"
+@importOperationId = replace-with-operation-id-from-import-preview
+@importEtag = "replace-with-original-import-preview-etag"
+
+### Schema 10 only: create immutable review without canonical writes
+POST {{baseUrl}}/api/v1/release-import-previews
+Authorization: Bearer {{apiKey}}
+Content-Type: application/json
+
+{ "releaseId": 325565 }
+
+### Copy choices and change one identity in a new immutable preview
+POST {{baseUrl}}/api/v1/release-import-previews
+Authorization: Bearer {{apiKey}}
+Content-Type: application/json
+
+{
+  "releaseId": 325565,
+  "basePreviewId": "{{importOperationId}}",
+  "decision": { "kind": "artist", "providerId": 59140, "action": "create", "canonicalId": null, "evidence": "Reviewed the structured F-Project performing identity." }
+}
+
+### Read frozen review and paged identities/tracks (never current source pages)
+GET {{baseUrl}}/api/v1/release-import-previews/{{importOperationId}}
+Authorization: Bearer {{apiKey}}
+
+###
+GET {{baseUrl}}/api/v1/release-import-previews/{{importOperationId}}/identities?page=1&pageSize=25
+Authorization: Bearer {{apiKey}}
+
+###
+GET {{baseUrl}}/api/v1/release-import-previews/{{importOperationId}}/tracks?page=1&pageSize=25
+Authorization: Bearer {{apiKey}}
+
+### Atomic apply after all choices are reviewed; same token/reason safely recover a saved outcome
+POST {{baseUrl}}/api/v1/release-import-previews/{{importOperationId}}/apply
+Authorization: Bearer {{apiKey}}
+Content-Type: application/json
+If-Match: {{importEtag}}
+
+{ "reason": "Reviewed the complete cached release and individual contributor identities.", "confirmed": true }
 
 ### Read-only corpus queue (not receipt or media ownership proof)
 GET {{baseUrl}}/api/v1/purchase-release-candidates?q=325565&page=1&pageSize=25

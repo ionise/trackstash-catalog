@@ -208,10 +208,12 @@ Implemented inspection surface:
 - `GET /api/v1/purchase-release-candidates`: paged configured-source candidates, with explicit derived-corpus provenance.
 - `GET /api/v1/purchase-release-candidates/{releaseId}`: cached corpus release inspection, with paged tracks and whole-bundle diagnostics/digest. The initial queue is corpus-only, not receipt-backed.
 
-Proposed reviewed-import HTTP surface, **not implemented**:
+Implemented reviewed-import HTTP surface (schema 10; temporary databases only):
 
 - `POST /api/v1/release-import-previews`: source candidate and reviewed choices; returns 201, Location and review ETag.
 - `GET /api/v1/release-import-previews/{id}`: frozen preview and outcome.
+- `GET /api/v1/release-import-previews/{id}/identities`: paged frozen decisions/candidates.
+- `GET /api/v1/release-import-previews/{id}/tracks`: paged frozen track metadata/credits.
 - `POST /api/v1/release-import-previews/{id}/apply`: original If-Match, reason and deliberate confirmation.
 
 Preserve existing bearer/origin, safe Problem Details, no-store, request limits and cancellation patterns. Distinguish validation 400, missing 404, conflicting identity/replay 409, stale 412 and missing precondition 428. Acquisition is a bounded job if too slow for a request; incomplete acquisition is never an applied import.
@@ -260,7 +262,26 @@ The existing model getters expose metadata/versions and enriched credit/placemen
 
 Foundation metadata updates are full replacement of the typed metadata fields under an expected token; unknown values are null/default, not silent inferred data. Credit/placement saves are stable-ID upserts and add explicit supplied references/credits; omission does not delete existing observations. Removal/reconciliation must be designed in the immutable reviewed import workflow rather than performed through generic collection replacement.
 
-New shared-foundation operations require schema 9. The existing label/inspector-only API continues to require at least schema 8; no new Artist/Release/Recording HTTP editors or apply endpoints have been exposed. Do not upgrade the live catalog just to use the inspector. Artist split resolution/editor, reviewed import plans, embedding lifecycle, receipt accounting and user authentication are not implemented by this migration.
+New shared-foundation operations require schema 9. The existing label/inspector API continues to require at least schema 8; general Artist/Release/Recording HTTP editors remain future work. Do not upgrade the live catalog just to use the inspector. Migration 9 alone does not implement Artist split editing, reviewed import plans, embedding lifecycle, receipt accounting or user authentication. The separately gated import increment below requires schema 10.
+
+### Implemented reviewed import (migration 10, temporary databases only)
+
+The [shared import contract](../../trackstash-core/src/TrackStash.Core/Storage/ReleaseImports.cs), [SQLite repository](../../trackstash-core/src/TrackStash.Core.Sqlite/SqliteReleaseImportRepository.cs), [application service](../src/TrackStash.Catalog.Application/ReleaseImportService.cs), [HTTP endpoints](../src/TrackStash.Catalog.Api/ReleaseImportEndpoints.cs) and [review UI](../src/TrackStash.Catalog.Admin/src/ReleaseImportReview.tsx) implement:
+
+- Cache-only complete-release acquisition before canonical writes. Full bounded track pages must have identical whole-bundle digests/counts; inconsistent snapshots fail rather than being combined. Frozen plans contain sanitized observations and timestamps, not raw private provider payloads.
+- Immutable format-v1 plans with opaque operation ID, SHA-256 review token, 15-minute expiry, source/catalog stamps, explicit evidenced decisions, identity candidates, separate source credit scopes and proposed metadata/counts. Plans stay server-side; HTTP requests remain bounded to one decision plus an optional base-preview ID.
+- Decision edits copy the previous choices into a new plan, append permanent supersession, and invalidate the old plan for apply. Creating/reading/cancelling a preview does not create canonical entities. Applied plans/outcomes/provenance are permanent; expired unapplied reviews remain historical records.
+- Exactly one active source-label match is required. Missing/ambiguous labels must be resolved through existing label maintenance. Unbound Artist and Recording identities require explicit acceptance or evidenced reuse. Punctuation only raises a potential-compound review flag; it never splits identities. Both newly accepted and previously unreviewed bound compounds can be marked unresolved.
+- Existing Artist names/aliases and Recording metadata/credits are preserved on reuse. Multiple provider Artist IDs explicitly bound to one canonical Artist are combined into one conditional reference update. Provider track IDs bind placements, not new Recording master references. Different mix/ISRC evidence blocks incompatible Recording reuse.
+- Strong original ETag, reason and deliberate confirmation; 400 invalid request, 404 missing review, 409 blocked/conflicting/superseded, 410 expired, 412 stale source/catalog/token, 428 missing precondition. Replay with the same original token/reason returns the saved outcome without needing the source or rewriting history; changed intent conflicts.
+- Source is checked again before the catalog transaction. A conservative all-writer catalog stamp is checked inside it, covering identity candidates and negative reference/placement bindings as well as known endpoints. **Any relevant canonical table edit, including an unrelated entity edit, can stale a review** in this initial implementation. This deliberately trades concurrency for a simpler safe first release; finer-grained affected-entity read sets may follow.
+- Savepoint-protected atomic creation of entities, release/label links, stable credits/placements, accepted references, source binding, actual foundation snapshots, complete review/apply audit, outcome and transaction-enlisted canonical text/outbox. A caught failure followed by caller commit cannot retain partial entities, tokens, history, provenance, documents or jobs.
+- Reimport of identical accepted semantic source content is a no-op even if only retrieval timestamps changed. It preserves curated names, contributor choices and manual display order, and does not enqueue vectors. **Changed or previously unreviewed existing release graphs are shown as blocked review, not applied**: additive/removal/split reconciliation remains a separate operation. A different provider edition may be explicitly created after reviewing same-title candidates.
+- Deterministic `catalog-text-v1` Artist/Release/Recording documents, desired/generated hashes, pending/stale/current/failed state and one durable revisioned outbox request per entity. Artist names/accepted aliases invalidate dependent contributor documents; label names invalidate linked Releases; credit/scalar changes invalidate their documents. Position-only placement reordering does not enqueue work. Private receipts, notes and media paths are excluded.
+
+The outbox is enlisted in the catalog transaction rather than using the existing independently connected scanner queue. **No embedding processor or model is activated.** Target-model/policy deployment, committed-state document rebuild, lease/revision publication guards, generation and retry/status UI remain separate delivery work. The import screen honestly reports pending work, not generated vectors.
+
+Schema 10 backup/restore retains plans, supersessions, audit/outcomes, source bindings and pending document work; schema 6-9 archives remain supported. Migration 9-to-10 and failure rollback are tested on populated temporary databases. Neither live database is migrated or imported by this increment, and no user API restart is performed automatically.
 
 The following table records the original gaps and remaining delivery intent; the rows covered above are now implemented, not a second schema proposal.
 

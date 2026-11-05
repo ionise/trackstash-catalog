@@ -41,10 +41,11 @@ See the [data-grounded release import design](docs/purchase-release-import-desig
 - [x] Build a read-only corpus-flag queue and release-bundle inspector with explicit source completeness, unverified numbering and identity diagnostics, authenticated API and GUI; verify Block House without source/catalog writes
 - [ ] Add receipt-backed queue ingestion and deliberate bounded provider fetch/refresh after verifying adapter permissions/authentication/semantics; initial inspector uses cached corpus candidates only
 - [x] Implement minimal Artist/Release/Recording/placement/credit models, conditional versions and conflict-safe provider bindings using forward migration 9, tested on temporary databases only
-- [ ] Implement immutable import reviews and atomic idempotent apply, preserving curator decisions and permanent provenance/audit
+- [x] Implement immutable import reviews and atomic idempotent apply, preserving curator decisions and permanent provenance/audit (migration 10, temporary catalogs only)
 - [x] Implement conditional manual placement reordering in shared storage, retaining stable IDs, source positions and official numbers
 - [ ] Wire manual ordering into reviewed reimport reconciliation and GUI/API without resetting curator order
-- [ ] Prepare versioned Artist/Release/Recording embedding documents, dependent invalidation and transaction-enlisted durable work; activate and verify local generation separately after commit
+- [x] Prepare versioned Artist/Release/Recording text documents, dependent invalidation and transaction-enlisted durable outbox (migration 10); no model is activated
+- [ ] Activate and verify local embedding document rebuild/generation, model/policy revisions, stale-output/lease checks and visible retry diagnostics separately after commit
 - [x] Preserve unresolved compound identity state and stable source-credit expression/path/evidence in the initial foundation
 - [ ] Deliver reviewed one-to-many Artist split resolution/editor with per-occurrence reconciliation (not provider-ID duplication or a merge redirect)
 - [ ] Deliver and verify one complete release end to end, then cover collaborators, compound identities, reissues and incomplete manifests before batching

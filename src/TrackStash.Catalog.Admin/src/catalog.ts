@@ -59,6 +59,26 @@ export interface MergePreview {
   relationships?: { id: string; fromLabelId: string; toLabelId: string; type: string; source: string; sourceUrl: string | null; notes: string | null }[]
   memberships?: GroupMembership[]
 }
+export interface ImportDecision {
+  kind: 'artist' | 'recording' | 'release'; providerId: number
+  action: 'create' | 'reuse' | 'unresolved'; canonicalId: string | null; evidence: string
+}
+export interface ImportIdentity {
+  kind: ImportDecision['kind']; providerId: number; name: string; action: string; canonicalId: string | null
+  compoundReview: boolean; mixName: string | null; isrc: string | null
+  candidates: { id: string; name: string | null; mixName: string | null; isrc: string | null }[]
+}
+export interface ImportOutcome {
+  operationId: string; releaseId: string; appliedUtc: string; noOp: boolean
+  createdArtists: number; createdRecordings: number; createdPlacements: number; auditId: string
+}
+export interface ImportPreview {
+  operationId: string; expiresUtc: string; sourceReleaseId: number; title: string | null
+  releaseId: string; labelId: string; sourceDigest: string; noOp: boolean; identityCount: number; trackCount: number
+  catalogNumber: string | null; upc: string | null; publishDate: string | null; newReleaseDate: string | null
+  createdArtists: number; createdRecordings: number; blockers: string[]; warnings: string[]
+  outcome: ImportOutcome | null; supersededBy: string | null; releaseCredits: SourceCredit[]; etag: string
+}
 export interface RelatedLabel { id: string; name: string | null; version: string }
 export interface LabelRelationship {
   id: string; from: RelatedLabel; to: RelatedLabel; type: 'imprint_of' | 'distributed_by'
@@ -361,7 +381,22 @@ export function createCatalogClient(fetcher: typeof fetch = fetch) {
     inspect: async (id: number, page: number, signal?: AbortSignal): Promise<PurchaseInspection> =>
       (await request(`/${id}?page=${page}&pageSize=25`, { signal }, 'purchase-release-candidates')).json(),
   }
-  return { dataProvider, authProvider, mergeClient, artworkClient, backupsClient, relationshipsClient, groupClient, purchaseReleaseClient }
+  const releaseImportClient = {
+    preview: async (releaseId: number, basePreviewId?: string, decision?: ImportDecision, signal?: AbortSignal) =>
+      tagged<ImportPreview>(await request('', { method: 'POST', signal, headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ releaseId, basePreviewId, decision }) }, 'release-import-previews')),
+    get: async (id: string, signal?: AbortSignal) =>
+      tagged<ImportPreview>(await request(`/${encodeURIComponent(id)}`, { signal }, 'release-import-previews')),
+    identities: async (id: string, page: number, signal?: AbortSignal): Promise<GroupPage<ImportIdentity>> =>
+      (await request(`/${encodeURIComponent(id)}/identities?page=${page}&pageSize=10`, { signal }, 'release-import-previews')).json(),
+    tracks: async (id: string, page: number, signal?: AbortSignal): Promise<GroupPage<SourceTrack>> =>
+      (await request(`/${encodeURIComponent(id)}/tracks?page=${page}&pageSize=10`, { signal }, 'release-import-previews')).json(),
+    apply: async (preview: ImportPreview, reason: string, confirmed: boolean): Promise<ImportOutcome> =>
+      (await request(`/${encodeURIComponent(preview.operationId)}/apply`, { method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'If-Match': preview.etag },
+        body: JSON.stringify({ reason, confirmed }) }, 'release-import-previews')).json(),
+  }
+  return { dataProvider, authProvider, mergeClient, artworkClient, backupsClient, relationshipsClient, groupClient, purchaseReleaseClient, releaseImportClient }
 }
 
-export const { dataProvider, authProvider, mergeClient, artworkClient, backupsClient, relationshipsClient, groupClient, purchaseReleaseClient } = createCatalogClient()
+export const { dataProvider, authProvider, mergeClient, artworkClient, backupsClient, relationshipsClient, groupClient, purchaseReleaseClient, releaseImportClient } = createCatalogClient()

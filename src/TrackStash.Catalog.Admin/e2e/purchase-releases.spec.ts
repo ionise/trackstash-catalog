@@ -31,7 +31,7 @@ test('inspect complete and incomplete cached releases, structured credits, label
   await page.getByRole('button', { name: 'Inspect Inspector missing release (901)' }).click()
   await expect(inspector.getByText(/Cached source incomplete or contradictory/)).toBeVisible()
   await expect(inspector).toContainText('release_payload_invalid')
-  await expect(page.getByRole('button', { name: /^Apply|^Import/ })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /^Apply reviewed/ })).toHaveCount(0)
   await page.getByRole('textbox', { name: 'Release title or Beatport ID' }).fill('900')
   await page.getByRole('button', { name: 'Search candidates' }).click()
   await expect(page.getByText('1 corpus-flagged release candidates')).toBeVisible()

@@ -44,6 +44,10 @@ internal sealed class ApiExceptionHandler(ILogger<ApiExceptionHandler> logger) :
     {
         var (status, code, title, detail, field) = exception switch
         {
+            ReleaseImportException import => (import.Status, import.Code, "Release import not completed", (string?)import.Message, (string?)null),
+            CatalogFoundationValidationException foundation => (400, "validation_failed", "Invalid catalog decision", (string?)foundation.Message, (string?)null),
+            CatalogFoundationConflictException => (409, "import_conflict", "Catalog identity conflict", (string?)"Review the source identities and existing catalog bindings.", (string?)null),
+            CatalogFoundationStaleException => (412, "import_state_changed", "Catalog changed", (string?)"Create a fresh import review.", (string?)null),
             PurchaseSourceValidationException source => (400, "validation_failed", "Invalid source inspection request", (string?)source.Message, (string?)null),
             PurchaseSourceUnavailableException => (503, "purchase_source_unavailable", "Purchase source unavailable",
                 (string?)"The read-only purchase source is unconfigured, unavailable or unsupported. Check server configuration and logs.", (string?)null),
