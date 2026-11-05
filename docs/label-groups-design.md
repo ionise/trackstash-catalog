@@ -1,6 +1,6 @@
 # Label Groups and Families
 
-Status: **design only; not implemented**. This document records the agreed scope and proposed contracts for the next label increment. It does not authorise a live migration or populate researched relationships.
+Status: **implemented in migration 8, application/API and admin GUI**. This document records the agreed scope and contracts. It does not authorise a live migration or populate researched relationships; deployment requires a verified backup and separate approval.
 
 ## 1. Scope and meaning
 
@@ -113,7 +113,7 @@ No separate group alias/provider-reference/artwork framework in the first delive
 
 ## 5. Proposed API
 
-Routes below are under `/api/v1`; all require existing bearer/origin policy. These are future contracts, not available endpoints.
+Routes below are implemented under `/api/v1`; all require existing bearer/origin policy. See the [HTTP examples](../src/TrackStash.Catalog.Api/TrackStash.Catalog.Api.http).
 
 | Method | Route | Purpose |
 | --- | --- | --- |
@@ -151,7 +151,7 @@ Editor requires explicit status selection, shows date precision/help, evidence a
 
 Departure action is **Mark as former member**. Assertion removal is a separately labelled action with confirmation, not the normal departure workflow.
 
-Group member names link to label detail. Derived **Shares a recorded parent**, **Same family**, and **Same organisation** views show named reasons and navigate to the supporting parent/group. Preserve the existing label tabs in exact order: Releases, Artists, Tracks, Details. Avoid loading all members or duplicating large derived lists above those tabs; use a compact summary with a paged dialog/subpage.
+Group member names link to label detail. Derived **Shares a recorded parent**, **Same family**, and **Same organisation** views show named reasons and navigate to the supporting parent/group. Preserve the existing label tabs in order: Releases, Artists, Tracks, Details, then Relationships. The Relationships tab contains imprint/distributor relationships, group memberships and the derived related-label action instead of displaying them on the main label page. Avoid loading all members or duplicating large derived lists above those tabs; use a compact summary with a paged dialog/subpage.
 
 Adding imprint edges from a parent page is a separate improvement to the existing relationship editor; it must write the same child-to-parent edge, not introduce group membership or a redundant `parent_of` row.
 
@@ -167,7 +167,7 @@ Label merge previews must include memberships before apply is enabled against th
 
 No group merge, delete or identity retirement UI initially. Do not expose a half-implemented destructive command. Core deletion analysis must recognise memberships as blockers for label/group deletion, and deletion/restore/import paths must not bypass history or resurrect retired labels. Group duplicate resolution requires a later reviewed merge design; same-name groups are not automatically merged.
 
-Use a new forward migration after schema 7; never rewrite migrations 1–7. Create empty tables and safeguards without guessing groups, memberships or dates from existing data. Preserve existing labels, aliases, edges, artwork and tokens. No live upgrade without a verified backup and explicit approval.
+Forward migration 8 leaves migrations 1–7 unchanged. It creates empty group/membership/history tables and safeguards without guessing groups, memberships or dates from existing data, preserving existing labels, aliases, edges, artwork and tokens. Catalog backup validation accepts schemas 6, 7 and 8; restore keeps the archived schema. No live upgrade without a verified backup and explicit approval.
 
 The existing snapshot approach includes new tables automatically, but catalog backup/manifest schema allowlists, readiness and fixtures require an explicit update for the new version. Preserve schema 6/7 archive verification/restore and test new group/history round trips. Do not change scanner schemas or media locations.
 

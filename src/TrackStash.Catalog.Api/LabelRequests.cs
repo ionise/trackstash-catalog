@@ -76,7 +76,16 @@ internal static class LabelRequests
             throw new ApiRequestException(415, "unsupported_media_type", $"Use {contentType}.");
         if (request.ContentLength > 16 * 1024)
             throw new ApiRequestException(413, "body_too_large", "Request body exceeds 16 KiB.");
-        using var document = await JsonDocument.ParseAsync(request.Body, cancellationToken: cancellationToken);
+        using var body = new MemoryStream();
+        var buffer = new byte[4096];
+        int read;
+        while ((read = await request.Body.ReadAsync(buffer, cancellationToken)) != 0)
+        {
+            if (body.Length + read > 16 * 1024)
+                throw new ApiRequestException(413, "body_too_large", "Request body exceeds 16 KiB.");
+            body.Write(buffer, 0, read);
+        }
+        using var document = JsonDocument.Parse(body.GetBuffer().AsMemory(0, (int)body.Length));
         if (document.RootElement.ValueKind != JsonValueKind.Object)
             throw Invalid("The request body must be an object.", "body");
         var fields = new Dictionary<string, JsonElement>(StringComparer.Ordinal);

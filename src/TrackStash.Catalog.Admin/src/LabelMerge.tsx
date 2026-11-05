@@ -141,6 +141,11 @@ export function LabelMerge() {
               <Typography>{edge.fromLabelId} {edge.type === 'imprint_of' ? 'is an imprint of' : 'is distributed by'} {edge.toLabelId}</Typography>
               <Typography variant="body2">Source: {edge.source}; evidence: {edge.sourceUrl ?? '(none)'}; notes: {edge.notes ?? '(none)'}</Typography>
             </Box>)}
+            <Typography variant="h6">Resulting group memberships ({preview.memberships?.length ?? 0})</Typography>
+            {preview.memberships?.map(item => <Box key={item.id} sx={{ overflowWrap: 'anywhere' }}>
+              <Typography>{item.group.name} ({item.group.kind}): {item.status}, {item.since ?? 'unknown start'} — {item.until ?? 'unknown end'}</Typography>
+              <Typography variant="body2">Source: {item.source}; evidence: {item.sourceUrl ?? '(none)'}; notes: {item.notes ?? '(none)'}</Typography>
+            </Box>)}
             {preview.warnings.map(warning => <Alert key={warning} severity="warning">{warning}</Alert>)}
             {preview.blockers.map(blocker => <Alert key={blocker} severity="error">{blocker}</Alert>)}
             <TextField label="Reason for merge" value={reason} onChange={event => setReason(event.target.value)} disabled={busy} required multiline slotProps={{ htmlInput: { maxLength: 2000 } }} />

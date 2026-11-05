@@ -21,6 +21,7 @@ import type { LabelArtworkState } from './LabelArtwork'
 import type { LabelRecord } from './catalog'
 import { LabelMerge } from './LabelMerge'
 import { LabelRelationships } from './LabelRelationships'
+import { LabelGroupSections } from './LabelGroups'
 import { countryPresentation, labelLinks, linkPresentation } from './labelPresentation'
 
 const serviceIcons = new Map([
@@ -114,7 +115,7 @@ function Header({ record, artwork }: { record: LabelRecord; artwork: LabelArtwor
   </Stack>
 }
 
-const sections = ['Releases', 'Artists', 'Tracks', 'Details']
+const sections = ['Releases', 'Artists', 'Tracks', 'Details', 'Relationships']
 
 function RelatedContent({ children }: { children: ReactNode }) {
   const [tab, setTab] = useState(0)
@@ -127,7 +128,10 @@ function RelatedContent({ children }: { children: ReactNode }) {
     </Tabs>
     {sections.map((name, index) => <Box key={name} role="tabpanel" hidden={tab !== index}
       id={`label-panel-${index}`} aria-labelledby={`label-tab-${index}`} sx={{ py: 3, minWidth: 0 }}>
-      {name === 'Details' ? children : <Typography color="text.secondary">
+      {name === 'Details' ? children : name === 'Relationships' ? <Stack spacing={3} sx={{ minWidth: 0 }}>
+        <LabelRelationships />
+        <LabelGroupSections />
+      </Stack> : <Typography color="text.secondary">
         {name === 'Artists' ? 'Related artists' : name} are not available in Trackstash yet. Search and filters will be added when the supporting catalog features are ready.
       </Typography>}
     </Box>)}
@@ -145,8 +149,7 @@ export function LabelDetail() {
       </Typography>
     </Box>
     <Divider />
-    <LabelRelationships key={record.id} />
-    <RelatedContent>
+    <RelatedContent key={record.id}>
     <Stack spacing={3} sx={{ minWidth: 0 }}>
     <Box component="section" aria-label="Artwork gallery">{gallery}</Box>
     <Box component="section" aria-label="Personal notes">

@@ -116,7 +116,7 @@ Then start the API as below and open <http://localhost:5187/admin/>. Enter the k
 
 ### Running the API Locally
 
-From this module directory, configure an existing canonical catalog migrated to version 7 or later:
+From this module directory, configure an existing canonical catalog migrated to version 8 or later:
 
 ```bash
 export CatalogApi__DatabasePath="/absolute/path/to/Trackstash.Catalog.db"
@@ -139,7 +139,7 @@ curl -H "Authorization: Bearer $CatalogApi__ApiKey" \
   'http://localhost:5187/openapi/v1.json'
 ```
 
-The [HTTP request examples](src/TrackStash.Catalog.Api/TrackStash.Catalog.Api.http) cover label CRUD/inspection and merge preview/apply. Reads/creates/edits of a single label return a quoted opaque `ETag`. Send that exact value in `If-Match` when editing with `application/merge-patch+json`; missing headers return 428, stale versions 412. Do not retry ordinary label creation POST automatically: create idempotency is not implemented.
+The [HTTP request examples](src/TrackStash.Catalog.Api/TrackStash.Catalog.Api.http) cover label CRUD/inspection, both-direction relationship editing, groups/memberships/derived related labels, and merge preview/apply. Reads/creates/edits of a single label, group or membership return a quoted opaque `ETag`. Send that exact value in `If-Match` when editing; missing headers return 428, stale versions 412. Membership writes additionally require both last-read endpoint versions. Configured browser CORS allows GET/POST/PATCH/DELETE, including authenticated membership removal. Do not retry ordinary creation POST automatically: create idempotency is not implemented.
 
 ### Manual Label Information
 
@@ -182,9 +182,11 @@ Migration 4 adds review/audit/retirement storage and guards, but does not merge 
 
 Queries return `{ items, total, page, pageSize }`, search names/aliases with shared strict normalization, preserve ambiguous candidates, and support stable sorting and pages up to 100. Updates require the last-read opaque version and distinguish missing labels from stale edits. Explicit field flags preserve omitted values and allow clearing nullable sort names.
 
-The HTTP host requires explicit catalog migration to version 7 before use; it never migrates at startup. Take a verified catalog/artwork backup before upgrading. Existing schema 6 backups remain supported. Aggregate-version triggers invalidate tokens for label, alias, provider reference, release-label, profile/artwork and both endpoints of relationship changes. Unconditional writers still invalidate versions but must reject retired-ID reuse. The HTTP host uses `ILabelService`, `ILabelMergeService` and `ILabelRelationshipService`; no new CLI commands are included.
+The HTTP host requires explicit catalog migration to version 8 before use; it never migrates at startup. Take a verified catalog/artwork backup before upgrading. Existing schema 6 and 7 backups remain supported. Aggregate-version triggers invalidate tokens for label, alias, provider reference, release-label, profile/artwork and both endpoints of relationship/membership changes. Unconditional writers still invalidate versions but must reject retired-ID reuse. The HTTP host uses `ILabelService`, `ILabelMergeService`, `ILabelRelationshipService` and `ILabelGroupService`; no new CLI commands are included.
 
 Label detail supports reviewed **imprint/parent** and **distributor** relationships, inverse navigation, source/evidence/notes, multiple parents, and deliberate conditional save/removal. Migration 7 preserves existing edges, baselines immutable history and rejects imprint cycles. Merge review transfers both directions, coalesces only matching evidence, and blocks conflicts/self-links/cycles. See [relationship contracts](docs/api-design.md#reviewed-label-relationships); dates/territory and automatic enrichment are deferred.
+
+The imprint editor also manages child imprints and distributed labels from their parent/distributor page, storing the same single directed edge. **Label groups**, beside Labels in the sidebar, manages distinct families/brands and organisations with flat, sourced memberships, current/former/unknown status, partial dates and permanent history. Edit the same membership from either endpoint; a return from former to current requires extra review. **Related labels** derives shared recorded-parent, same-family and same-organisation reasons without redundant sibling edges or ownership claims. Migration 8 introduces empty group tables, group-aware merge reviews and conflict-safe transfer. Group nesting, merge/deletion and artwork/aliases/provider references remain deferred. See [group contracts and rollout gates](docs/label-groups-design.md).
 
 See the [implemented contract and remaining decisions](docs/api-design.md#implemented-foundation) for details.
 

@@ -6,10 +6,18 @@ public interface ILabelRelationshipService
 {
     ValueTask<LabelRelationships?> GetAsync(string id, CancellationToken ct = default);
     ValueTask<LabelRelationshipResult> ReplaceAsync(string id, string version, IReadOnlyList<LabelRelationshipInput> items, CancellationToken ct = default);
+    ValueTask<LabelRelationshipResult> SaveEdgeAsync(string id, string version, LabelEdgeInput input, CancellationToken ct = default);
 }
 
 public sealed class LabelRelationshipService(IStorageProvider storage) : ILabelRelationshipService
 {
+    public async ValueTask<LabelRelationshipResult> SaveEdgeAsync(string id, string version, LabelEdgeInput input, CancellationToken ct = default)
+    {
+        await using var unit = await storage.BeginUnitOfWorkAsync(ct);
+        var result = await unit.LabelRelationships.SaveEdgeAsync(id, version, input, ct);
+        if (result.Status == LabelUpdateStatus.Updated) await unit.CommitAsync(ct);
+        return result;
+    }
     public async ValueTask<LabelRelationships?> GetAsync(string id, CancellationToken ct = default)
     {
         await using var unit = await storage.BeginUnitOfWorkAsync(ct);

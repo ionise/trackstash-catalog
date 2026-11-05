@@ -57,6 +57,7 @@ export interface MergePreview {
   profile?: LabelProfile
   artwork?: ArtworkEntry[]
   relationships?: { id: string; fromLabelId: string; toLabelId: string; type: string; source: string; sourceUrl: string | null; notes: string | null }[]
+  memberships?: GroupMembership[]
 }
 export interface RelatedLabel { id: string; name: string | null; version: string }
 export interface LabelRelationship {
@@ -68,6 +69,19 @@ export interface RelationshipInput {
   id: string | null; toLabelId: string; type: 'imprint_of' | 'distributed_by'; source: string
   sourceUrl: string | null; notes: string | null; targetVersion: string
 }
+export interface LabelGroup {
+  id: string; kind: 'family' | 'organisation'; name: string; sortName: string | null
+  description: string | null; website: string | null; version: string; currentMembers: number; etag?: string
+}
+export interface MembershipFields {
+  status: 'current' | 'former' | 'unknown'; since: string | null; until: string | null
+  source: string; sourceUrl: string | null; notes: string | null
+}
+export interface GroupMembership extends MembershipFields {
+  id: string; label: RelatedLabel; group: LabelGroup; version: string; etag?: string
+}
+export interface GroupPage<T> { items: T[]; total: number; page: number; pageSize: number; counts?: Record<string, number> }
+export interface RelatedGroupLabel { label: RelatedLabel; reasons: { kind: 'family' | 'organisation' | 'parent'; id: string; name: string }[] }
 
 export interface ArtworkEntry {
   id: string
@@ -110,7 +124,7 @@ export function createCatalogClient(fetcher: typeof fetch = fetch) {
       const problem: Problem = await response.json()
       const message = response.status === 404 && (resource === 'backup-sources' || resource === 'backups' && (path === '' || path.startsWith('?')))
         ? 'The running catalog API does not provide backup support. Restart the API with the updated backend, then refresh backups.'
-        : response.status === 412 && problem.code !== 'merge_state_changed' && problem.code !== 'relationship_state_changed'
+        : response.status === 412 && problem.code !== 'merge_state_changed' && problem.code !== 'relationship_state_changed' && problem.code !== 'group_state_changed'
         ? 'This label changed since you opened it. Your edit was not saved. Reload the label before editing again.'
         : problem.detail ?? problem.title ?? `Catalog request failed (${response.status}).`
       throw new HttpError(message, response.status, {
@@ -272,6 +286,47 @@ export function createCatalogClient(fetcher: typeof fetch = fetch) {
       relationships(await request(`/${encodeURIComponent(id)}/relationships`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json', 'If-Match': etag }, body: JSON.stringify({ items }),
       })),
+    edge: async (id: string, etag: string, item: {
+      id: string | null; relatedLabelId: string; type: 'imprint_of' | 'distributed_by'; incoming: boolean
+      source: string; sourceUrl: string | null; notes: string | null; targetVersion: string; remove: boolean
+    }) => relationships(await request(`/${encodeURIComponent(id)}/relationship-edges`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json', 'If-Match': etag }, body: JSON.stringify(item),
+    })),
+  }
+  async function tagged<T>(response: Response): Promise<T & { etag: string }> {
+    const etag = response.headers.get('ETag')
+    if (!etag) throw new Error('Catalog response is missing its edit token. Reload before editing.')
+    return { ...await response.json(), etag }
+  }
+  const groupClient = {
+    list: async (query: URLSearchParams, signal?: AbortSignal): Promise<GroupPage<LabelGroup>> =>
+      (await request(`?${query}`, { signal }, 'label-groups')).json(),
+    get: async (id: string, signal?: AbortSignal) =>
+      tagged<LabelGroup>(await request(`/${encodeURIComponent(id)}`, { signal }, 'label-groups')),
+    label: async (id: string, signal?: AbortSignal) => read<LabelRecord>(id, signal),
+    create: async (fields: Pick<LabelGroup, 'kind' | 'name' | 'sortName' | 'description' | 'website'>) =>
+      tagged<LabelGroup>(await request('', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(fields) }, 'label-groups')),
+    update: async (id: string, etag: string, fields: Pick<LabelGroup, 'name' | 'sortName' | 'description' | 'website'>) =>
+      tagged<LabelGroup>(await request(`/${encodeURIComponent(id)}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/merge-patch+json', 'If-Match': etag }, body: JSON.stringify(fields),
+      }, 'label-groups')),
+    members: async (labelId: string | undefined, groupId: string | undefined, page: number, status: string, signal?: AbortSignal): Promise<GroupPage<GroupMembership>> =>
+      (await request(`/${encodeURIComponent(labelId ?? groupId ?? '')}/${labelId ? 'group-memberships' : 'members'}?page=${page}&pageSize=10&status=${status}`,
+        { signal }, labelId ? 'labels' : 'label-groups')).json(),
+    membership: async (id: string, signal?: AbortSignal) =>
+      tagged<GroupMembership>(await request(`/${encodeURIComponent(id)}`, { signal }, 'label-group-memberships')),
+    saveMembership: async (id: string | undefined, etag: string | undefined, fields: MembershipFields & {
+      labelVersion: string; groupVersion: string; labelId?: string; groupId?: string; confirmRejoin: boolean
+    }) => tagged<GroupMembership>(await request(id ? `/${encodeURIComponent(id)}` : '', {
+      method: id ? 'PATCH' : 'POST',
+      headers: { 'Content-Type': 'application/json', ...(etag ? { 'If-Match': etag } : {}) },
+      body: JSON.stringify(fields),
+    }, 'label-group-memberships')),
+    removeMembership: async (id: string, etag: string) => {
+      await request(`/${encodeURIComponent(id)}`, { method: 'DELETE', headers: { 'If-Match': etag } }, 'label-group-memberships')
+    },
+    related: async (id: string, page: number, kind: string, signal?: AbortSignal): Promise<GroupPage<RelatedGroupLabel>> =>
+      (await request(`/${encodeURIComponent(id)}/related-labels?page=${page}&pageSize=10${kind ? `&kind=${kind}` : ''}`, { signal })).json(),
   }
   const backupsClient = {
     sources: async (signal?: AbortSignal): Promise<BackupSource[]> => (await request('', { signal }, 'backup-sources')).json(),
@@ -284,7 +339,7 @@ export function createCatalogClient(fetcher: typeof fetch = fetch) {
     download: async (id: string, signal?: AbortSignal, kind: BackupKind = 'catalog') =>
       request(`/${encodeURIComponent(id)}/download${kind === 'scanner' ? '?kind=scanner' : ''}`, { signal }, 'backups'),
   }
-  return { dataProvider, authProvider, mergeClient, artworkClient, backupsClient, relationshipsClient }
+  return { dataProvider, authProvider, mergeClient, artworkClient, backupsClient, relationshipsClient, groupClient }
 }
 
-export const { dataProvider, authProvider, mergeClient, artworkClient, backupsClient, relationshipsClient } = createCatalogClient()
+export const { dataProvider, authProvider, mergeClient, artworkClient, backupsClient, relationshipsClient, groupClient } = createCatalogClient()

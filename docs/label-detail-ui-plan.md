@@ -20,7 +20,7 @@ There is no Featured section. Tracks and Releases are future label content views
 |                  |                                                    |
 | Space for future | Description / biography                             |
 | areas            |                                                    |
-|                  | Releases | Artists | Tracks | Details               |
+|                  | Releases | Artists | Tracks | Details | Relationships |
 |                  | Related-content area (not implemented yet)          |
 |                  |                                                    |
 |                  | Details tab: gallery, notes and record details       |
@@ -77,7 +77,7 @@ There is no Featured section. Tracks and Releases are future label content views
 
 ## Related content and secondary information
 
-- Show Releases, Artists, Tracks and Details tabs in that order, with Releases selected initially. Until the corresponding catalog workflows and associations exist, the first three show clearly labelled unavailable/not-implemented states, not empty-library claims or simulated records. Details contains the artwork gallery, personal notes/review status and Record details; these are not displayed below other tab panels.
+- Show Releases, Artists, Tracks, Details and Relationships tabs in that order, with Releases selected initially. Relationships contains imprint/distributor links, groups/families and derived related-label navigation; these sections are not displayed on the main label page. Until the corresponding catalog workflows and associations exist, the first three show clearly labelled unavailable/not-implemented states, not empty-library claims or simulated records. Details contains the artwork gallery, personal notes/review status and Record details; these are not displayed below other tab panels.
 - No Featured tab, ranking, playback or multi-entity implementation is included.
 - Keep personal notes and review status accessible in Details. The header, biography and logo artwork action remain available regardless of the selected tab.
 - Move catalog/provider IDs, aliases and timestamps into a clearly discoverable Record details section. Keep the merge entry point in the header's More actions menu, not in this section or a large block above the label information.

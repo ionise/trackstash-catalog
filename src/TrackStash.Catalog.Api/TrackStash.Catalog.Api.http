@@ -12,6 +12,87 @@
 @scannerBackupId = replace-with-scanner-backup-id
 @relatedLabelId = replace-with-parent-or-distributor-id
 @relatedLabelVersion = replace-with-unquoted-related-label-version
+@groupId = replace-with-group-id
+@groupEtag = "replace-with-group-etag"
+@groupVersion = replace-with-unquoted-group-version
+@labelVersion = replace-with-unquoted-label-version
+@membershipId = replace-with-membership-id
+@membershipEtag = "replace-with-membership-etag"
+
+### Search flat groups, not release labels
+GET {{baseUrl}}/api/v1/label-groups?q=anjuna&kind=family&page=1&pageSize=25&sort=name&order=asc
+Authorization: Bearer {{apiKey}}
+
+### Create an umbrella family (organisation is the other kind; no ownership implied)
+POST {{baseUrl}}/api/v1/label-groups
+Authorization: Bearer {{apiKey}}
+Content-Type: application/json
+
+{"kind":"family","name":"Example family","sortName":null,"description":"Reviewed umbrella brand","website":null}
+
+### Read group and capture both its quoted ETag and unquoted version
+GET {{baseUrl}}/api/v1/label-groups/{{groupId}}
+Authorization: Bearer {{apiKey}}
+
+### Update selected scalar fields; kind is immutable
+PATCH {{baseUrl}}/api/v1/label-groups/{{groupId}}
+Authorization: Bearer {{apiKey}}
+If-Match: {{groupEtag}}
+Content-Type: application/merge-patch+json
+
+{"description":"Updated sourced summary","website":null}
+
+### Group-side view of the same memberships; counts include every status
+GET {{baseUrl}}/api/v1/label-groups/{{groupId}}/members?status=current&page=1&pageSize=25
+Authorization: Bearer {{apiKey}}
+
+### Label-side family and organisation memberships
+GET {{baseUrl}}/api/v1/labels/{{labelId}}/group-memberships?status=all&page=1&pageSize=25
+Authorization: Bearer {{apiKey}}
+
+### Create one affiliation using fresh endpoint versions; duplicate pair returns 409 + Location
+POST {{baseUrl}}/api/v1/label-group-memberships
+Authorization: Bearer {{apiKey}}
+Content-Type: application/json
+
+{"labelId":"{{labelId}}","groupId":"{{groupId}}","labelVersion":"{{labelVersion}}","groupVersion":"{{groupVersion}}","status":"current","since":"2020","until":null,"source":"Reviewed official site","sourceUrl":"https://example.test","notes":"Affiliation only"}
+
+### Read original membership ETag and current endpoint versions before editing
+GET {{baseUrl}}/api/v1/label-group-memberships/{{membershipId}}
+Authorization: Bearer {{apiKey}}
+
+### Mark departure, rather than deleting history (complete metadata required)
+PATCH {{baseUrl}}/api/v1/label-group-memberships/{{membershipId}}
+Authorization: Bearer {{apiKey}}
+If-Match: {{membershipEtag}}
+Content-Type: application/json
+
+{"labelVersion":"{{labelVersion}}","groupVersion":"{{groupVersion}}","status":"former","since":"2020","until":"2024-03","source":"Reviewed official site","sourceUrl":"https://example.test","notes":"Latest known period"}
+
+### Remove an incorrect assertion only; permanent before/after history remains
+DELETE {{baseUrl}}/api/v1/label-group-memberships/{{membershipId}}
+Authorization: Bearer {{apiKey}}
+If-Match: {{membershipEtag}}
+
+### Derived shared-family labels, deduplicated before pagination with supporting reasons
+GET {{baseUrl}}/api/v1/labels/{{labelId}}/related-labels?kind=family&page=1&pageSize=25
+Authorization: Bearer {{apiKey}}
+
+### Add a child imprint from the parent's page (one child-to-parent edge)
+PATCH {{baseUrl}}/api/v1/labels/{{labelId}}/relationship-edges
+Authorization: Bearer {{apiKey}}
+If-Match: {{etag}}
+Content-Type: application/json
+
+{"id":null,"relatedLabelId":"{{relatedLabelId}}","incoming":true,"type":"imprint_of","source":"Reviewed official site","sourceUrl":"https://example.test","notes":null,"targetVersion":"{{relatedLabelVersion}}","remove":false}
+
+### Missing group: 404
+GET {{baseUrl}}/api/v1/label-groups/nonexistent
+Authorization: Bearer {{apiKey}}
+
+### Missing membership precondition: 428, no removal
+DELETE {{baseUrl}}/api/v1/label-group-memberships/{{membershipId}}
+Authorization: Bearer {{apiKey}}
 
 ### Authenticated OpenAPI
 GET {{baseUrl}}/openapi/v1.json

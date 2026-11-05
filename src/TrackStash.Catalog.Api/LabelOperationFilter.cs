@@ -23,7 +23,7 @@ internal sealed class LabelOperationFilter : IOperationFilter
                     ["application/problem+json"] = new() { Schema = context.SchemaGenerator.GenerateSchema(typeof(Microsoft.AspNetCore.Mvc.ProblemDetails), context.SchemaRepository) },
                 },
             });
-        if (context.ApiDescription.HttpMethod == "PATCH" || operation.OperationId is "ApplyLabelMerge" or "UploadLabelArtwork")
+        if (context.ApiDescription.HttpMethod is "PATCH" or "DELETE" || operation.OperationId is "ApplyLabelMerge" or "UploadLabelArtwork")
             operation.Parameters.Add(new OpenApiParameter
             {
                 Name = "If-Match", In = ParameterLocation.Header, Required = true,
@@ -57,11 +57,51 @@ internal sealed class LabelOperationFilter : IOperationFilter
                 });
             }
         }
+        if (operation.OperationId is "QueryLabelGroups" or "GetGroupMembers" or "GetLabelGroupMemberships" or "GetRelatedLabels")
+        {
+            var groups = operation.OperationId == "QueryLabelGroups";
+            var related = operation.OperationId == "GetRelatedLabels";
+            var names = groups ? new[] { "page", "pageSize", "q", "kind", "sort", "order" }
+                : related ? ["page", "pageSize", "kind"] : ["page", "pageSize", "kind", "status"];
+            foreach (var name in names)
+            {
+                var schema = new OpenApiSchema { Type = name is "page" or "pageSize" ? "integer" : "string" };
+                if (name is "page" or "pageSize")
+                {
+                    schema.Minimum = 1;
+                    schema.Default = new OpenApiInteger(name == "page" ? 1 : 25);
+                    if (name == "pageSize") schema.Maximum = 100;
+                }
+                var choices = name switch
+                {
+                    "kind" => related ? new[] { "family", "organisation", "parent" } : ["family", "organisation"],
+                    "status" => ["current", "former", "unknown", "all"],
+                    "sort" => ["name", "sortName", "id"],
+                    "order" => ["asc", "desc"],
+                    _ => Array.Empty<string>(),
+                };
+                if (choices.Length > 0) schema.Enum = choices.Select(x => (IOpenApiAny)new OpenApiString(x)).ToList();
+                if (name == "status") schema.Default = new OpenApiString("current");
+                operation.Parameters.Add(new OpenApiParameter
+                {
+                    Name = name, In = ParameterLocation.Query, Schema = schema,
+                    Description = name switch
+                    {
+                        "q" => "Strict-normalized substring of group names.",
+                        "status" => "Default current; counts include every status independently of this filter.",
+                        "kind" => related ? "Filter supporting reasons; parent means shared recorded imprint parent." : "Family or organisation; membership does not imply ownership.",
+                        _ => "One value only; pages are stable and bounded to 100 results.",
+                    },
+                });
+            }
+        }
         foreach (var response in operation.Responses.Where(x => x.Key is "200" or "201"))
         {
             if (operation.OperationId is "GetLabel" or "CreateLabel" or "UpdateLabel" or "CreateLabelMergePreview" or "GetLabelMergePreview"
                 or "GetLabelArtwork" or "UploadLabelArtwork" or "ReplaceLabelArtwork"
-                or "GetLabelRelationships" or "ReplaceLabelRelationships")
+                or "GetLabelRelationships" or "ReplaceLabelRelationships" or "SaveLabelEdge"
+                or "GetLabelGroup" or "CreateLabelGroup" or "UpdateLabelGroup"
+                or "GetGroupMembership" or "CreateGroupMembership" or "UpdateGroupMembership")
                 response.Value.Headers["ETag"] = new OpenApiHeader
                 {
                     Description = "Opaque strong entity/review tag. Send the original tag in If-Match when editing or confirming a merge.",
@@ -70,7 +110,7 @@ internal sealed class LabelOperationFilter : IOperationFilter
             if (response.Key == "201")
                 response.Value.Headers["Location"] = new OpenApiHeader
                 {
-                    Description = "URI of the created label or merge review.", Schema = new OpenApiSchema { Type = "string" },
+                    Description = "URI of the created resource or merge review.", Schema = new OpenApiSchema { Type = "string" },
                 };
         }
         if (operation.Responses.TryGetValue("308", out var redirect))

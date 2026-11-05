@@ -17,6 +17,9 @@ public sealed record ReplaceLabelRelationshipsRequest(IReadOnlyList<LabelRelatio
 /// <summary>An outgoing edge. Null ID creates a new edge; existing IDs must belong to this label.</summary>
 public sealed record LabelRelationshipRequest(string? Id, string ToLabelId, string Type, string Source,
     string? SourceUrl, string? Notes, string TargetVersion);
+/// <summary>Edits one edge from either endpoint without replacing unrelated edges.</summary>
+public sealed record SaveLabelEdgeRequest(string? Id, string RelatedLabelId, string Type, bool Incoming,
+    string Source, string? SourceUrl, string? Notes, string TargetVersion, bool Remove);
 /// <summary>A directed edge in the resulting merge graph, retaining its original identity and evidence.</summary>
 public sealed record MergeRelationshipResponse(string Id, string FromLabelId, string ToLabelId, string Type,
     string Source, string? SourceUrl, string? Notes, DateTimeOffset CreatedUtc);
@@ -33,6 +36,24 @@ internal static class LabelRelationshipEndpoints
             .WithDescription("Requires the label If-Match and target versions. At most 100 outgoing imprint_of/distributed_by edges. Rejects duplicates, self-links, retired labels and imprint cycles; records permanent history and invalidates both endpoint labels. Incoming edges are never replaced by this operation.")
             .Accepts<ReplaceLabelRelationshipsRequest>("application/json").Produces<LabelRelationshipsResponse>()
             .ProducesProblem(400).ProducesProblem(404).ProducesProblem(409).ProducesProblem(412).ProducesProblem(413).ProducesProblem(415).ProducesProblem(428);
+        app.MapPatch("/api/v1/labels/{id}/relationship-edges", SaveEdgeAsync).WithTags("Label relationships")
+            .WithName("SaveLabelEdge").WithSummary("Add, edit or remove one edge from either endpoint")
+            .WithDescription("Incoming=true stores related label to viewed label. Requires the viewed label If-Match and related targetVersion; unrelated edges are preserved.")
+            .Accepts<SaveLabelEdgeRequest>("application/json").Produces<LabelRelationshipsResponse>()
+            .ProducesProblem(400).ProducesProblem(404).ProducesProblem(409).ProducesProblem(412).ProducesProblem(415).ProducesProblem(428);
+    }
+    private static async Task<IResult> SaveEdgeAsync(string id, HttpContext context, ILabelRelationshipService service, CancellationToken ct)
+    {
+        var version = LabelRequests.ExpectedVersion(context.Request);
+        var fields = await LabelRequests.FieldsAsync(context.Request, "application/json", ct,
+            ["id", "relatedLabelId", "type", "incoming", "source", "sourceUrl", "notes", "targetVersion", "remove"]);
+        string? Optional(string name) => fields.TryGetValue(name, out var value) ? LabelRequests.NullableString(value, name) : null;
+        bool Boolean(string name) => fields.TryGetValue(name, out var value) && value.ValueKind is JsonValueKind.True or JsonValueKind.False
+            ? value.GetBoolean() : throw new LabelRelationshipValidationException($"Supply boolean {name}.");
+        var result = await service.SaveEdgeAsync(id, version, new(Optional("id"), LabelRequests.RequiredString(fields, "relatedLabelId"),
+            LabelRequests.RequiredString(fields, "type"), Boolean("incoming"), LabelRequests.RequiredString(fields, "source"),
+            Optional("sourceUrl"), Optional("notes"), LabelRequests.RequiredString(fields, "targetVersion"), Boolean("remove")), ct);
+        return WriteResult(context, result);
     }
     private static async Task<IResult> GetAsync(string id, HttpContext context, ILabelRelationshipService service, ILabelMergeService merges, CancellationToken ct)
     {
@@ -66,6 +87,10 @@ internal static class LabelRelationshipEndpoints
                 Optional("sourceUrl"), Optional("notes"), LabelRequests.RequiredString(values, "targetVersion")));
         }
         var result = await service.ReplaceAsync(id, version, inputs, ct);
+        return WriteResult(context, result);
+    }
+    private static IResult WriteResult(HttpContext context, LabelRelationshipResult result)
+    {
         if (result.Status == LabelUpdateStatus.NotFound) return Missing(context);
         if (result.Status == LabelUpdateStatus.Stale)
             return TypedResults.Problem(ApiErrors.Create(context, 412, "relationship_state_changed", "Relationship state changed",

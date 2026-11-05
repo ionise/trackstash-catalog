@@ -3,6 +3,7 @@ import { Alert, Box, Button, Checkbox, Dialog, DialogActions, DialogContent, Dia
 import { Link as RouterLink, useDataProvider, useLogoutIfAccessDenied, useRecordContext, useRefresh } from 'react-admin'
 import { relationshipsClient } from './catalog'
 import type { LabelRecord, LabelRelationships as Relationships, RelationshipInput } from './catalog'
+import { IncomingLabelRelationships } from './IncomingLabelRelationships'
 
 type Draft = RelationshipInput & { targetName: string }
 
@@ -82,6 +83,7 @@ export function LabelRelationships() {
       <Typography variant="h6">Label relationships</Typography>
       <Button onClick={() => { setOpen(true); setCandidates([]); setSearch(''); setTotal(0); load() }}>Manage relationships</Button>
     </Stack>
+    <IncomingLabelRelationships labelId={labelId} />
     {error && !open && <Alert severity="error">{error}</Alert>}
     {data?.items.length === 0 && <Typography color="text.secondary">No label relationships recorded.</Typography>}
     {data?.items.map(edge => {
@@ -98,7 +100,7 @@ export function LabelRelationships() {
       <DialogTitle>Manage label relationships</DialogTitle>
       <DialogContent sx={{ overflowWrap: 'anywhere' }}>
         <Stack spacing={2} sx={{ pt: 1 }}>
-          <Typography>Edit this label’s parents and distributors. Multiple relationships are allowed. Incoming imprints/distribution are shown automatically; edit them from their originating label.</Typography>
+          <Typography>Edit this label’s parents and distributors. Multiple relationships are allowed. Incoming imprints/distribution are shown automatically; manage them using the child imprints / incoming relationships editor or from their originating label.</Typography>
           <Typography variant="body2">Changes affect both labels. No labels are merged, and no evidence is fetched automatically. Dates and territory are not represented yet.</Typography>
           {error && <Alert severity="error">{error}</Alert>}
           <Button disabled={busy} onClick={load}>Reload relationships</Button>

@@ -12,6 +12,7 @@ async function signIn(page: Page, id: string) {
   await page.goto(`/admin/#/labels/${id}/show`)
   await page.getByLabel('API key').fill(key)
   await page.getByRole('button', { name: 'Connect', exact: true }).click()
+  await page.getByRole('tab', { name: 'Relationships', exact: true }).click()
   await page.getByRole('button', { name: 'Manage relationships', exact: true }).click()
 }
 
@@ -35,8 +36,10 @@ test('relationships support reviewed editing, inverse navigation, cancellation a
   await expect(section.getByRole('link', { name: 'Evidence', exact: true })).toHaveAttribute('href', 'https://example.test/parent')
   await section.getByRole('link', { name: 'Relationship parent', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Relationship parent', exact: true })).toBeVisible()
+  await page.getByRole('tab', { name: 'Relationships', exact: true }).click()
   await expect(section.getByRole('link', { name: 'Relationship child', exact: true })).toBeVisible()
   await section.getByRole('link', { name: 'Relationship child', exact: true }).click()
+  await page.getByRole('tab', { name: 'Relationships', exact: true }).click()
   await page.getByRole('button', { name: 'Manage relationships', exact: true }).click()
   await dialog.getByRole('button', { name: 'Remove relationship 1', exact: true }).click()
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
@@ -125,7 +128,7 @@ test.describe('narrow touch relationship review', () => {
     await expect(dialog.getByRole('alert')).toContainText('cycle')
     expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
     await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
-    await expect(page.getByRole('tab')).toHaveText(['Releases', 'Artists', 'Tracks', 'Details'])
+    await expect(page.getByRole('tab')).toHaveText(['Releases', 'Artists', 'Tracks', 'Details', 'Relationships'])
     const response = await request.get(`/api/v1/labels/${parent.id}/relationships`, { headers })
     expect((await response.json()).items).toHaveLength(1) // The existing incoming edge was not replaced.
   })

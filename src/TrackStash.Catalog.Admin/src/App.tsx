@@ -6,6 +6,7 @@ import { authProvider, dataProvider } from './catalog'
 import { LabelCreate, LabelEdit, LabelList, LabelShow } from './labels'
 import { LoginPage } from './LoginPage'
 import { Backups } from './Backups'
+import { LabelGroupList, LabelGroupCreate, LabelGroupShow, LabelGroupEdit } from './LabelGroups'
 import BackupIcon from '@mui/icons-material/Backup'
 import SettingsIcon from '@mui/icons-material/Settings'
 import ExpandLessIcon from '@mui/icons-material/ExpandLess'
@@ -18,6 +19,7 @@ function CatalogMenu() {
   const [sidebarOpen, setSidebarOpen] = useSidebarState()
   return <Menu>
     <Menu.ResourceItem name="labels" />
+    <Menu.ResourceItem name="label-groups" />
     <MenuItem aria-label="System" aria-expanded={sidebarOpen && expanded} aria-controls="system-backup-menu" onClick={() => {
       if (!sidebarOpen) { setSidebarOpen(true); setExpanded(true) }
       else setExpanded(!expanded)
@@ -45,6 +47,7 @@ export default function App() {
       layout={CatalogLayout}
     >
       <Resource name="labels" list={LabelList} show={LabelShow} create={LabelCreate} edit={LabelEdit} recordRepresentation="name" />
+      <Resource name="label-groups" options={{ label: 'Label groups' }} list={LabelGroupList} show={LabelGroupShow} create={LabelGroupCreate} edit={LabelGroupEdit} recordRepresentation="name" />
       <Resource name="backups" list={Backups} icon={BackupIcon} />
     </Admin>
   )

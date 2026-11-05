@@ -30,7 +30,7 @@ public static class CatalogApiHost
         var browserOrigins = new BrowserOrigins(builder.Configuration.GetSection("CatalogApi:AllowedOrigins").Get<string[]>() ?? []);
         builder.Services.AddSingleton(browserOrigins);
         builder.Services.AddCors(options => options.AddDefaultPolicy(policy =>
-            policy.WithOrigins(browserOrigins.Allowed).WithMethods("GET", "POST", "PATCH")
+            policy.WithOrigins(browserOrigins.Allowed).WithMethods("GET", "POST", "PATCH", "DELETE")
                 .WithHeaders("Authorization", "Content-Type", "If-Match")
                 .WithExposedHeaders("ETag", "Location")));
         builder.WebHost.ConfigureKestrel(options =>
@@ -55,6 +55,7 @@ public static class CatalogApiHost
         builder.Services.TryAddSingleton(TimeProvider.System);
         builder.Services.TryAddScoped<ILabelMergeService, LabelMergeService>();
         builder.Services.TryAddScoped<ILabelRelationshipService, LabelRelationshipService>();
+        builder.Services.TryAddScoped<ILabelGroupService, LabelGroupService>();
         builder.Services.AddSingleton<ICatalogBackupService>(services => new CatalogBackupService(
             new SqliteCatalogSnapshotSource(builder.Configuration["CatalogApi:DatabasePath"]!),
             services.GetRequiredService<IArtworkContentStore>(), builder.Configuration["CatalogApi:BackupRoot"]));
@@ -122,6 +123,7 @@ public static class CatalogApiHost
             });
             options.OperationFilter<LabelOperationFilter>();
             options.SchemaFilter<LabelProfileSchemaFilter>();
+            options.SchemaFilter<LabelGroupSchemaFilter>();
         });
         var app = builder.Build();
         // Resolve configuration before accepting requests; no migrations or seeding run here.
@@ -141,6 +143,7 @@ public static class CatalogApiHost
         app.MapLabelMerges();
         app.MapArtwork();
         app.MapLabelRelationships();
+        app.MapLabelGroups();
         app.MapBackups();
         var webRoot = Path.Combine(AppContext.BaseDirectory, "wwwroot");
         if (File.Exists(Path.Combine(webRoot, "admin", "index.html")))

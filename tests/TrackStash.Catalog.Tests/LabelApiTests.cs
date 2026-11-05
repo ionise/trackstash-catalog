@@ -423,7 +423,7 @@ public sealed partial class LabelApiTests : IAsyncLifetime
             await using var app = Build(builder =>
                 builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?> { ["CatalogApi:DatabasePath"] = path }));
             var failure = await Assert.ThrowsAsync<InvalidOperationException>(() => app.StartAsync());
-            Assert.Contains("schema version 7", failure.Message);
+            Assert.Contains("schema version 8", failure.Message);
             await using var connection = new SqliteConnection($"Data Source={path};Mode=ReadOnly");
             await connection.OpenAsync();
             using var command = connection.CreateCommand();

@@ -1,8 +1,8 @@
 # Catalog and scanner inventory ZIP backups
 
-The shared native backup service supports the catalog CLI and the authenticated admin GUI/API. It supports two separate SQLite backup types: **Catalog + artwork** (catalog schemas 6 and 7) and **Scanner inventory**. It does not migrate either database, copy audio/media files, or restore over a live database. These are database protection operations, not media replication.
+The shared native backup service supports the catalog CLI and the authenticated admin GUI/API. It supports two separate SQLite backup types: **Catalog + artwork** (catalog schemas 6, 7 and 8) and **Scanner inventory**. It does not migrate either database, copy audio/media files, or restore over a live database. These are database protection operations, not media replication.
 
-Schema 6 archives remain verifiable/restorable after upgrading to schema 7. Schema 7 snapshots include all label relationships and permanent relationship history automatically. Restore preserves the archived schema; it does not upgrade it. The current API requires schema 7: take a verified pre-upgrade backup and explicitly migrate the catalog before restarting it. Scanner backup/schema handling is unchanged.
+Schema 6 and 7 archives remain verifiable/restorable after upgrading to schema 8. Schema 7 snapshots include label relationships and permanent relationship history; schema 8 additionally includes groups, memberships and both permanent group histories automatically. Restore preserves the archived schema; it does not upgrade it. The current API requires schema 8: take a verified pre-upgrade backup and explicitly migrate the catalog before restarting it. Scanner backup/schema handling is unchanged.
 
 ## What is saved
 
