@@ -334,6 +334,8 @@ After the pilot, cover a multi-primary-artist track, a genuine named duo, a malf
 
 ## 8. Delivery and acceptance
 
+Label-scoped Release browsing shows a tiny managed preferred-cover thumbnail and release-level primary Artist credits instead of repeating the current Label. Collaborating primary credits retain their order/spelling; absent release credits are not inferred from tracks or remixers. The global Release list retains Label links. This listing projection is read-only and does not change import identity decisions.
+
 Release browsing and detail presentation now include managed covers/gallery on schema 11, separate from source import. Manual upload and provider-neutral candidate/explicit attachment reuse shared artwork validation, rights, version/history and backup rules. No live provider adapters, automatic downloads, Label-logo fallback or Recording inheritance are enabled. See [shared artwork design](../../trackstash-core/docs/artwork-design.md) and [artwork API](api-design.md#managed-release-artwork-and-provider-candidates-schema-11). Live migration remains separately gated.
 
 1. Completed: read-only cached bundle inspector and paged corpus-flag queue, with no canonical writes. Expose missing details/order and structured credits. Receipt ingestion and deliberate provider refresh remain separate adapter work.

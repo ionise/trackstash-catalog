@@ -37,10 +37,20 @@ function ReleasePage({ page, search, labelId, onPage }: { page: number; search: 
     {!data.total && <Typography>No catalog releases match this view.</Typography>}
     <Box sx={{ overflowX: 'auto' }}>
       <Table aria-label={labelId ? 'Label releases' : 'Catalog releases'}>
-        <TableHead><TableRow><TableCell>Release</TableCell><TableCell>Label</TableCell><TableCell>Catalog number</TableCell><TableCell>Publish date</TableCell><TableCell>Tracks</TableCell></TableRow></TableHead>
+        <TableHead><TableRow><TableCell>Release</TableCell><TableCell>{labelId ? 'Primary artist' : 'Label'}</TableCell><TableCell>Catalog number</TableCell><TableCell>Publish date</TableCell><TableCell>Tracks</TableCell></TableRow></TableHead>
         <TableBody>{data.items.map(release => <TableRow key={release.id} hover>
-          <TableCell><Link to={`/releases/${encodeURIComponent(release.id)}/show`}>{release.title ?? 'Untitled release'}</Link></TableCell>
-          <TableCell>{release.labelId ? <Link to={`/labels/${encodeURIComponent(release.labelId)}/show`}>{release.labelName ?? release.labelId}</Link> : 'Not recorded'}</TableCell>
+          <TableCell><Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
+            {release.coverAssetId
+              ? <Link aria-label={`View ${release.title ?? 'untitled release'}`} to={`/releases/${encodeURIComponent(release.id)}/show`}>
+                <ArtworkImage assetId={release.coverAssetId} caption={`${release.title ?? 'Release'} cover thumbnail`} size={40} />
+              </Link>
+              : <Box sx={{ width: 40, height: 40, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: 'action.hover', borderRadius: 1 }}><AlbumIcon color="disabled" /></Box>}
+            <Link to={`/releases/${encodeURIComponent(release.id)}/show`}>{release.title ?? 'Untitled release'}</Link>
+          </Stack></TableCell>
+          <TableCell>{labelId
+            ? release.primaryArtists.length ? release.primaryArtists.map(credit =>
+              `${credit.creditedName ?? credit.artistName ?? credit.artistId}${credit.identityStatus === 'unresolved_compound' ? ' [unresolved compound]' : ''}`).join(', ') : 'Not recorded'
+            : release.labelId ? <Link to={`/labels/${encodeURIComponent(release.labelId)}/show`}>{release.labelName ?? release.labelId}</Link> : 'Not recorded'}</TableCell>
           <TableCell>{release.catalogNumber ?? 'Not recorded'}</TableCell><TableCell>{release.publishDate ?? 'Unknown'}</TableCell><TableCell>{release.placementCount}</TableCell>
         </TableRow>)}</TableBody>
       </Table>

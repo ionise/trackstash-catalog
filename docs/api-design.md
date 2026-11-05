@@ -18,6 +18,8 @@ Browsing requires schema 9+ and returns `409 release_schema_required` on schema 
 
 ### Managed Release artwork and provider candidates (schema 11)
 
+Release list summaries additionally include `primaryArtists` (ordered release-level `primary` credits only, using the same safe credit DTO as detail) and nullable `coverAssetId` (only the explicitly preferred `cover`). Clients fetch managed thumbnails through the existing protected asset route; no remote URLs or image bytes are embedded in the listing. Schema 9/10 returns null cover IDs without requiring artwork migration. Label-scoped GUI lists replace the Label column with these primary credits.
+
 All routes are bearer/origin protected, cancellable and no-store. Release artwork uses the Release aggregate ETag. Artwork on schema 9/10 returns `409 release_artwork_unavailable` without upgrading the database.
 
 | Method | Route | Purpose |

@@ -7,7 +7,7 @@ namespace TrackStash.Catalog.Api;
 
 /// <summary>A canonical catalog release listing, independent of purchases and media files.</summary>
 public sealed record ReleaseSummaryResponse(string Id, string? Title, string? CatalogNumber, string? PublishDate,
-    string? LabelId, string? LabelName, int PlacementCount);
+    string? LabelId, string? LabelName, int PlacementCount, IReadOnlyList<ReleaseCreditResponse> PrimaryArtists, string? CoverAssetId);
 /// <summary>A stable title/ID ordered release page, optionally restricted to a linked Label.</summary>
 public sealed record ReleaseListResponse(IReadOnlyList<ReleaseSummaryResponse> Items, int Total, int Page, int PageSize);
 /// <summary>A canonical label linked to a release.</summary>
@@ -59,8 +59,10 @@ internal static class ReleaseEndpoints
     private static async Task<IResult> List(HttpContext context, IReleaseService service, CancellationToken ct)
     {
         var result = await service.QueryAsync(Query(context.Request), ct); Headers(context);
-        return TypedResults.Ok(new ReleaseListResponse(result.Items.Select(r =>
-            new ReleaseSummaryResponse(r.Id, r.Title, r.CatalogNumber, r.PublishDate, r.LabelId, r.LabelName, r.PlacementCount)).ToArray(),
+        return TypedResults.Ok(new ReleaseListResponse(result.Items.Select(item =>
+            new ReleaseSummaryResponse(item.Release.Id, item.Release.Title, item.Release.CatalogNumber, item.Release.PublishDate,
+                item.Release.LabelId, item.Release.LabelName, item.Release.PlacementCount,
+                item.PrimaryArtists.Select(Credit).ToArray(), item.CoverAssetId)).ToArray(),
             result.Total, result.Page, result.PageSize));
     }
     private static ReleaseCreditResponse Credit(ReleaseContributorDetail c) => new(c.ArtistId, c.ArtistName, c.CreditedName, c.Role, c.Position, c.IdentityStatus);

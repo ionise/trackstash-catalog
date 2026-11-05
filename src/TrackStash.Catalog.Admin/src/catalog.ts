@@ -83,6 +83,7 @@ export interface ImportOutcome {
 export interface CatalogRelease {
   id: string; title: string | null; catalogNumber: string | null; publishDate: string | null
   labelId: string | null; labelName: string | null; placementCount: number
+  primaryArtists: ReleaseCredit[]; coverAssetId: string | null
 }
 export interface ReleaseCredit {
   artistId: string; artistName: string | null; creditedName: string | null; role: string

@@ -13,11 +13,14 @@ public sealed record ReleaseTrackDetail(string PlacementId, string RecordingId, 
     string? Isrc, long? DurationMs, int DisplayOrder, int? SourcePosition, string OrderSource, int? DiscNumber, int? TrackNumber,
     IReadOnlyList<ReleaseContributorDetail> Credits, IReadOnlyList<ReleaseReferenceDetail> ExternalReferences);
 public sealed record ReleaseTrackPage(IReadOnlyList<ReleaseTrackDetail> Items, int Total, int Page, int PageSize);
+public sealed record ReleaseListItem(CatalogReleaseSummary Release, IReadOnlyList<ReleaseContributorDetail> PrimaryArtists,
+    string? CoverAssetId);
+public sealed record ReleaseListPage(IReadOnlyList<ReleaseListItem> Items, int Total, int Page, int PageSize);
 public sealed class ReleaseBrowseUnavailableException : Exception;
 
 public interface IReleaseService
 {
-    ValueTask<CatalogReleasePage> QueryAsync(ReleaseQuery query, CancellationToken cancellationToken = default);
+    ValueTask<ReleaseListPage> QueryAsync(ReleaseQuery query, CancellationToken cancellationToken = default);
     ValueTask<CatalogReleaseDetail?> GetAsync(string id, CancellationToken cancellationToken = default);
     ValueTask<ReleaseTrackPage?> TracksAsync(string id, ReleaseQuery query, CancellationToken cancellationToken = default);
 }
@@ -29,11 +32,22 @@ public sealed class ReleaseService(IStorageProvider storage) : IReleaseService
         if (await storage.Migrations.GetCurrentVersionAsync(ct).ConfigureAwait(false) < 9)
             throw new ReleaseBrowseUnavailableException();
     }
-    public async ValueTask<CatalogReleasePage> QueryAsync(ReleaseQuery query, CancellationToken cancellationToken = default)
+    public async ValueTask<ReleaseListPage> QueryAsync(ReleaseQuery query, CancellationToken cancellationToken = default)
     {
         query.Validate(); await Ready(cancellationToken).ConfigureAwait(false);
         await using var unit = await storage.BeginUnitOfWorkAsync(cancellationToken).ConfigureAwait(false);
-        return await unit.Releases.QueryAsync(query, cancellationToken).ConfigureAwait(false);
+        var page = await unit.Releases.QueryAsync(query, cancellationToken).ConfigureAwait(false);
+        var hasArtwork = await storage.Migrations.GetCurrentVersionAsync(cancellationToken).ConfigureAwait(false) >= 11;
+        var items = new List<ReleaseListItem>();
+        var artists = new Dictionary<string, Artist>(StringComparer.Ordinal);
+        foreach (var release in page.Items)
+        {
+            var credits = await unit.CatalogFoundations!.GetCreditsAsync(CatalogEntityKind.Release, release.Id, cancellationToken).ConfigureAwait(false);
+            var primary = await Credits(unit, credits.Where(c => c.Role == "primary").ToArray(), artists, cancellationToken).ConfigureAwait(false);
+            var gallery = hasArtwork ? await unit.Artwork.GetReleaseGalleryAsync(release.Id, cancellationToken).ConfigureAwait(false) : null;
+            items.Add(new(release, primary, gallery?.Items.SingleOrDefault(i => i.IsPreferred && i.Role == "cover")?.AssetId));
+        }
+        return new(items, page.Total, page.Page, page.PageSize);
     }
     private static async Task<IReadOnlyList<ReleaseContributorDetail>> Credits(IUnitOfWork unit, IReadOnlyList<CatalogCredit> credits,
         Dictionary<string, Artist> artists, CancellationToken ct)

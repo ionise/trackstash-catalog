@@ -59,6 +59,10 @@ public sealed partial class LabelApiTests
         Assert.Equal("2020-01-01", detail.PublishDate); Assert.Equal("2020-01-02", detail.NewReleaseDate);
         Assert.Equal("source-label", Assert.Single(detail.Labels).Id);
         Assert.Equal(3, detail.Credits.Count); Assert.Contains(detail.Credits, c => c.Role == "remixer" && c.IdentityStatus == "unresolved_compound");
+        var listing = (await _client.GetFromJsonAsync<ReleaseListResponse>("/api/v1/releases?labelId=source-label"))!;
+        var summary = Assert.Single(listing.Items);
+        Assert.Equal(detail.Credits.Where(c => c.Role == "primary").ToArray(), summary.PrimaryArtists);
+        Assert.NotEmpty(summary.PrimaryArtists); Assert.Null(summary.CoverAssetId);
         var trackResponse = await _client.GetAsync($"/api/v1/releases/{outcome.ReleaseId}/tracks?page=1&pageSize=1");
         var tracks = (await trackResponse.Content.ReadFromJsonAsync<ReleaseTracksResponse>())!;
         var track = Assert.Single(tracks.Items);

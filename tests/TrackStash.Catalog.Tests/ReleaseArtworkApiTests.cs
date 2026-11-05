@@ -41,6 +41,9 @@ public sealed partial class LabelApiTests
         Assert.NotEqual(initial.Headers.ETag.ToString(), upload.Headers.ETag!.ToString());
         var first = Assert.Single((await upload.Content.ReadFromJsonAsync<ReleaseArtworkResponse>())!.Items);
         Assert.Equal("cover", first.Role); Assert.True(first.IsPreferred);
+        var list = (await _client.GetFromJsonAsync<ReleaseListResponse>("/api/v1/releases"))!;
+        Assert.Equal(first.AssetId, Assert.Single(list.Items).CoverAssetId);
+        Assert.Empty(list.Items[0].PrimaryArtists);
         Assert.Equal(ImageBytes(), await _client.GetByteArrayAsync(upload.Headers.Location!));
         await ProblemAsync(await ReleaseUpload(id, initial.Headers.ETag.ToString()), 412, "stale_version");
         Assert.Equal(1, await ImportCount("artwork_asset"));
@@ -53,6 +56,7 @@ public sealed partial class LabelApiTests
         var detached = await _client.SendAsync(request);
         Assert.Equal(HttpStatusCode.OK, detached.StatusCode);
         Assert.Empty((await detached.Content.ReadFromJsonAsync<ReleaseArtworkResponse>())!.Items);
+        Assert.Null(Assert.Single((await _client.GetFromJsonAsync<ReleaseListResponse>("/api/v1/releases"))!.Items).CoverAssetId);
         Assert.Equal(2, await ImportCount("artwork_asset")); Assert.Equal(3, await ImportCount("release_artwork_revision"));
         Assert.Equal(ImageBytes(), await _client.GetByteArrayAsync(first.OriginalUrl));
         await using (var unit = await Provider.BeginUnitOfWorkAsync())
@@ -100,6 +104,7 @@ public sealed partial class LabelApiTests
     {
         var id = await ArtworkRelease(); await ImportSql("DELETE FROM schema_migration WHERE version=11");
         Assert.Equal(HttpStatusCode.OK, (await _client.GetAsync($"/api/v1/releases/{id}")).StatusCode);
+        Assert.Null(Assert.Single((await _client.GetFromJsonAsync<ReleaseListResponse>("/api/v1/releases"))!.Items).CoverAssetId);
         await ProblemAsync(await _client.GetAsync($"/api/v1/releases/{id}/artwork"), 409, "release_artwork_unavailable");
         await ProblemAsync(await _client.GetAsync($"/api/v1/releases/{id}/artwork-candidates"), 409, "release_artwork_unavailable");
         await ProblemAsync(await ReleaseUpload(id, null), 428, "precondition_required");
