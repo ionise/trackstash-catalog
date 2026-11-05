@@ -20,6 +20,8 @@ Build the frontend **before** building/publishing the API. The API project copie
 
 The app supports:
 
+- **Backup type selection** separates Catalog + artwork from Scanner inventory. Scanner backup requires the server's `CatalogApi__ScannerDatabasePath` or `TRACKSTASH_SCAN_DATABASE_PATH`; without it, the option is disabled with configuration guidance. Scanner ZIPs contain the entire scanner database but no audio files or external sidecars. Retention and saved lists are separate per source/type.
+
 - **System → Backup** in the sidebar: create a verified timestamped catalog/artwork ZIP on the server, follow progress, refresh saved archives and download the same ZIP. The newest 10 verified backups per catalog are retained. Save File-capable browsers stream downloads; other browsers have a 128 MiB in-memory limit. See [backup operations](../../docs/catalog-backups.md). No GUI restore or arbitrary browser-supplied server paths. The original `/backups` admin URL still works; an empty list is normal before the first backup. Restart the API after updating its backend, not just rebuilding the GUI.
 
 - Search canonical names/aliases, sort by name/sort name/ID, and page results (10, 25, 50, or 100).

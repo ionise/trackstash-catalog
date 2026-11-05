@@ -8,6 +8,35 @@ namespace TrackStash.Catalog.Tests;
 public sealed class CommandLineIntegrationTests
 {
     [Fact]
+    public async Task ScannerBackup_VerifyRestoreAndWrongScopeRunThroughCli()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"scanner-cli-backup-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var database = Path.Combine(directory, "scanner.db");
+            await ScannerInventoryFixture.CreateAsync(database);
+            var root = Path.Combine(directory, "backups");
+            var created = await RunCatalogCliAsync($"backup --kind scanner --db-path \"{database}\" --backup-root \"{root}\" --output json");
+            Assert.True(created.ExitCode == 0, created.StdErr + created.StdOut);
+            var archive = Assert.Single(Directory.GetFiles(root, "*.zip"));
+            var verify = await RunCatalogCliAsync($"verify-backup --kind scanner --file \"{archive}\" --backup-root \"{root}\" --output json");
+            Assert.True(verify.ExitCode == 0, verify.StdErr + verify.StdOut);
+            var wrongScope = await RunCatalogCliAsync($"verify-backup --file \"{archive}\" --backup-root \"{root}\" --output json");
+            Assert.Equal(1, wrongScope.ExitCode);
+            var destination = Path.Combine(directory, "restore");
+            var restore = await RunCatalogCliAsync($"restore-backup --kind scanner --file \"{archive}\" --destination \"{destination}\" --backup-root \"{root}\" --output json");
+            Assert.True(restore.ExitCode == 0, restore.StdErr + restore.StdOut);
+            Assert.True(File.Exists(Path.Combine(destination, "inventory.db")));
+            var service = new TrackStash.Core.Storage.CatalogBackupService(new SqliteScannerSnapshotSource(database), null, root);
+            await using var download = await service.OpenDownloadAsync((await service.ListAsync())[0].Id);
+            var busy = await RunCatalogCliAsync($"backup --kind scanner --db-path \"{database}\" --backup-root \"{root}\" --output json");
+            Assert.Equal(1, busy.ExitCode);
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
+    [Fact]
     public async Task Backup_VerifyAndRestore_RunThroughNativeCliWithoutRequiringLiveDatabaseForRestore()
     {
         var directory = Path.Combine(Path.GetTempPath(), $"catalog-cli-backup-{Guid.NewGuid():N}");

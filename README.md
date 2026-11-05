@@ -4,7 +4,7 @@ Canonical catalog and lifecycle operations module for TrackStash.
 
 ## Overview
 
-Catalog + artwork ZIP backup, verification and safe separate-directory restore are available through the shared native service, CLI and admin GUI. See [catalog backups](docs/catalog-backups.md) for destination configuration, newest-10 retention, authenticated download and restore instructions.
+Catalog + artwork and separately configured scanner inventory ZIP backup, verification and safe separate-directory restore are available through the shared native service, CLI and **System → Backup** admin GUI. Set `CatalogApi__ScannerDatabasePath` (or `TRACKSTASH_SCAN_DATABASE_PATH`) to enable scanner backups; CLI uses `--kind scanner`. Neither type copies audio/media files. See [database backups](docs/catalog-backups.md) for configuration, newest-10 retention per database/type, authenticated download and restore instructions.
 
 `trackstash-catalog` owns the day-2 catalog workflows that happen after storage has been initialized.
 It builds on shared contracts and services from `trackstash-core` and leaves first-run setup to `trackstash-bootstrap`.

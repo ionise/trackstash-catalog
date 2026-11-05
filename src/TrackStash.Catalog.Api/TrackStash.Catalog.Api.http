@@ -9,6 +9,7 @@
 @artworkEntryId = replace-with-gallery-entry-id
 @backupJobId = replace-with-job-id
 @backupId = replace-with-backup-id
+@scannerBackupId = replace-with-scanner-backup-id
 
 ### Authenticated OpenAPI
 GET {{baseUrl}}/openapi/v1.json
@@ -175,4 +176,20 @@ Authorization: Bearer {{apiKey}}
 
 ### Missing backup returns Problem Details
 GET {{baseUrl}}/api/v1/backups/not-found/download
+Authorization: Bearer {{apiKey}}
+
+### Discover configured backup scopes (no source paths)
+GET {{baseUrl}}/api/v1/backup-sources
+Authorization: Bearer {{apiKey}}
+
+### List scanner inventory backups (409 until scanner database path is configured)
+GET {{baseUrl}}/api/v1/backups?kind=scanner
+Authorization: Bearer {{apiKey}}
+
+### Start scanner inventory backup (empty body)
+POST {{baseUrl}}/api/v1/backup-jobs?kind=scanner
+Authorization: Bearer {{apiKey}}
+
+### Download saved scanner ZIP (job status uses the same backup-jobs/{id} endpoint above)
+GET {{baseUrl}}/api/v1/backups/{{scannerBackupId}}/download?kind=scanner
 Authorization: Bearer {{apiKey}}

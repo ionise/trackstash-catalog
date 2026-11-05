@@ -57,6 +57,7 @@ public static class CatalogApiHost
         builder.Services.AddSingleton<ICatalogBackupService>(services => new CatalogBackupService(
             new SqliteCatalogSnapshotSource(builder.Configuration["CatalogApi:DatabasePath"]!),
             services.GetRequiredService<IArtworkContentStore>(), builder.Configuration["CatalogApi:BackupRoot"]));
+        builder.Services.AddSingleton<BackupSources>();
         builder.Services.AddSingleton<BackupJobs>();
         builder.Services.AddHostedService(services => services.GetRequiredService<BackupJobs>());
         builder.Services.AddHostedService<CatalogReadinessCheck>();

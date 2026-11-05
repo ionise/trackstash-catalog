@@ -37,6 +37,47 @@ test('missing backup route gives a restart instruction rather than an empty-list
   await expect(page.getByText('No saved backups for this catalog.', { exact: true })).toHaveCount(0)
 })
 
+test('scanner inventory is a separate backup type with verified saved ZIP downloads', async ({ page, request }) => {
+  await page.goto('/admin/#/backups')
+  await page.getByLabel('API key').fill(key)
+  await page.getByRole('button', { name: 'Connect', exact: true }).click()
+  await page.getByRole('combobox', { name: 'Backup type' }).click()
+  await page.getByRole('option', { name: 'Scanner inventory', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Scanner inventory backups', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Create backup', exact: true }).click()
+  await expect(page.getByRole('alert').filter({ hasText: 'Verified and saved' })).toBeVisible({ timeout: 30_000 })
+  const list = await (await request.get('/api/v1/backups?kind=scanner', { headers })).json()
+  const backup = list.items[0]
+  expect(backup.filename).toMatch(/^trackstash-scanner-\d{8}T\d{6}Z-[a-f0-9]{32}\.zip$/)
+  await page.evaluate(() => { Object.defineProperty(window, 'showSaveFilePicker', { value: undefined, configurable: true }) })
+  const event = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Download ZIP', exact: true }).first().click()
+  const download = await event
+  expect(download.suggestedFilename()).toBe(backup.filename)
+  const received = await readFile((await download.path())!)
+  const stored = await request.get(`/api/v1/backups/${backup.id}/download?kind=scanner`, { headers })
+  expect(received).toEqual(await stored.body())
+  expect((await request.get(`/api/v1/backups/${backup.id}/download`, { headers })).status()).toBe(404)
+  await page.getByRole('combobox', { name: 'Backup type' }).click()
+  await page.getByRole('option', { name: 'Catalog + artwork', exact: true }).click()
+  await expect(page.getByText(backup.filename, { exact: true })).toHaveCount(0)
+})
+
+test('unconfigured scanner backups are explained without accepting a browser source path', async ({ page }) => {
+  await page.route('**/api/v1/backup-sources', route => route.fulfill({
+    contentType: 'application/json', body: JSON.stringify([
+      { kind: 'catalog', name: 'Catalog + artwork', configured: true },
+      { kind: 'scanner', name: 'Scanner inventory', configured: false },
+    ]),
+  }))
+  await page.goto('/admin/#/backups')
+  await page.getByLabel('API key').fill(key)
+  await page.getByRole('button', { name: 'Connect', exact: true }).click()
+  await expect(page.getByRole('alert').filter({ hasText: 'Scanner inventory backup is not configured' })).toBeVisible()
+  await page.getByRole('combobox', { name: 'Backup type' }).click()
+  await expect(page.getByRole('option', { name: 'Scanner inventory', exact: true })).toBeDisabled()
+})
+
 test('admin creates a persistent timestamped backup and downloads the same ZIP', async ({ page, request }) => {
   const errors: string[] = []
   page.on('pageerror', error => errors.push(error.message))

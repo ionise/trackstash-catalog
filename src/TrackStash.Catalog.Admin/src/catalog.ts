@@ -77,10 +77,12 @@ export interface ArtworkItem extends ArtworkEntry {
 }
 export interface ArtworkGallery { labelId: string; items: ArtworkItem[]; etag: string }
 export interface BackupInfo { id: string; filename: string; createdUtc: string; bytes: number }
+export type BackupKind = 'catalog' | 'scanner'
+export interface BackupSource { kind: BackupKind; name: string; configured: boolean }
 export interface BackupList { items: BackupInfo[]; retainNewest: number }
 export interface BackupJob {
   id: string; status: string; stage: string; createdUtc: string
-  backup?: BackupInfo; warnings?: string[]; error?: string
+  backup?: BackupInfo; warnings?: string[]; error?: string; kind?: BackupKind
 }
 
 export function createCatalogClient(fetcher: typeof fetch = fetch) {
@@ -95,7 +97,7 @@ export function createCatalogClient(fetcher: typeof fetch = fetch) {
     })
     if (!response.ok) {
       const problem: Problem = await response.json()
-      const message = response.status === 404 && resource === 'backups' && path === ''
+      const message = response.status === 404 && (resource === 'backup-sources' || resource === 'backups' && (path === '' || path.startsWith('?')))
         ? 'The running catalog API does not provide backup support. Restart the API with the updated backend, then refresh backups.'
         : response.status === 412 && problem.code !== 'merge_state_changed'
         ? 'This label changed since you opened it. Your edit was not saved. Reload the label before editing again.'
@@ -248,12 +250,15 @@ export function createCatalogClient(fetcher: typeof fetch = fetch) {
       (await request(`/${encodeURIComponent(assetId)}/${original ? 'original' : 'thumbnail'}`, { signal }, 'artwork-assets')).blob(),
   }
   const backupsClient = {
-    list: async (signal?: AbortSignal): Promise<BackupList> => (await request('', { signal }, 'backups')).json(),
-    start: async (): Promise<BackupJob> => (await request('', { method: 'POST' }, 'backup-jobs')).json(),
+    sources: async (signal?: AbortSignal): Promise<BackupSource[]> => (await request('', { signal }, 'backup-sources')).json(),
+    list: async (signal?: AbortSignal, kind: BackupKind = 'catalog'): Promise<BackupList> =>
+      (await request(kind === 'catalog' ? '' : '?kind=scanner', { signal }, 'backups')).json(),
+    start: async (kind: BackupKind = 'catalog'): Promise<BackupJob> =>
+      (await request(kind === 'catalog' ? '' : '?kind=scanner', { method: 'POST' }, 'backup-jobs')).json(),
     job: async (id: string, signal?: AbortSignal): Promise<BackupJob> =>
       (await request(`/${encodeURIComponent(id)}`, { signal }, 'backup-jobs')).json(),
-    download: async (id: string, signal?: AbortSignal) =>
-      request(`/${encodeURIComponent(id)}/download`, { signal }, 'backups'),
+    download: async (id: string, signal?: AbortSignal, kind: BackupKind = 'catalog') =>
+      request(`/${encodeURIComponent(id)}/download${kind === 'scanner' ? '?kind=scanner' : ''}`, { signal }, 'backups'),
   }
   return { dataProvider, authProvider, mergeClient, artworkClient, backupsClient }
 }

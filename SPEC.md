@@ -39,6 +39,7 @@ In scope for the first delivery phases:
 - loopback-only bearer-key HTTP host for label query/read/create/edit and child inspection
 - manual label description, links, location/lifecycle, notes, favourite and review status through conditional profile replacement, with immutable revision history and profile-aware merges
 - shared artwork assets with external managed files, protected upload/serving, and label galleries with source/rights, ordered associations, atomic replacement and survivor-first merge transfer (migration 6)
+- separately configured scanner inventory database ZIP backup through shared native snapshot/archive services and CLI/admin clients; no scanner migrations, media copying or live overwrite
 - schema-only future source observations and parent/imprint/distributor relationships; provider enrichment, relationship workflows, and label embeddings remain deferred
 
 Out of scope for the first delivery phases:

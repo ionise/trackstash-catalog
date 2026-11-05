@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Configuration;
 using TrackStash.Catalog.Api;
 using TrackStash.Core.Storage;
 
@@ -11,6 +12,59 @@ namespace TrackStash.Catalog.Tests;
 
 public sealed partial class LabelApiTests
 {
+    [Fact]
+    public async Task ScannerBackupApi_ConfigurationAuthScopeAndRoundTrip()
+    {
+        var sources = (await _client.GetFromJsonAsync<BackupSourceResponse[]>("/api/v1/backup-sources"))!;
+        Assert.False(Assert.Single(sources, s => s.Kind == "scanner").Configured);
+        await ProblemAsync(await _client.GetAsync("/api/v1/backups?kind=scanner"), 409, "scanner_not_configured");
+        await ProblemAsync(await _client.PostAsync("/api/v1/backup-jobs?kind=scanner", null), 409, "scanner_not_configured");
+        await ProblemAsync(await _client.GetAsync("/api/v1/backups?kind=unknown"), 400, "invalid_backup_kind");
+        using (var anonymous = _app.GetTestClient())
+        {
+            await ProblemAsync(await anonymous.GetAsync("/api/v1/backup-sources"), 401, "unauthorized");
+            await ProblemAsync(await anonymous.PostAsync("/api/v1/backup-jobs?kind=scanner", null), 401, "unauthorized");
+        }
+        await ScannerInventoryFixture.CreateAsync(_path + ".scanner");
+        await using (var scanner = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={_path}.scanner;Pooling=False"))
+        {
+            await scanner.OpenAsync();
+            using var command = scanner.CreateCommand();
+            command.CommandText = "PRAGMA foreign_keys=OFF; INSERT INTO metadata VALUES(2,999,'a','b','c')";
+            await command.ExecuteNonQueryAsync();
+        }
+        await _app.StopAsync();
+        await _app.DisposeAsync();
+        _client.Dispose();
+        _app = Build(builder => builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["CatalogApi:ScannerDatabasePath"] = _path + ".scanner",
+        }));
+        await _app.StartAsync();
+        _client = _app.GetTestClient();
+        _client.DefaultRequestHeaders.Authorization = new("Bearer", Key);
+        sources = (await _client.GetFromJsonAsync<BackupSourceResponse[]>("/api/v1/backup-sources"))!;
+        Assert.True(Assert.Single(sources, s => s.Kind == "scanner").Configured);
+        Assert.Empty((await _client.GetFromJsonAsync<BackupListResponse>("/api/v1/backups?kind=scanner"))!.Items);
+        await ProblemAsync(await _client.PostAsJsonAsync("/api/v1/backup-jobs?kind=scanner", new { path = _path }), 400, "invalid_request");
+        var response = await _client.PostAsync("/api/v1/backup-jobs?kind=scanner", null);
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        var queued = (await response.Content.ReadFromJsonAsync<BackupJobResponse>())!;
+        var job = await WaitBackupAsync(queued.Id);
+        Assert.Equal("scanner", job.Kind);
+        Assert.Equal("completed", job.Status);
+        Assert.Contains("1 foreign-key violations", Assert.Single(job.Warnings!));
+        var backup = Assert.Single((await _client.GetFromJsonAsync<BackupListResponse>("/api/v1/backups?kind=scanner"))!.Items);
+        Assert.Empty((await _client.GetFromJsonAsync<BackupListResponse>("/api/v1/backups"))!.Items);
+        await ProblemAsync(await _client.GetAsync($"/api/v1/backups/{backup.Id}/download"), 404, "backup_not_found");
+        var download = await _client.GetAsync($"/api/v1/backups/{backup.Id}/download?kind=scanner");
+        Assert.Equal(HttpStatusCode.OK, download.StatusCode);
+        var bytes = await download.Content.ReadAsByteArrayAsync();
+        Assert.Equal(await File.ReadAllBytesAsync(Path.Combine(_path + ".backups", backup.Filename)), bytes);
+        using var zip = new ZipArchive(new MemoryStream(bytes));
+        Assert.Equal(new[] { "inventory.db", "manifest.json" }, zip.Entries.Select(e => e.FullName).OrderBy(n => n).ToArray());
+    }
+
     private async Task<BackupJobResponse> WaitBackupAsync(string id)
     {
         for (var attempt = 0; attempt < 100; attempt++)

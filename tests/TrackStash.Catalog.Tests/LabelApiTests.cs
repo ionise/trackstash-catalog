@@ -41,6 +41,7 @@ public sealed partial class LabelApiTests : IAsyncLifetime
             {
                 ["CatalogApi:ApiKey"] = Key, ["CatalogApi:DatabasePath"] = _path, ["CatalogApi:ArtworkRoot"] = _path + ".artwork",
                 ["CatalogApi:BackupRoot"] = _path + ".backups",
+                ["CatalogApi:ScannerDatabasePath"] = "",
             });
             builder.WebHost.UseTestServer();
             configure?.Invoke(builder);
@@ -52,6 +53,7 @@ public sealed partial class LabelApiTests : IAsyncLifetime
         await _app.DisposeAsync();
         SqliteConnection.ClearAllPools();
         File.Delete(_path);
+        File.Delete(_path + ".scanner");
         if (Directory.Exists(_path + ".artwork")) Directory.Delete(_path + ".artwork", recursive: true);
         if (Directory.Exists(_path + ".backups")) Directory.Delete(_path + ".backups", recursive: true);
     }

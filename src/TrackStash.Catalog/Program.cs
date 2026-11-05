@@ -60,12 +60,20 @@ static async Task<int> RunAsync(string[] args)
 static async Task<int> RunBackupAsync(string command, CatalogConfig config,
     IReadOnlyDictionary<string, string?> options, bool jsonMode)
 {
-    var target = command == "backup" ? ResolveCatalogTarget(config)
+    var kind = GetOption(options, "kind") ?? "catalog";
+    if (kind is not ("catalog" or "scanner")) throw new ArgumentException("Backup kind must be catalog or scanner.");
+    var target = command == "backup" && kind == "scanner"
+        ? new ResolvedCatalogTarget("scanner", "sqlite", Path.GetFullPath(
+            GetOption(options, "db-path") ?? Environment.GetEnvironmentVariable("TRACKSTASH_SCAN_DATABASE_PATH")
+            ?? throw new ArgumentException("Scanner backup requires --db-path or TRACKSTASH_SCAN_DATABASE_PATH.")))
+        : command == "backup" ? ResolveCatalogTarget(config)
         : new ResolvedCatalogTarget("backup", "sqlite", Path.GetFullPath(GetRequiredOption(options, "file")));
     if (!string.Equals(target.Provider, "sqlite", StringComparison.OrdinalIgnoreCase))
         throw new ArgumentException("Catalog backups currently support SQLite only.");
-    var service = new CatalogBackupService(new SqliteCatalogSnapshotSource(target.DatabasePath),
-        new ManagedArtworkStore(GetOption(options, "artwork-root")), GetOption(options, "backup-root"));
+    ICatalogSnapshotSource source = kind == "scanner" ? new SqliteScannerSnapshotSource(target.DatabasePath)
+        : new SqliteCatalogSnapshotSource(target.DatabasePath);
+    var service = new CatalogBackupService(source,
+        kind == "catalog" ? new ManagedArtworkStore(GetOption(options, "artwork-root")) : null, GetOption(options, "backup-root"));
     object result;
     switch (command)
     {
@@ -78,7 +86,8 @@ static async Task<int> RunBackupAsync(string command, CatalogConfig config,
         default:
             var destination = GetRequiredOption(options, "destination");
             await service.RestoreAsync(GetRequiredOption(options, "file"), destination);
-            result = new { destination, database = Path.Combine(destination, "catalog.db"), artworkRoot = Path.Combine(destination, "artwork") };
+            result = new { destination, database = Path.Combine(destination, kind == "scanner" ? "inventory.db" : "catalog.db"),
+                artworkRoot = kind == "catalog" ? Path.Combine(destination, "artwork") : null };
             break;
     }
     if (jsonMode) CommandOutput.WriteJson(command, ok: true, exitCode: 0, data: result);
@@ -626,8 +635,9 @@ static void PrintUsage()
 {
     Console.WriteLine("Usage:");
     Console.WriteLine("  trackstash-catalog backup [--db-path <path>] [--artwork-root <path>] [--backup-root <path>] [--output json]");
-    Console.WriteLine("  trackstash-catalog verify-backup --file <backup.zip> [--backup-root <path>] [--output json]");
-    Console.WriteLine("  trackstash-catalog restore-backup --file <backup.zip> --destination <new-directory> [--backup-root <path>] [--output json]");
+    Console.WriteLine("  trackstash-catalog backup --kind scanner --db-path <inventory.db> [--backup-root <path>] [--output json]");
+    Console.WriteLine("  trackstash-catalog verify-backup --file <backup.zip> [--kind catalog|scanner] [--backup-root <path>] [--output json]");
+    Console.WriteLine("  trackstash-catalog restore-backup --file <backup.zip> --destination <new-directory> [--kind catalog|scanner] [--backup-root <path>] [--output json]");
     Console.WriteLine("  trackstash-catalog import-csv    [--catalog <name>] [--db-path <path>] --file <path.csv> [--dry-run] [--fail-fast] [--output json]");
     Console.WriteLine("  trackstash-catalog summary       [--catalog <name>] [--db-path <path>] [--output json]");
     Console.WriteLine("  trackstash-catalog delete-entity [--catalog <name>] [--db-path <path>] --type <label|artist|release|recording> --id <id> [--deleted-by <name>] [--reason <text>] [--output json]");

@@ -10,6 +10,22 @@ async function setup() {
   return { ...client, fetcher }
 }
 describe('backup client', () => {
+  it('selects scanner scope for listing, jobs and authenticated downloads without accepting paths', async () => {
+    const { backupsClient, fetcher } = await setup()
+    fetcher.mockResolvedValueOnce(Response.json([{ kind: 'scanner', name: 'Scanner inventory', configured: true }]))
+    expect(await backupsClient.sources()).toEqual([{ kind: 'scanner', name: 'Scanner inventory', configured: true }])
+    fetcher.mockResolvedValueOnce(Response.json({ items: [], retainNewest: 10 }))
+    await backupsClient.list(undefined, 'scanner')
+    fetcher.mockResolvedValueOnce(Response.json({ id: 'one', kind: 'scanner', status: 'queued' }))
+    await backupsClient.start('scanner')
+    fetcher.mockResolvedValueOnce(new Response('zip'))
+    await backupsClient.download('one', undefined, 'scanner')
+    expect(fetcher.mock.calls.map(call => call[0])).toEqual([
+      '/api/v1/backup-sources', '/api/v1/backups?kind=scanner', '/api/v1/backup-jobs?kind=scanner',
+      '/api/v1/backups/one/download?kind=scanner',
+    ])
+    expect(fetcher.mock.calls[2][1]?.body).toBeUndefined()
+  })
   it('accepts an empty backup list without an error', async () => {
     const { backupsClient, fetcher } = await setup()
     fetcher.mockResolvedValueOnce(Response.json({ items: [], retainNewest: 10 }))
