@@ -81,6 +81,13 @@ public static class EntityYamlService
         if (mode == "update-only" && existingId is null)
             errors.Add($"Entity does not exist for {kind}; update-only requires a prior entity.");
 
+        if (mode == "replace" && kind is ("Artist" or "Release" or "Recording") && uow.EntityDelete is not null)
+        {
+            var analysis = await uow.EntityDelete.AnalyzeDependenciesAsync(kind.ToLowerInvariant(), finalId, uow, cancellationToken).ConfigureAwait(false);
+            if (analysis.Blockers.Any(b => b.TableName == "catalog_foundation_revision"))
+                errors.Add("Legacy replace cannot erase reviewed canonical credits/references or placement history. Use the conditional catalog workflow.");
+        }
+
         if (errors.Count > 0)
             return new EntityApplyResult(false, kind, mode, finalId, dryRun, actions, warnings, errors);
 

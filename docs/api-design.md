@@ -295,7 +295,15 @@ All routes use the existing bearer/origin policy and 16 KiB JSON cap (including 
 
 ### Planned Reviewed Release Import
 
-The [purchase-to-release import design](purchase-release-import-design.md) documents the next bounded workflow, grounded in raw Beatport cache inspection. It proposes read-only source candidates/bundles and reviewed atomic import of a complete release, label association, recording placements and individual artist/remixer credits. Proposed routes are **not available**. No scanner-media resolution or ownership inference is included; minimum Artist/Release/Recording and concurrency foundations must precede apply.
+The [purchase-to-release import design](purchase-release-import-design.md) documents the next bounded workflow, grounded in raw Beatport cache inspection. The read-only corpus inspector now implements `GET /api/v1/purchase-release-candidates` (`q`, `page`, `pageSize`) and `GET /api/v1/purchase-release-candidates/{releaseId}` (`page`, `pageSize`). Unknown/repeated query fields and invalid pagination/IDs return 400; non-corpus releases return 404; unavailable/unconfigured/unsupported sources return 503. Responses are bearer-protected and no-store. Pages are 1-based, pageSize is 1-100, search is a literal substring of the title or exact provider ID.
+
+Inspection returns `source`, `labelCandidates` (up to 100 active matches) and `labelCandidateCount`. `source.sourceComplete` concerns cached manifest/payload/credit consistency only, not identity acceptance. `source.tracks` is paged; diagnostics and `bundleDigest` cover the entire source bundle in a consistent read snapshot. Reads do not fetch, migrate, import, or establish receipt/media ownership. Missing/null/malformed source objects produce an incomplete inspection with explicit blockers, not invented metadata.
+
+Reviewed preview/apply routes remain **unavailable**. No scanner-media resolution or ownership inference is included; minimum Artist/Release/Recording and concurrency foundations must precede apply. See the [module configuration](../README.md#next-reviewed-purchase-to-release-import) for the server-defined scanner source; clients cannot supply database paths.
+
+## Planned user identity before private purchase history
+
+Future private purchase history and receipt-backed queues are gated by the [user identity design](user-identity-design.md): stable users, trusted authentication bindings, actor attribution and owner-scoped access. The current shared bearer key gates local access but does not establish a user principal. No user schema, login/session system or multi-user permissions are implemented by this design.
 
 ## List and Search Contract
 

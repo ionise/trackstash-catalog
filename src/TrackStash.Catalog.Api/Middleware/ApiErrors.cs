@@ -44,6 +44,9 @@ internal sealed class ApiExceptionHandler(ILogger<ApiExceptionHandler> logger) :
     {
         var (status, code, title, detail, field) = exception switch
         {
+            PurchaseSourceValidationException source => (400, "validation_failed", "Invalid source inspection request", (string?)source.Message, (string?)null),
+            PurchaseSourceUnavailableException => (503, "purchase_source_unavailable", "Purchase source unavailable",
+                (string?)"The read-only purchase source is unconfigured, unavailable or unsupported. Check server configuration and logs.", (string?)null),
             BackupBusyException => (409, "backup_busy", "Backup storage is busy", (string?)"Wait for the current backup or download to finish, then retry.", (string?)null),
             IOException or InvalidDataException or JsonException when context.Request.Path.StartsWithSegments("/api/v1/backups")
                 => (409, "backup_unavailable", "Backup storage unavailable",

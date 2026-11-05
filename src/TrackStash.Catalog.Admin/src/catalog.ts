@@ -109,6 +109,22 @@ export interface BackupJob {
   id: string; status: string; stage: string; createdUtc: string
   backup?: BackupInfo; warnings?: string[]; error?: string; kind?: BackupKind
 }
+export interface PurchaseCandidate { releaseId: number; title: string; sourceKind: string; hasCachedRelease: boolean }
+export interface SourceCredit { providerId: number; name: string; role: string; position: number }
+export interface SourceTrack {
+  sourcePosition: number; providerId: number | null; status: string; title: string | null
+  mixName: string | null; isrc: string | null; durationMs: number | null; credits: SourceCredit[]; retrievedUtc: string | null
+}
+export interface PurchaseInspection {
+  source: {
+    releaseId: number; sourceKind: string; title: string | null; label: { providerId: number; name: string } | null
+    catalogNumber: string | null; upc: string | null; publishDate: string | null; newReleaseDate: string | null
+    retrievedUtc: string | null; bundleDigest: string; sourceComplete: boolean; declaredTrackCount: number | null
+    manifestTrackCount: number; hydratedTrackCount: number; credits: SourceCredit[]; tracks: GroupPage<SourceTrack>
+    diagnostics: { code: string; severity: string; message: string; sourcePosition: number | null }[]
+  }
+  labelCandidates: RelatedLabel[]; labelCandidateCount: number
+}
 
 export function createCatalogClient(fetcher: typeof fetch = fetch) {
   let token: string | undefined
@@ -339,7 +355,13 @@ export function createCatalogClient(fetcher: typeof fetch = fetch) {
     download: async (id: string, signal?: AbortSignal, kind: BackupKind = 'catalog') =>
       request(`/${encodeURIComponent(id)}/download${kind === 'scanner' ? '?kind=scanner' : ''}`, { signal }, 'backups'),
   }
-  return { dataProvider, authProvider, mergeClient, artworkClient, backupsClient, relationshipsClient, groupClient }
+  const purchaseReleaseClient = {
+    list: async (page: number, search: string, signal?: AbortSignal): Promise<GroupPage<PurchaseCandidate>> =>
+      (await request(`?${new URLSearchParams({ page: String(page), pageSize: '25', q: search })}`, { signal }, 'purchase-release-candidates')).json(),
+    inspect: async (id: number, page: number, signal?: AbortSignal): Promise<PurchaseInspection> =>
+      (await request(`/${id}?page=${page}&pageSize=25`, { signal }, 'purchase-release-candidates')).json(),
+  }
+  return { dataProvider, authProvider, mergeClient, artworkClient, backupsClient, relationshipsClient, groupClient, purchaseReleaseClient }
 }
 
-export const { dataProvider, authProvider, mergeClient, artworkClient, backupsClient, relationshipsClient, groupClient } = createCatalogClient()
+export const { dataProvider, authProvider, mergeClient, artworkClient, backupsClient, relationshipsClient, groupClient, purchaseReleaseClient } = createCatalogClient()

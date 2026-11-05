@@ -38,14 +38,27 @@ See the [data-grounded release import design](docs/purchase-release-import-desig
 - [x] Inspect purchase corpus derivation, raw release/track JSON, structured artist/remixer identities, label reuse and current canonical constraints
 - [x] Design complete-release acquisition, artist identity/credit separation, recording/placement semantics, reviewed apply and migration/backup acceptance gates
 - [x] Confirm cache-first review, optional official numbering/manual display order, unresolved compound acceptance and later reviewed splitting; document canonical embedding lifecycle and transactional durable work
-- [ ] Build a read-only purchase/corpus queue and release-bundle inspector with explicit source completeness, unverified numbering and identity diagnostics
-- [ ] Implement minimal Artist/Release/Recording/placement/credit models, conditional versions and conflict-safe provider bindings using forward migrations
+- [x] Build a read-only corpus-flag queue and release-bundle inspector with explicit source completeness, unverified numbering and identity diagnostics, authenticated API and GUI; verify Block House without source/catalog writes
+- [ ] Add receipt-backed queue ingestion and deliberate bounded provider fetch/refresh after verifying adapter permissions/authentication/semantics; initial inspector uses cached corpus candidates only
+- [x] Implement minimal Artist/Release/Recording/placement/credit models, conditional versions and conflict-safe provider bindings using forward migration 9, tested on temporary databases only
 - [ ] Implement immutable import reviews and atomic idempotent apply, preserving curator decisions and permanent provenance/audit
-- [ ] Support conditional manual placement reordering and preserve it during reimport
+- [x] Implement conditional manual placement reordering in shared storage, retaining stable IDs, source positions and official numbers
+- [ ] Wire manual ordering into reviewed reimport reconciliation and GUI/API without resetting curator order
 - [ ] Prepare versioned Artist/Release/Recording embedding documents, dependent invalidation and transaction-enlisted durable work; activate and verify local generation separately after commit
-- [ ] Preserve unresolved compound identity/source-credit lineage in the initial foundation; later deliver reviewed one-to-many Artist splitting with per-occurrence reconciliation (not provider-ID duplication or a merge redirect)
+- [x] Preserve unresolved compound identity state and stable source-credit expression/path/evidence in the initial foundation
+- [ ] Deliver reviewed one-to-many Artist split resolution/editor with per-occurrence reconciliation (not provider-ID duplication or a merge redirect)
 - [ ] Deliver and verify one complete release end to end, then cover collaborators, compound identities, reissues and incomplete manifests before batching
 - [ ] Activate any future schema only after backup verification, rehearsal and separate live approval
+
+## User identity before private purchase history
+
+See the [single-user-first identity design](docs/user-identity-design.md). Shared catalog work can proceed; receipt-backed private queues and purchase history require this foundation first.
+
+- [x] Design stable user/authentication bindings, separate private ownership and actor attribution, future multi-user boundaries and migration/authorization gates
+- [ ] Implement forward user/identity schema and explicit local-owner provisioning; bind the existing server credential to an active user without storing its secret
+- [ ] Pass authenticated actor context through private workflows and enforce owner-scoped queries/operations before purchase-history ingestion
+- [ ] Preserve historical unknown actors; add verified attribution for new writes without rewriting immutable history
+- [ ] Before admitting a second user, define shared-catalog permissions, private settings migration and whole-catalog backup operator access
 
 ## Shared artwork infrastructure
 

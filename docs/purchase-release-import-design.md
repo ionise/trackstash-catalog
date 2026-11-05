@@ -1,6 +1,10 @@
 # Reviewed Purchase-to-Release Catalog Import
 
-Status: **design only; no import endpoints, new schema or live imports implemented**.
+Status: **read-only corpus inspector and minimum schema-9 canonical foundations implemented; reviewed import remains design only. No live migration or import has occurred**.
+
+The authenticated API and admin **Purchase releases** screen now provide a paged corpus-flag queue and cached release inspection. Tracks are paged; completeness diagnostics and the deterministic source digest cover the whole release snapshot. Label matches are candidates, not accepted bindings. Missing/null/malformed or contradictory cache observations are explicit blockers. No source writes, catalog imports, network refresh or receipt-accounting ingestion occur. See [configuration and routes](../README.md#next-reviewed-purchase-to-release-import).
+
+Initial inspection bounds: pageSize 1-100, search up to 200 characters, at most 2,000 manifest tracks, 4 MiB per parsed payload, 32 MiB total hydrated observations and 100 observations per track. Oversized/malformed release payloads produce explicit incomplete diagnostics; excessive aggregate observations or unsupported source schemas return source-unavailable errors. These are inspector limits, not an invented limit on future canonical release size. The source digest is an inspection fingerprint, not an immutable review token or apply authorization.
 
 This design replaces a wholesale artist-corpus import with a release-centred workflow. A purchase supplies an entry point; reviewed provider data supplies the label, complete release, track placements, recordings and individual artist credits. Media ownership and file resolution remain separate later work.
 
@@ -44,6 +48,8 @@ The suspicion about compounded artists needs nuance. There are 92 corpus names c
 No network refresh was performed. Current endpoint availability, authentication, paging/order semantics and permission to retain source data need verification when implementing the provider adapter.
 
 ## 2. Agreed scope and boundaries
+
+Private purchase history and receipt-backed queues require the [user identity and authorization foundation](user-identity-design.md) first. Stable users, authenticated actors and owner-scoped private records are separate from shared catalog entities. The current corpus inspector and shared catalog foundations can proceed without implying private purchase accounting or multi-user isolation.
 
 - Select one purchase/release at a time. A track purchase resolves to its containing release.
 - Preview and import the **entire release**, including unpurchased tracks.
@@ -197,9 +203,13 @@ Use a stable operation ID, immutable plan and strong original review ETag. Repla
 
 Reimporting a source release resolves existing references and produces an unchanged/no-op or explicit change preview, not duplicate entities. Cross-operation deduplication relies on atomic provider-reference ownership, not just the review ID.
 
-Proposed HTTP surface, **not implemented**:
+Implemented inspection surface:
 
-- `GET /api/v1/purchase-release-candidates`: paged configured-source candidates, with honest receipt/corpus distinction.
+- `GET /api/v1/purchase-release-candidates`: paged configured-source candidates, with explicit derived-corpus provenance.
+- `GET /api/v1/purchase-release-candidates/{releaseId}`: cached corpus release inspection, with paged tracks and whole-bundle diagnostics/digest. The initial queue is corpus-only, not receipt-backed.
+
+Proposed reviewed-import HTTP surface, **not implemented**:
+
 - `POST /api/v1/release-import-previews`: source candidate and reviewed choices; returns 201, Location and review ETag.
 - `GET /api/v1/release-import-previews/{id}`: frozen preview and outcome.
 - `POST /api/v1/release-import-previews/{id}/apply`: original If-Match, reason and deliberate confirmation.
@@ -234,6 +244,25 @@ No separate placement vector initially. Sparse Artists may use a name-only docum
 - Backup/restore and forward migration must preserve desired documents, template versions, generated hashes and durable work. Recover interrupted leases after restore; do not require a model to verify or restore a catalog backup.
 
 ## 6. Required core changes
+
+### Implemented minimum foundation (migration 9, temporary databases only)
+
+The shared [foundation contract](../../trackstash-core/src/TrackStash.Core/Storage/CatalogFoundations.cs) and [SQLite implementation](../../trackstash-core/src/TrackStash.Core.Sqlite/SqliteCatalogFoundationRepository.cs) extend the existing entities and placement table:
+
+- Artist/Release/Recording versions, conditional entity and metadata writes, Artist kind/unresolved-compound status, Release catalog number/UPC/separate source dates, and Recording duration.
+- Stable Release/Recording credit IDs, roles and repeated occurrences with credited expression, source/path and evidence. Placement credits remain a separate scope.
+- Stable placement IDs and tokens, repeated Recording appearances, source/display/official numbering distinction, unique provider track-listing ownership and conditional full-permutation manual reordering.
+- New provider-reference ownership guards and all-candidate lookups. Existing ambiguous legacy bindings are preserved and explicitly reported rather than guessed, dropped or silently constrained away.
+- Savepoint-protected multi-write operations and permanent before/after foundation operation history. Caller catch-and-commit cannot retain a partially failed entity/credit/placement save.
+- Schema 6/7/8/9 catalog backup verification/restore, including tokens, stable placements, credits and history. Restore preserves its archived schema.
+
+The existing model getters expose metadata/versions and enriched credit/placement details. Legacy ID-based upserts remain additive and preserve new scalar metadata; their pair-keyed credits/placements are marked legacy. They must retain enriched `Detail`/`Placement` projections when round-tripping stable records. Losing those details cannot silently duplicate or overwrite a stable credit/placement: it conflicts and rolls back. Legacy replacement/deletion is blocked for foundation history or richer state until lifecycle-safe restore exists. The legacy YAML surface is not the new conditional import API.
+
+Foundation metadata updates are full replacement of the typed metadata fields under an expected token; unknown values are null/default, not silent inferred data. Credit/placement saves are stable-ID upserts and add explicit supplied references/credits; omission does not delete existing observations. Removal/reconciliation must be designed in the immutable reviewed import workflow rather than performed through generic collection replacement.
+
+New shared-foundation operations require schema 9. The existing label/inspector-only API continues to require at least schema 8; no new Artist/Release/Recording HTTP editors or apply endpoints have been exposed. Do not upgrade the live catalog just to use the inspector. Artist split resolution/editor, reviewed import plans, embedding lifecycle, receipt accounting and user authentication are not implemented by this migration.
+
+The following table records the original gaps and remaining delivery intent; the rows covered above are now implemented, not a second schema proposal.
 
 The [current models](../../trackstash-core/src/TrackStash.Core/Storage/Models.cs) and actual migrations already have Artist, Release, Recording and repositories, but their current upserts are not this reviewed workflow.
 
@@ -274,12 +303,14 @@ The table above is sorted for readability, **not a verified official track order
 
 This pilot demonstrates one label/release, four distinct versioned Recording proposals, four placements, one primary Artist plus three remixers, and separate release-level remixer credits. Verify actual identity reuse at preview time. It is a corpus-flagged candidate, not a claim of verified receipt coverage or local ownership. No pilot import has occurred.
 
+The native read-only inspector has been verified against this live cached release: four hydrated tracks, separate primary/remixer roles, one active canonical label candidate and a stable source digest across track pages. Both live database SHA-256 hashes were unchanged by inspection. This validates the source inspector only, not a canonical import or recording-identity decision.
+
 After the pilot, cover a multi-primary-artist track, a genuine named duo, a malformed compound credit, a compilation/reissue with shared Recording candidates, and an incomplete manifest before scaling the queue.
 
 ## 8. Delivery and acceptance
 
-1. Implement a read-only bundle inspector and paged entry-point queue first, with no canonical writes. Expose missing details/order and structured credits.
-2. Extend the minimum Artist/Release/Recording/placement/credit/reference/version foundations and migrations, including unresolved compound state and split-ready provenance, preserving existing writers and data.
+1. Completed: read-only cached bundle inspector and paged corpus-flag queue, with no canonical writes. Expose missing details/order and structured credits. Receipt ingestion and deliberate provider refresh remain separate adapter work.
+2. Completed: minimum Artist/Release/Recording/placement/credit/reference/version foundations and migration 9, including unresolved compound state and source-credit expression/evidence for later split resolution, tested without live activation. The actual split-resolution workflow remains future work.
 3. Implement immutable review plans, candidate resolution and atomic idempotent apply with domain-specific audit, embedding text builders/invalidation and transaction-enlisted durable work.
 4. Deliver one complete release through GUI/API and conditional manual track reordering; label Releases/Artists/Tracks views can then derive real catalog associations with paging. Activate/test the local embedding processor separately after committed documents are verified.
 5. Validate backup/migration compatibility and separately approve rollout; proceed to batches only after the cases below pass.

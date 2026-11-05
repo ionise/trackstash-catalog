@@ -56,6 +56,17 @@ public static class CatalogApiHost
         builder.Services.TryAddScoped<ILabelMergeService, LabelMergeService>();
         builder.Services.TryAddScoped<ILabelRelationshipService, LabelRelationshipService>();
         builder.Services.TryAddScoped<ILabelGroupService, LabelGroupService>();
+        builder.Services.TryAddSingleton<IPurchaseReleaseSource>(_ =>
+        {
+            var path = builder.Configuration["CatalogApi:PurchaseSourceDatabasePath"];
+            if (string.IsNullOrWhiteSpace(path))
+                path = builder.Configuration["CatalogApi:ScannerDatabasePath"] ?? Environment.GetEnvironmentVariable("TRACKSTASH_SCAN_DATABASE_PATH");
+            if (string.IsNullOrWhiteSpace(path)) return new UnconfiguredPurchaseReleaseSource();
+            if (!Path.IsPathFullyQualified(path) || Path.GetFullPath(path) == Path.GetFullPath(builder.Configuration["CatalogApi:DatabasePath"]!))
+                throw new InvalidOperationException("Purchase source must be an absolute scanner inventory path, separate from the catalog.");
+            return new SqlitePurchaseReleaseSource(path);
+        });
+        builder.Services.TryAddScoped<IPurchaseReleaseInspector, PurchaseReleaseInspector>();
         builder.Services.AddSingleton<ICatalogBackupService>(services => new CatalogBackupService(
             new SqliteCatalogSnapshotSource(builder.Configuration["CatalogApi:DatabasePath"]!),
             services.GetRequiredService<IArtworkContentStore>(), builder.Configuration["CatalogApi:BackupRoot"]));
@@ -128,6 +139,7 @@ public static class CatalogApiHost
         var app = builder.Build();
         // Resolve configuration before accepting requests; no migrations or seeding run here.
         _ = app.Services.GetRequiredService<IStorageProvider>();
+        _ = app.Services.GetRequiredService<IPurchaseReleaseSource>();
         app.UseExceptionHandler();
         app.UseMiddleware<LocalAccessMiddleware>();
         app.UseCors();
@@ -144,6 +156,7 @@ public static class CatalogApiHost
         app.MapArtwork();
         app.MapLabelRelationships();
         app.MapLabelGroups();
+        app.MapPurchaseReleases();
         app.MapBackups();
         var webRoot = Path.Combine(AppContext.BaseDirectory, "wwwroot");
         if (File.Exists(Path.Combine(webRoot, "admin", "index.html")))

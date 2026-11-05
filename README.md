@@ -192,7 +192,18 @@ See the [implemented contract and remaining decisions](docs/api-design.md#implem
 
 ### Next: Reviewed Purchase-to-Release Import
 
-The [release-centred import design](docs/purchase-release-import-design.md) uses a purchase/corpus candidate to review one complete Beatport release, resolve its existing label, and create accepted recording placements and individual artist/remixer credits. It is **design only**, grounded in read-only inspection of current raw caches and corpus derivation. It does not import artists wholesale or assert media ownership. Artist, Release, Recording and credit foundations will be delivered together for this bounded workflow before scanner-media resolution.
+The [release-centred import design](docs/purchase-release-import-design.md) uses a purchase/corpus candidate to review one complete Beatport release, resolve its existing label, and create accepted recording placements and individual artist/remixer credits. The first **read-only inspector** is available in **Purchase releases** in the admin sidebar and through:
+
+- `GET /api/v1/purchase-release-candidates?q=325565&page=1&pageSize=25`
+- `GET /api/v1/purchase-release-candidates/325565?page=1&pageSize=25`
+
+Set `CatalogApi__PurchaseSourceDatabasePath` to an absolute existing scanner inventory path containing the Beatport corpus/cache tables. If absent, the inspector uses `CatalogApi__ScannerDatabasePath` (or `TRACKSTASH_SCAN_DATABASE_PATH`). The source must be separate from the canonical catalog. Restart the API after configuration/build changes. An unavailable, unconfigured or unsupported source returns safe 503 Problem Details, not an empty success.
+
+The initial queue uses derived purchase-corpus flags, **not receipt accounting**. Inspections expose structured primary/remixer credits, label candidates, cached timestamps, whole-release completeness diagnostics and a source digest, with tracks paged separately. Source completeness does not certify canonical identities or official order; even a complete source requires reviewed import later. Source connections are read-only and never migrate, fetch or update the scanner; the inspector does not write canonical rows either.
+
+Reviewed apply remains **design only**. It will not import artists wholesale or assert media ownership. Receipt-backed queue ingestion, network refresh and immutable import plans are not implemented in this inspector; scanner-media resolution remains deferred.
+
+The minimum shared canonical foundations are now implemented in forward migration **9**, with conditional versions, Artist identity status, Release metadata, Recording duration, stable multi-role credits and repeated placements/manual ordering. They have been validated on temporary databases; **no live upgrade or import has occurred**. The existing label/inspector API remains schema-8 compatible. These are storage foundations, not new public entity editors or reviewed apply endpoints. See [foundation status and remaining work](docs/purchase-release-import-design.md#6-required-core-changes).
 
 ## Command Surface
 

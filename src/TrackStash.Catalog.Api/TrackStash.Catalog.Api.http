@@ -19,6 +19,18 @@
 @membershipId = replace-with-membership-id
 @membershipEtag = "replace-with-membership-etag"
 
+### Read-only corpus queue (not receipt or media ownership proof)
+GET {{baseUrl}}/api/v1/purchase-release-candidates?q=325565&page=1&pageSize=25
+Authorization: Bearer {{apiKey}}
+
+### Inspect Block House; source completeness/digest cover the whole release, tracks are paged
+GET {{baseUrl}}/api/v1/purchase-release-candidates/325565?page=1&pageSize=25
+Authorization: Bearer {{apiKey}}
+
+### Missing/non-corpus candidate returns 404, invalid IDs return 400
+GET {{baseUrl}}/api/v1/purchase-release-candidates/0
+Authorization: Bearer {{apiKey}}
+
 ### Search flat groups, not release labels
 GET {{baseUrl}}/api/v1/label-groups?q=anjuna&kind=family&page=1&pageSize=25&sort=name&order=asc
 Authorization: Bearer {{apiKey}}
