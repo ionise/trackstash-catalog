@@ -16,7 +16,8 @@ public sealed record ApplyReleaseImportRequest(string Reason, bool Confirmed);
 public sealed record ImportCandidateResponse(string Id, string? Name, string? MixName, string? Isrc);
 /// <summary>A source identity and its reviewed action, with existing candidate identities.</summary>
 public sealed record ImportIdentityResponse(string Kind, long ProviderId, string Name, string Action, string? CanonicalId,
-    bool CompoundReview, IReadOnlyList<ImportCandidateResponse> Candidates, string? MixName, string? Isrc);
+    bool CompoundReview, IReadOnlyList<ImportCandidateResponse> Candidates, string? MixName, string? Isrc,
+    string? Evidence);
 /// <summary>A frozen review summary. Identity and source track pages are read separately using the same immutable plan.</summary>
 public sealed record ReleaseImportPreviewResponse(string OperationId, DateTimeOffset CreatedUtc, DateTimeOffset ExpiresUtc,
     long SourceReleaseId, string? Title, string ReleaseId, string LabelId, string SourceDigest, string? CatalogNumber,
@@ -93,7 +94,8 @@ internal static class ReleaseImportEndpoints
         var page = Page(context.Request);
         var result = await service.GetAsync(id, ct); Headers(context, result.Plan);
         return TypedResults.Ok(Slice(result.Plan.Identities.Select(i => new ImportIdentityResponse(i.Kind, i.ProviderId, i.Name, i.Action, i.CanonicalId,
-            i.CompoundReview, i.Candidates.Select(c => new ImportCandidateResponse(c.Id, c.Name, c.MixName, c.Isrc)).ToArray(), i.MixName, i.Isrc)).ToArray(), page));
+            i.CompoundReview, i.Candidates.Select(c => new ImportCandidateResponse(c.Id, c.Name, c.MixName, c.Isrc)).ToArray(), i.MixName, i.Isrc,
+            result.Plan.Decisions.SingleOrDefault(d => d.Kind == i.Kind && d.ProviderId == i.ProviderId)?.Evidence)).ToArray(), page));
     }
     private static async Task<IResult> Tracks(string id, HttpContext context, IReleaseImportService service, CancellationToken ct)
     {

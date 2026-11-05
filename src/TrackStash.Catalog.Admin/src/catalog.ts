@@ -66,7 +66,15 @@ export interface ImportDecision {
 export interface ImportIdentity {
   kind: ImportDecision['kind']; providerId: number; name: string; action: string; canonicalId: string | null
   compoundReview: boolean; mixName: string | null; isrc: string | null
+  evidence: string | null
   candidates: { id: string; name: string | null; mixName: string | null; isrc: string | null }[]
+}
+export const bulkImportReason = 'Reviewer deliberately bulk-accepted straightforward new source identities; exceptions require individual review.'
+export function straightforwardImportDecisions(identities: ImportIdentity[], warnings: string[]): ImportDecision[] {
+  return identities.filter(item => item.action === 'undecided' && item.kind !== 'release' &&
+    !item.compoundReview && item.candidates.length === 0 &&
+    !warnings.some(warning => warning.startsWith(`Track ${item.providerId}: another source listing shares`)))
+    .map(item => ({ kind: item.kind, providerId: item.providerId, action: 'create', canonicalId: null, evidence: bulkImportReason }))
 }
 export interface ImportOutcome {
   operationId: string; releaseId: string; appliedUtc: string; noOp: boolean

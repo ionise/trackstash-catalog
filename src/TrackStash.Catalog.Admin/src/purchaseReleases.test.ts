@@ -1,5 +1,23 @@
 import { describe, expect, it, vi } from 'vitest'
-import { createCatalogClient } from './catalog'
+import { bulkImportReason, createCatalogClient, straightforwardImportDecisions } from './catalog'
+import type { ImportIdentity } from './catalog'
+
+describe('straightforward bulk identity acceptance', () => {
+  it('only accepts unambiguous undecided new identities and records deliberate bulk provenance', () => {
+    const identity = (providerId: number, fields: Partial<ImportIdentity> = {}): ImportIdentity => ({
+      kind: 'artist', providerId, name: 'Act', action: 'undecided', canonicalId: null, compoundReview: false,
+      mixName: null, isrc: null, evidence: null, candidates: [], ...fields,
+    })
+    const decisions = straightforwardImportDecisions([
+      identity(1), identity(2, { compoundReview: true }),
+      identity(3, { candidates: [{ id: 'existing', name: 'Act', mixName: null, isrc: null }] }),
+      identity(4, { action: 'reuse' }), identity(5, { kind: 'release' }),
+      identity(6, { kind: 'recording' }), identity(7, { kind: 'recording' }),
+    ], ['Track 7: another source listing shares ISRC or title/version. Review master identity; distinct listings are not automatically merged.'])
+    expect(decisions.map(item => item.providerId)).toEqual([1, 6])
+    expect(decisions.every(item => item.action === 'create' && item.canonicalId === null && item.evidence === bulkImportReason)).toBe(true)
+  })
+})
 
 describe('purchase release inspector transport', () => {
   it('uses authenticated read-only paged requests with cancellation and literal search encoding', async () => {
