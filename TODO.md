@@ -31,6 +31,22 @@ See [API design intent](docs/api-design.md) for contracts, boundaries, open deci
 - [ ] Validate the label slice end to end before expanding to artists, releases, and recordings
 - [ ] Design genres/subgenres and ordered playlists later without duplicating recording identities or assuming local file ownership
 
+## Reviewed purchase-to-release catalog import
+
+See the [data-grounded release import design](docs/purchase-release-import-design.md). This is the next catalog increment: minimum Artist/Release/Recording support together, using one release as the reviewed entry point, not a wholesale artist import. Scanner media resolution remains deferred.
+
+- [x] Inspect purchase corpus derivation, raw release/track JSON, structured artist/remixer identities, label reuse and current canonical constraints
+- [x] Design complete-release acquisition, artist identity/credit separation, recording/placement semantics, reviewed apply and migration/backup acceptance gates
+- [x] Confirm cache-first review, optional official numbering/manual display order, unresolved compound acceptance and later reviewed splitting; document canonical embedding lifecycle and transactional durable work
+- [ ] Build a read-only purchase/corpus queue and release-bundle inspector with explicit source completeness, unverified numbering and identity diagnostics
+- [ ] Implement minimal Artist/Release/Recording/placement/credit models, conditional versions and conflict-safe provider bindings using forward migrations
+- [ ] Implement immutable import reviews and atomic idempotent apply, preserving curator decisions and permanent provenance/audit
+- [ ] Support conditional manual placement reordering and preserve it during reimport
+- [ ] Prepare versioned Artist/Release/Recording embedding documents, dependent invalidation and transaction-enlisted durable work; activate and verify local generation separately after commit
+- [ ] Preserve unresolved compound identity/source-credit lineage in the initial foundation; later deliver reviewed one-to-many Artist splitting with per-occurrence reconciliation (not provider-ID duplication or a merge redirect)
+- [ ] Deliver and verify one complete release end to end, then cover collaborators, compound identities, reissues and incomplete manifests before batching
+- [ ] Activate any future schema only after backup verification, rehearsal and separate live approval
+
 ## Shared artwork infrastructure
 
 See [shared artwork design intent](../trackstash-core/docs/artwork-design.md) for decisions, implementation status, dependencies, and acceptance gates. Migration 6 implements shared assets with configurable managed files outside Git, protected uploads/thumbnails, and label galleries. Finish Labels before Artists; Releases come after label and artist workflows are ready.

@@ -293,6 +293,10 @@ The [implemented group contract](label-groups-design.md) separates family/brand 
 
 All routes use the existing bearer/origin policy and 16 KiB JSON cap (including bodies without Content-Length). Group scalar PATCH preserves omitted fields and clears nullable fields with null; membership writes are complete replacements. No group nesting, merge/deletion, aliases/provider identities/artwork, former-name history, temporal imprint qualifiers or automatic enrichment is included. Backup validation supports schemas 6/7/8; activation requires a verified backup and separately approved migration, never startup migration.
 
+### Planned Reviewed Release Import
+
+The [purchase-to-release import design](purchase-release-import-design.md) documents the next bounded workflow, grounded in raw Beatport cache inspection. It proposes read-only source candidates/bundles and reviewed atomic import of a complete release, label association, recording placements and individual artist/remixer credits. Proposed routes are **not available**. No scanner-media resolution or ownership inference is included; minimum Artist/Release/Recording and concurrency foundations must precede apply.
+
 ## List and Search Contract
 
 Implemented request:

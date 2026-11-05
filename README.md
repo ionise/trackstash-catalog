@@ -190,6 +190,10 @@ The imprint editor also manages child imprints and distributed labels from their
 
 See the [implemented contract and remaining decisions](docs/api-design.md#implemented-foundation) for details.
 
+### Next: Reviewed Purchase-to-Release Import
+
+The [release-centred import design](docs/purchase-release-import-design.md) uses a purchase/corpus candidate to review one complete Beatport release, resolve its existing label, and create accepted recording placements and individual artist/remixer credits. It is **design only**, grounded in read-only inspection of current raw caches and corpus derivation. It does not import artists wholesale or assert media ownership. Artist, Release, Recording and credit foundations will be delivered together for this bounded workflow before scanner-media resolution.
+
 ## Command Surface
 
 Current commands:
