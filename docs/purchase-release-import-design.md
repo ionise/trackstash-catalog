@@ -332,6 +332,130 @@ The native read-only inspector has been verified against this live cached releas
 
 After the pilot, cover a multi-primary-artist track, a genuine named duo, a malformed compound credit, a compilation/reissue with shared Recording candidates, and an incomplete manifest before scaling the queue.
 
+## Artist experience roadmap
+
+Agreed 2026-11-05. This is planned work, not a claim that Artist profile editing,
+artwork or association summaries are already implemented. Use the supplied
+Beatport screenshots as information-layout references while retaining the
+TrackStash theme, accessibility and catalog boundaries; do not reproduce
+commerce, playback, Charts, hype/exclusivity or provider-follow controls.
+
+### Target layout
+
+- Persistent responsive header: preferred managed portrait (or explicit
+  placeholder), Artist name, Favourite, curated web/social links and a generated
+  Beatport Artist link when a numeric external ID is known. Portrait/camera action
+  and a separate management action both open the artwork manager, as for Labels.
+  Curated matching provider links take precedence; multiple external identities
+  remain inspectable without silently picking an arbitrary identity.
+- Tabs: **Featured, Tracks, Releases, Associations, Details**, with Featured
+  selected initially. Preserve tab/filter/page state in navigation and mount data
+  queries only for active content. Keep unresolved-compound warnings visible in
+  the identity header; they are not automatically split or treated as people.
+- **Featured**: manually maintained biography, expandable when long, followed by
+  a bounded responsive latest-release card grid with managed covers, title,
+  primary Artist names, linked Labels and dates. Include future-dated catalog
+  releases with an **Upcoming** badge; this is not a preorder or ownership claim.
+  No biography/cover/provider lookup happens automatically.
+- **Tracks**: one row per release placement on which the Artist has an explicit
+  placement or Recording credit. Combine applicable credit scopes/roles for that
+  row without turning release-level credit into track credit. Preserve repeated
+  placements and remix/version identity; show unplaced credited Recordings
+  separately with no invented release/date. Show thumbnail, title/mix, linked
+  primary Artists/remixers, Label, release/date and supported metadata. Default
+  newest-first by release publish date, never import time; unknown dates last,
+  deterministic tie ordering. Existing raw credit scopes remain inspectable.
+- **Releases**: one row per distinct release the Artist is explicitly part of
+  through release, placement or Recording credits, including compilations and
+  remixes. Aggregate roles rather than multiplying rows by credits/tracks. Show
+  thumbnail, title/primary Artists, linked Labels, publish date and track count.
+  Default newest-first; distinguish upcoming and unknown dates.
+- **Associations**: sketch a Label summary and columns **Remixed for**,
+  **Remixed by**, **Collaborated with**. Initially use clearly marked
+  not-yet-implemented sections, not sample identities or misleading zero counts.
+  Later results must link to supporting catalog evidence.
+- **Details**: IDs, aliases, provider references, identity/review metadata, private
+  notes and additional artwork gallery. Biography and public links belong to the
+  public-facing profile; notes do not appear in Featured or embedding documents.
+
+### Staged delivery
+
+1. **Artist profile and tabbed shell together.** Add bounded manual biography with
+   optional source URL, typed official/provider/social links with provenance,
+   Favourite, private notes and review status using Label conventions. Reuse
+   shared artwork storage/processing/protected serving for Artist portrait/image
+   galleries, immutable rights/source attribution, explicit preference,
+   replace/reorder/detach and history. Deliver profile edit forms, persistent
+   header, all tabs and biography in Featured. Preserve current credited browsing
+   while adapting it to tabs; mark Associations as planned. Keep identity edits,
+   merges and compound splitting out of this increment.
+2. **Recent discovery and proper list projections.** Add date-aware, server-side
+   paged/sorted Artist release and placement queries, aggregated roles and safe
+   managed-cover summaries. Deliver latest-release cards and newest-first Tracks
+   and Releases with search, pagination, supported role/Label/date filters and
+   reset controls. Define partial-date comparisons before adding date filters:
+   retain observed date precision rather than presenting invented day values.
+   Missing/invalid date metadata must be explicit. Do not sort only the loaded
+   page or infer dates from purchase/import timestamps.
+3. **Evidence-backed Associations.** Implement Label summaries first, then
+   directional remix and collaboration summaries. All results are derived
+   catalog appearances, not artist signing, ownership, personal relationships or
+   permanent manual relationship edges. Keep queries paginated and make the
+   supporting releases/tracks available for inspection.
+4. **Infrastructure-dependent controls.** Add genre/subgenre, BPM and key
+   columns/filters only when canonical data, provenance and querying exist.
+   Playback, playlists, purchase controls, external provider enrichment and
+   Artist split/merge workflows need separate designs. Do not display inactive
+   controls that suggest these features already work.
+
+Stage 1 is the next implementation increment. Stage 2 follows to complete the
+Featured/list experience; the whole roadmap is not one required implementation
+batch. No live migration or data write is authorized by this plan.
+
+### Association and counting rules
+
+- A Label summary considers explicit Artist credits on releases linked to that
+  Label, including secondary Label links. **Releases** counts distinct canonical
+  Release IDs; **Tracks** counts distinct canonical Recording IDs actually
+  credited to the Artist in that Label context; **Appearances** counts distinct
+  credited placement IDs. Multiple roles/scopes do not multiply counts. A
+  release-only credit can contribute a release but must not claim every track.
+  Unplaced Recordings have no inferred Label. Counts across Labels may overlap
+  for multi-label releases and are not additive library totals.
+- **Remixed for**: the current Artist is a remixer and another Artist has primary
+  credit in the same track context. **Remixed by** reverses that direction.
+  **Collaborated with** requires shared primary credit on the same track; merely
+  appearing on the same compilation or release does not qualify.
+- Match canonical Artist IDs, exclude self-pairs, deduplicate scope/role evidence
+  and preserve Recording-versus-placement provenance. Before implementation,
+  define how those scopes combine for one placement and how unplaced Recordings
+  contribute; never compare unrelated track contexts or borrow release-level
+  primary credits. Show unresolved identities as unresolved, without expanding
+  compound names. Summaries describe credits, not verified real-world remix
+  commissions or collaboration relationships.
+
+### Acceptance and rollout gates
+
+- Keyboard/touch-accessible tabs and portrait actions; responsive layout, visible
+  empty/errors, stable deep links and original-token conditional edits. Changing
+  tabs must not silently discard unsaved profile/gallery drafts.
+- Profile/artwork writes preserve original versions, immutable history, rollback
+  cleanup and backup/restore; future migrations must preserve existing Artists,
+  credits, references, import outcomes and shared Label/Release assets. Deletion
+  and legacy replacement stay blocked until richer Artist state can be safely
+  snapshotted/restored. Reuse shared helpers rather than copy Label implementations.
+- Audit public/private profile fields against text-document and import
+  invalidation rules: biography/public links must not introduce private notes,
+  overwrite curator data on reimport or create embedding work for image-only
+  changes without an explicit text-template decision.
+- Test multiple credit roles/scopes, repeated placements, reissues/compilations,
+  multi-label links, same-name Artists, unresolved compounds, unplaced Recordings,
+  unknown/partial/future dates and stable pagination. Verify remix direction,
+  no self-links and no compilation-only collaboration claims.
+- Use temporary catalogs and fake provider fixtures for validation. Live
+  activation remains separately approved after verified catalog-plus-artwork
+  backup and migration rehearsal; no schema upgrade at API startup.
+
 ## 8. Delivery and acceptance
 
 Read-only Artist browsing now provides a sidebar list with literal name/sort-name/alias search, stable pagination, role filtering, identity details and provider references. Release and placement credits link to the Artist page; the Label's Artists tab derives related Artists through its linked releases and distinguishes primary/remixer roles. This is credit evidence, not a signing/ownership relationship. Artist detail pages show grouped release appearances by role/scope/credited spelling and paged track credits retaining repeated placements, separate Recording/placement scopes and unplaced Recordings. Unresolved compounds remain explicit; no splitting, merging, metadata editing, portraits, media matching or migrations are introduced.
