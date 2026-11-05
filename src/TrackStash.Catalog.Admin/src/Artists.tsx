@@ -18,7 +18,8 @@ import { artistClient } from './catalog'
 import type { GroupedArtistAppearance, ArtistDetail, CatalogArtist, GroupPage, ReleaseCredit } from './catalog'
 import { ArtistProfilePanel } from './ArtistProfile'
 import { ArtworkImage, ArtworkPanel } from './LabelArtwork'
-import { artistLinks, linkPresentation } from './labelPresentation'
+import { artistLinks, linkPresentation, trackContributors } from './labelPresentation'
+import { TrackTitleArtists } from './TrackPresentation'
 
 export function ArtistCreditName({ credit, showStatus = true }: { credit: ReleaseCredit; showStatus?: boolean }) {
   return <><Link to={`/artists/${encodeURIComponent(credit.artistId)}/show`}>{credit.creditedName ?? credit.artistName ?? credit.artistId}</Link>
@@ -114,7 +115,8 @@ function CreditEvidence({ credits }: { credits: GroupedArtistAppearance['credits
     return <Tooltip key={s.scope} title={hint}><Box component="span" tabIndex={0} aria-label={hint} sx={{ display: 'inline-flex' }}>{s.icon}</Box></Tooltip>
   })}</Stack>
 }
-function Appearances({ id, tracks, page, onPage }: { id: string; tracks: boolean; page: number; onPage: (page: number) => void }) {
+function Appearances({ artist, tracks, page, onPage }: { artist: ArtistDetail; tracks: boolean; page: number; onPage: (page: number) => void }) {
+  const id = artist.id
   const [data, setData] = useState<GroupPage<GroupedArtistAppearance>>()
   const [error, setError] = useState('')
   const logout = useLogoutIfAccessDenied()
@@ -129,21 +131,52 @@ function Appearances({ id, tracks, page, onPage }: { id: string; tracks: boolean
   if (!data) return <LinearProgress aria-label="Loading Artist credits" />
   return <>
     {!data.total && <Typography>No {tracks ? 'track' : 'release'} credits recorded.</Typography>}
-    <Box sx={{ overflowX: 'auto', width: '100%', minWidth: 0, contain: 'inline-size' }}><Table aria-label={tracks ? 'Artist track credits' : 'Artist release credits'}>
-      <TableHead><TableRow>{tracks && <TableCell>Track</TableCell>}<TableCell>Release</TableCell>{!tracks && <TableCell>Label</TableCell>}<TableCell>Role</TableCell><TableCell>Credit evidence</TableCell><TableCell>Credited as</TableCell></TableRow></TableHead>
-      <TableBody>{data.items.map(credit => <TableRow key={tracks ? credit.placementId ?? `recording:${credit.recordingId}` : credit.releaseId}>
-        {tracks && <TableCell>{credit.trackTitle ?? 'Untitled Recording'}{credit.mixName && ` (${credit.mixName})`}</TableCell>}
+    <Box sx={{ overflowX: 'auto', width: '100%', minWidth: 0, contain: 'inline-size' }}><Table size="small" aria-label={tracks ? 'Artist track credits' : 'Artist release credits'}>
+      <TableHead><TableRow><TableCell>#</TableCell><TableCell>{tracks ? 'Title / Artist · Remixer' : 'Title / Artist'}</TableCell>
+        <TableCell>{tracks ? 'Label / Genre · Subgenre' : 'Label'}</TableCell><TableCell>Release date</TableCell><TableCell>BPM</TableCell>{tracks && <TableCell>Key</TableCell>}</TableRow></TableHead>
+      <TableBody>{data.items.map((credit, index) => {
+        const contributors = trackContributors(credit.contributors, [])
+        return <TableRow hover key={tracks ? credit.placementId ?? `recording:${credit.recordingId}` : credit.releaseId}>
+        <TableCell sx={{ color: 'text.secondary', verticalAlign: 'top', pt: 2 }}>{(data.page - 1) * data.pageSize + index + 1}</TableCell>
         <TableCell><Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-          {!tracks && (credit.coverAssetId ? <ArtworkImage assetId={credit.coverAssetId} caption={`${credit.releaseTitle ?? 'Release'} cover thumbnail`} size={40} />
-            : <Box sx={{ width: 40, height: 40, flexShrink: 0, bgcolor: 'action.hover', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><AlbumIcon color="disabled" /></Box>)}
-          {credit.releaseId ? <Tooltip describeChild title={`View release: ${credit.releaseTitle ?? 'Untitled release'}`}><Link to={`/releases/${encodeURIComponent(credit.releaseId)}/show`}>{credit.releaseTitle ?? 'Untitled release'}</Link></Tooltip> : 'No release placement'}
+          <Box sx={{ width: 40, height: 40, flexShrink: 0 }}>
+            {credit.coverAssetId ? <ArtworkImage assetId={credit.coverAssetId} caption={`${credit.releaseTitle ?? 'Release'} cover thumbnail`} size={40} />
+              : <Box sx={{ width: 40, height: 40, bgcolor: 'action.hover', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><AlbumIcon color="disabled" /></Box>}
+          </Box>
+          <Stack spacing={0.5} sx={{ minWidth: 220, flex: 1 }}>
+            {tracks ? <TrackTitleArtists title={credit.trackTitle} mixName={credit.mixName} credits={contributors} />
+              : <>
+                <Typography sx={{ fontWeight: 600 }}>{credit.releaseId ? <Tooltip describeChild title={`View release: ${credit.releaseTitle ?? 'Untitled release'}`}>
+                  <Link to={`/releases/${encodeURIComponent(credit.releaseId)}/show`}>{credit.releaseTitle ?? 'Untitled release'}</Link>
+                </Tooltip> : credit.releaseTitle ?? 'Untitled release'}</Typography>
+                <Typography variant="body2" color="text.secondary">{contributors.length ? contributors.map((c, i) =>
+                  <span key={`${c.artistId}:${i}`}>{i > 0 && ', '}<ArtistCreditName credit={c} />{c.role !== 'primary' && ` (${c.role})`}</span>) : 'Artists not available'}</Typography>
+              </>}
+            <Accordion disableGutters elevation={0} sx={{ bgcolor: 'transparent', '&::before': { display: 'none' } }}>
+              <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={{ minHeight: 28, px: 0, '& .MuiAccordionSummary-content': { my: 0.5 } }}>
+                <Typography variant="caption">Credit details</Typography>
+              </AccordionSummary>
+              <AccordionDetails sx={{ px: 0 }}>
+                {tracks && <Typography variant="body2">{credit.releaseId ? <Tooltip describeChild title={`View release: ${credit.releaseTitle ?? 'Untitled release'}`}>
+                  <Link to={`/releases/${encodeURIComponent(credit.releaseId)}/show`}>{credit.releaseTitle ?? 'Untitled release'}</Link>
+                </Tooltip> : 'No release placement'}</Typography>}
+                <Typography variant="body2">Roles: {[...new Set(credit.credits.map(c => c.role))].join(', ')}</Typography>
+                <Typography variant="body2">Credited as: {[...new Set(credit.credits.map(c => c.creditedName ?? artist.name ?? 'Canonical name'))].join(', ')}</Typography>
+                <CreditEvidence credits={credit.credits} />
+              </AccordionDetails>
+            </Accordion>
+          </Stack>
         </Stack></TableCell>
-        {!tracks && <TableCell>{credit.labels.length ? <Stack>{credit.labels.map(label => <Tooltip describeChild key={label.id} title={`View Label: ${label.name ?? 'Unnamed Label'}${label.isPrimary ? ' (primary label)' : ''}`}>
+        <TableCell>{credit.labels.length ? <Stack>{credit.labels.map(label => <Tooltip describeChild key={label.id} title={`View Label: ${label.name ?? 'Unnamed Label'}${label.isPrimary ? ' (primary label)' : ''}`}>
           <Link to={`/labels/${encodeURIComponent(label.id)}/show`}>{label.name ?? 'Unnamed Label'}</Link>
-        </Tooltip>)}</Stack> : 'Not recorded'}</TableCell>}
-        <TableCell>{[...new Set(credit.credits.map(c => c.role))].join(', ')}</TableCell><TableCell><CreditEvidence credits={credit.credits} /></TableCell>
-        <TableCell>{[...new Set(credit.credits.map(c => c.creditedName ?? 'Canonical name'))].join(', ')}</TableCell>
-      </TableRow>)}</TableBody>
+        </Tooltip>)}</Stack> : <Typography variant="body2" color="text.secondary">Not recorded</Typography>}
+          {tracks && <Typography variant="body2" color="text.secondary">{[credit.genre, credit.subgenre].filter(Boolean).join(' / ') || 'Genre not available'}</Typography>}
+        </TableCell>
+        <TableCell sx={{ whiteSpace: 'nowrap', color: 'text.secondary' }}>{credit.publishDate ?? credit.newReleaseDate ?? 'Not available'}</TableCell>
+        <TableCell sx={{ whiteSpace: 'nowrap', color: 'text.secondary' }}>{credit.bpm == null ? '—'
+          : credit.bpmMax != null && credit.bpmMax !== credit.bpm ? `${credit.bpm}–${credit.bpmMax}` : credit.bpm}</TableCell>
+        {tracks && <TableCell sx={{ whiteSpace: 'nowrap', color: 'text.secondary' }}>{credit.keyName ?? '—'}</TableCell>}
+      </TableRow>})}</TableBody>
     </Table></Box>
     <Pager page={page} total={data.total} onPage={onPage} />
   </>
@@ -238,13 +271,13 @@ function Detail({ id }: { id: string }) {
       </Stack>}
       {section === 'Tracks' && tab === section && <Stack spacing={2}>
         <Typography component="h2" variant="h6">Track credits</Typography>
-        <Typography color="text.secondary">One row per credited track listing; repeated appearances on different releases remain separate. Credit icons explain the underlying evidence. Ordered by release title.</Typography>
-        <Appearances key={`tracks:${trackPage}`} id={id} tracks page={trackPage} onPage={page => change('trackPage', String(page))} />
+        <Typography color="text.secondary">One row per credited track listing; repeated appearances remain separate. Ordered by release title. Artists come from explicit listing and Recording credits; dates come from the release. Credit details retain this Artist's evidence. Musical metadata remains unavailable until supported.</Typography>
+        <Appearances key={`tracks:${trackPage}`} artist={artist} tracks page={trackPage} onPage={page => change('trackPage', String(page))} />
       </Stack>}
       {section === 'Releases' && tab === section && <Stack spacing={2}>
         <Typography component="h2" variant="h6">Release appearances and credits</Typography>
-        <Typography color="text.secondary">One row per release, with combined roles and credit evidence, artwork and linked Labels. Ordered by release title.</Typography>
-        <Appearances key={`release:${releasePage}`} id={id} tracks={false} page={releasePage} onPage={page => change('releasePage', String(page))} />
+        <Typography color="text.secondary">One row per release, with artwork, linked Labels, release-level Artists and recorded release dates. Ordered by release title. Credit details retain this Artist's evidence; BPM ranges await musical metadata.</Typography>
+        <Appearances key={`release:${releasePage}`} artist={artist} tracks={false} page={releasePage} onPage={page => change('releasePage', String(page))} />
       </Stack>}
       {section === 'Associations' && tab === section && <Stack spacing={3}>
         <Typography color="text.secondary">Planned catalog-credit summaries, not signing or personal relationship claims. No association counts have been calculated yet.</Typography>

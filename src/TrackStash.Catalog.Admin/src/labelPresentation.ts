@@ -1,5 +1,14 @@
 import countries from 'flag-icons/country.json'
-import type { ArtistDetail, ArtistProfile, LabelRecord } from './catalog'
+import type { ArtistDetail, ArtistProfile, LabelRecord, ReleaseDetail, ReleaseCredit } from './catalog'
+
+export function trackContributors(placement: ReleaseCredit[], recording: ReleaseCredit[]) {
+  const seen = new Set<string>()
+  return [...placement, ...recording].filter(credit => {
+    const key = JSON.stringify([credit.artistId, credit.role, credit.creditedName])
+    if (seen.has(key)) return false
+    seen.add(key); return true
+  })
+}
 
 export function labelLinks(record: LabelRecord) {
   return beatportLinks('label', record.name, record.profile?.links ?? [], record.externalReferences ?? [])
@@ -7,7 +16,10 @@ export function labelLinks(record: LabelRecord) {
 export function artistLinks(record: ArtistDetail, profile?: ArtistProfile) {
   return beatportLinks('artist', record.name, profile?.links ?? [], record.externalReferences)
 }
-function beatportLinks(entity: 'label' | 'artist', name: string | null, curated: ArtistProfile['links'],
+export function releaseLinks(record: ReleaseDetail) {
+  return beatportLinks('release', record.title, [], record.externalReferences)
+}
+function beatportLinks(entity: 'label' | 'artist' | 'release', name: string | null, curated: ArtistProfile['links'],
   external: { source: string; externalId: string; isPrimary: boolean }[]) {
   const links = [...curated]
   const linkedIds = new Set(links.flatMap(link => {
@@ -25,7 +37,7 @@ function beatportLinks(entity: 'label' | 'artist', name: string | null, curated:
     if (linkedIds.has(reference.externalId)) continue
     links.push({
       kind: 'beatport', url: `https://www.beatport.com/${entity}/${slug}/${reference.externalId}`,
-      title: `${entity === 'artist' ? 'Artist' : 'Label'} ${reference.externalId}${reference.isPrimary ? ' (preferred)' : ''}`, sourceUrl: null,
+      title: `${entity === 'artist' ? 'Artist' : entity === 'release' ? 'Release' : 'Label'} ${reference.externalId}${reference.isPrimary ? ' (preferred)' : ''}`, sourceUrl: null,
     })
     linkedIds.add(reference.externalId)
   }

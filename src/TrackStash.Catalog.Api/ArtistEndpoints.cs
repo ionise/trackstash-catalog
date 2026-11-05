@@ -30,10 +30,11 @@ public sealed record ArtistWebLinkResponse(string Kind, string Url, string? Titl
 public sealed record ArtistAppearanceCreditResponse(string Role, string Scope, string? CreditedName);
 /// <summary>A Label explicitly linked to this release, not an Artist signing affiliation.</summary>
 public sealed record ArtistAppearanceLabelResponse(string Id, string? Name, bool IsPrimary);
-/// <summary>One distinct release or credited placement; unplaced Recordings retain null release/placement IDs.</summary>
+/// <summary>One distinct release or credited placement with existing release dates and full contributors, separate from the viewed Artist's evidence; unplaced Recordings have no release date.</summary>
 public sealed record ArtistAppearanceResponse(string? ReleaseId, string? ReleaseTitle, string? RecordingId,
     string? PlacementId, string? TrackTitle, string? MixName, string? CoverAssetId,
-    IReadOnlyList<ArtistAppearanceLabelResponse> Labels, IReadOnlyList<ArtistAppearanceCreditResponse> Credits);
+    IReadOnlyList<ArtistAppearanceLabelResponse> Labels, IReadOnlyList<ArtistAppearanceCreditResponse> Credits,
+    string? PublishDate, string? NewReleaseDate, IReadOnlyList<ReleaseCreditResponse> Contributors);
 /// <summary>A server-paged list counting appearances rather than individual credit scopes.</summary>
 public sealed record ArtistAppearancesResponse(IReadOnlyList<ArtistAppearanceResponse> Items, int Total, int Page, int PageSize);
 
@@ -114,10 +115,15 @@ internal static class ArtistEndpoints
         var query = Query(context.Request, true);
         var result = await service.AppearancesAsync(new(id, tracks, query.Page, query.PageSize), ct) ?? throw Missing();
         context.Response.Headers.CacheControl = "no-store";
-        return TypedResults.Ok(new ArtistAppearancesResponse(result.Items.Select(item => new ArtistAppearanceResponse(
+        return TypedResults.Ok(new ArtistAppearancesResponse(result.Items.Select(detail => {
+            var item = detail.Appearance;
+            return new ArtistAppearanceResponse(
             item.ReleaseId, item.ReleaseTitle, item.RecordingId, item.PlacementId, item.TrackTitle, item.MixName, item.CoverAssetId,
             item.Labels.Select(l => new ArtistAppearanceLabelResponse(l.Id, l.Name, l.IsPrimary)).ToArray(),
-            item.Credits.Select(c => new ArtistAppearanceCreditResponse(c.Role, c.Scope, c.CreditedName)).ToArray())).ToArray(),
+            item.Credits.Select(c => new ArtistAppearanceCreditResponse(c.Role, c.Scope, c.CreditedName)).ToArray(),
+            detail.PublishDate, detail.NewReleaseDate, detail.Contributors.Select(c => new ReleaseCreditResponse(
+                c.ArtistId, c.ArtistName, c.CreditedName, c.Role, c.Position, c.IdentityStatus)).ToArray());
+        }).ToArray(),
             result.Total, result.Page, result.PageSize));
     }
     private static ArtistProfileResponse ProfileResponse(ArtistProfile profile) => new(profile.Biography, profile.BiographySourceUrl,

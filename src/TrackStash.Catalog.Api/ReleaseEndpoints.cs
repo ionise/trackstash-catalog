@@ -24,7 +24,8 @@ public sealed record ReleaseResponse(string Id, string? Title, string Version, s
 /// <summary>A stable release placement of a Recording, including listing credits and separate display/source/official numbering.</summary>
 public sealed record ReleaseTrackResponse(string PlacementId, string RecordingId, string? Title, string? MixName,
     string? Isrc, long? DurationMs, int DisplayOrder, int? SourcePosition, string OrderSource, int? DiscNumber, int? TrackNumber,
-    IReadOnlyList<ReleaseCreditResponse> Credits, IReadOnlyList<ReleaseReferenceResponse> ExternalReferences);
+    IReadOnlyList<ReleaseCreditResponse> Credits, IReadOnlyList<ReleaseReferenceResponse> ExternalReferences,
+    IReadOnlyList<ReleaseCreditResponse> RecordingCredits);
 /// <summary>A page of release placements in catalog display order, not a purchased-track list.</summary>
 public sealed record ReleaseTracksResponse(IReadOnlyList<ReleaseTrackResponse> Items, int Total, int Page, int PageSize);
 
@@ -83,6 +84,6 @@ internal static class ReleaseEndpoints
         return TypedResults.Ok(new ReleaseTracksResponse(result.Items.Select(p =>
             new ReleaseTrackResponse(p.PlacementId, p.RecordingId, p.Title, p.MixName, p.Isrc, p.DurationMs, p.DisplayOrder,
                 p.SourcePosition, p.OrderSource, p.DiscNumber, p.TrackNumber, p.Credits.Select(Credit).ToArray(),
-                p.ExternalReferences.Select(Reference).ToArray())).ToArray(), result.Total, result.Page, result.PageSize));
+                p.ExternalReferences.Select(Reference).ToArray(), p.RecordingCredits.Select(Credit).ToArray())).ToArray(), result.Total, result.Page, result.PageSize));
     }
 }

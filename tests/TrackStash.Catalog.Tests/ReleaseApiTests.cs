@@ -10,6 +10,36 @@ namespace TrackStash.Catalog.Tests;
 public sealed partial class LabelApiTests
 {
     [Fact]
+    public async Task ReleaseTracksKeepRecordingAndListingCreditsSeparateWithoutBorrowingReleaseCredits()
+    {
+        var service = await ImportService(); var preview = await Reviewed(service);
+        var outcome = await service.ApplyAsync(preview.Plan.OperationId, preview.Plan.Version, "Review", true);
+        string recording;
+        await using (var unit = await Provider.BeginUnitOfWorkAsync())
+            recording = (await unit.CatalogFoundations!.GetPlacementsAsync(outcome.ReleaseId))[0].RecordingId;
+        await ImportSql($"""
+            INSERT INTO artist(artist_id,name) VALUES('recording-only','Recording Only');
+            INSERT INTO recording_artist_credit(credit_id,recording_id,artist_id,role,position,credit_name)
+            VALUES('recording-only-credit','{recording}','recording-only','primary',1,'Recording Spelling');
+            INSERT INTO artist(artist_id,name) VALUES('release-only','Release Only');
+            INSERT INTO release_artist_credit(credit_id,release_id,artist_id,role,position,credit_name)
+            VALUES('release-only-credit','{outcome.ReleaseId}','release-only','primary',1,'Release Spelling');
+            """);
+        var response = await _client.GetAsync($"/api/v1/releases/{outcome.ReleaseId}/tracks");
+        response.EnsureSuccessStatusCode();
+        var page = (await response.Content.ReadFromJsonAsync<ReleaseTracksResponse>())!;
+        var track = page.Items.Single(t => t.RecordingId == recording);
+        Assert.Equal("Recording Spelling", Assert.Single(track.RecordingCredits, c => c.ArtistId == "recording-only").CreditedName);
+        Assert.DoesNotContain(track.Credits, c => c.ArtistId == "recording-only");
+        Assert.All(page.Items.Where(t => t.RecordingId != recording), t => Assert.DoesNotContain(t.RecordingCredits, c => c.ArtistId == "recording-only"));
+        Assert.All(page.Items, t =>
+        {
+            Assert.DoesNotContain(t.Credits, c => c.ArtistId == "release-only");
+            Assert.DoesNotContain(t.RecordingCredits, c => c.ArtistId == "release-only");
+        });
+        Assert.True(response.Headers.CacheControl!.NoStore);
+    }
+    [Fact]
     public async Task ReleaseBrowse_ListSearchLabelFilterStablePagingAndReadOnlyPublicProjection()
     {
         var service = await ImportService(); var preview = await Reviewed(service);

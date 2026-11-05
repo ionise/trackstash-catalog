@@ -8,6 +8,61 @@ namespace TrackStash.Catalog.Tests;
 public sealed partial class LabelApiTests
 {
     [Fact]
+    public async Task ArtistAppearancesUseExistingReleaseDatesAndFullScopedContributorsWithoutWrites()
+    {
+        await ImportSql("""
+            INSERT INTO artist(artist_id,name) VALUES('primary-a','Primary'),('primary-b','Primary'),('remix-a','Remixer'),('release-only','Release only');
+            INSERT INTO release(release_id,title,publish_date,new_release_date) VALUES
+              ('dated','Dated','2026-11-01','2026-11-02'),('alternate','Alternate',NULL,'2026-10-01');
+            INSERT INTO recording(recording_id,title) VALUES('shared','Shared'),('unplaced','Unplaced');
+            INSERT INTO release_recording(placement_id,release_id,recording_id,display_order,legacy) VALUES
+              ('dated-p','dated','shared',1,0),('alternate-p','alternate','shared',1,0);
+            INSERT INTO release_artist_credit(credit_id,release_id,artist_id,role,position) VALUES
+              ('release-credit','dated','release-only','primary',1);
+            INSERT INTO recording_artist_credit(credit_id,recording_id,artist_id,role,position,credit_name) VALUES
+              ('primary-credit','shared','primary-a','primary',1,'Primary spelling'),
+              ('recording-remix','shared','remix-a','remixer',1,'Remixer'),
+              ('unplaced-remix','unplaced','remix-a','remixer',1,'Remixer');
+            INSERT INTO placement_artist_credit(credit_id,placement_id,artist_id,role,position,credit_name) VALUES
+              ('listing-primary','dated-p','primary-b','primary',1,'Primary'),
+              ('listing-remix','dated-p','remix-a','remixer',1,'Remixer');
+            """);
+        var history = await ImportCount("catalog_foundation_revision");
+        string stamp;
+        await using (var unit = await Provider.BeginUnitOfWorkAsync())
+            stamp = await unit.ReleaseImports!.GetCatalogStampAsync();
+        var tracks = (await _client.GetFromJsonAsync<ArtistAppearancesResponse>("/api/v1/artists/remix-a/track-appearances"))!;
+        Assert.Equal(3, tracks.Total);
+        var dated = Assert.Single(tracks.Items, i => i.ReleaseId == "dated");
+        Assert.Equal("2026-11-01", dated.PublishDate); Assert.Equal("2026-11-02", dated.NewReleaseDate);
+        Assert.Contains(dated.Contributors, c => c.ArtistId == "primary-a" && c.CreditedName == "Primary spelling");
+        Assert.Contains(dated.Contributors, c => c.ArtistId == "primary-b");
+        Assert.Single(dated.Contributors, c => c.ArtistId == "remix-a");
+        Assert.DoesNotContain(dated.Contributors, c => c.ArtistId == "release-only");
+        Assert.All(dated.Credits, c => Assert.Equal("remixer", c.Role));
+        var releaseTracks = (await _client.GetFromJsonAsync<ReleaseTracksResponse>("/api/v1/releases/dated/tracks"))!;
+        var expected = releaseTracks.Items[0].Credits.Concat(releaseTracks.Items[0].RecordingCredits)
+            .DistinctBy(c => (c.ArtistId, c.Role, c.CreditedName)).ToArray();
+        Assert.Equal(expected, dated.Contributors);
+        var alternate = Assert.Single(tracks.Items, i => i.ReleaseId == "alternate");
+        Assert.Null(alternate.PublishDate); Assert.Equal("2026-10-01", alternate.NewReleaseDate);
+        Assert.DoesNotContain(alternate.Contributors, c => c.ArtistId == "primary-b");
+        var unplaced = Assert.Single(tracks.Items, i => i.ReleaseId is null);
+        Assert.Null(unplaced.PublishDate); Assert.Null(unplaced.NewReleaseDate);
+        Assert.Equal("remix-a", Assert.Single(unplaced.Contributors).ArtistId);
+        var releases = (await _client.GetFromJsonAsync<ArtistAppearancesResponse>("/api/v1/artists/remix-a/release-appearances"))!;
+        var release = Assert.Single(releases.Items, i => i.ReleaseId == "dated");
+        Assert.Equal(dated.PublishDate, release.PublishDate);
+        Assert.Equal("release-only", Assert.Single(release.Contributors).ArtistId);
+        Assert.Empty(Assert.Single(releases.Items, i => i.ReleaseId == "alternate").Contributors);
+        var paged = (await _client.GetFromJsonAsync<ArtistAppearancesResponse>("/api/v1/artists/remix-a/track-appearances?pageSize=1&page=2"))!;
+        Assert.Equal(3, paged.Total);
+        Assert.Equal(tracks.Items[1].PlacementId, Assert.Single(paged.Items).PlacementId);
+        Assert.Equal(history, await ImportCount("catalog_foundation_revision"));
+        await using var after = await Provider.BeginUnitOfWorkAsync();
+        Assert.Equal(stamp, await after.ReleaseImports!.GetCatalogStampAsync());
+    }
+    [Fact]
     public async Task ArtistGroupedAppearanceApiReturnsOneReleaseWithLabelsManagedCoverAndAllEvidence()
     {
         var service = await ImportService(); var preview = await Reviewed(service);

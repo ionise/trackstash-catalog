@@ -81,6 +81,7 @@ GET {{baseUrl}}/api/v1/artists/{{artistId}}/tracks?page=1&pageSize=25
 Authorization: Bearer {{apiKey}}
 
 ### One row per credited placement, combining scopes before paging
+# Includes existing release dates and full placement/Recording contributors, alongside this Artist's scoped evidence.
 GET {{baseUrl}}/api/v1/artists/{{artistId}}/track-appearances?page=1&pageSize=25
 Authorization: Bearer {{apiKey}}
 

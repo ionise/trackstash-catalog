@@ -53,7 +53,8 @@ test('release cover management uses authenticated local images, survives reload 
   await page.keyboard.press('Enter')
   await expect(dialog.getByRole('heading', { name: 'Release covers and gallery' })).toBeVisible()
   await dialog.getByRole('button', { name: 'Close artwork', exact: true }).click()
-  await page.getByRole('button', { name: 'Manage release artwork', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Manage release artwork', exact: true })).toHaveCount(0)
+  await coverAction.click()
   const auth = { Authorization: `Bearer ${key}` }
   const first = await (await request.get('/api/v1/releases/release-fixture/artwork', { headers: auth })).json()
   await dialog.getByRole('button', { name: 'Replace image 1', exact: true }).click()

@@ -37,6 +37,16 @@ schemas 9/10 and no arbitrary gallery/Label fallback. Label links indicate
 release context, not Artist signing. Existing raw credit routes remain unchanged
 for detailed inspection. No new migration is needed.
 
+Grouped items also include `publishDate` and `newReleaseDate` from the existing
+Release (null for unplaced Recordings), and full `contributors` using the same
+Artist ID/name/credited spelling/role/position/identity-status shape as Release
+credits. Track contributors combine explicit placement and Recording credits,
+deduplicated by Artist ID/role/exact credited spelling, with placement first;
+release-wide credits are never borrowed. Release-row contributors are only
+release-level credits, independent of the viewed Artist's appearance evidence.
+The GUI displays publish date, falling back to new-release date only when absent.
+These read-only additions do not backfill data or change grouping/paging.
+
 ### Artist manual profile and artwork (schema 12)
 
 | Method | Route | Purpose |
@@ -82,6 +92,8 @@ biography scraping, Artist artwork provider lookup or automatic enrichment.
 `GET /api/v1/releases` accepts `q` (literal case-insensitive title/catalog-number substring, up to 200 characters), optional canonical `labelId`, `page` and `pageSize` (1-100). Results are ordered by title case-insensitively then canonical ID, and include primary/display label and placement count. Filtering uses all release-label links, not only the displayed primary label. `GET /api/v1/releases/{id}` returns safe metadata, labels, release credits and provider identities with an ETag; `GET /api/v1/releases/{id}/tracks` pages placements in display order with listing credits and distinct source/official numbering. Unknown/repeated query fields return 400; missing release detail/tracks return 404. All routes use existing bearer/origin protection, cancellation and no-store responses. Raw payloads, private data and media locations are excluded.
 
 Browsing requires schema 9+ and returns `409 release_schema_required` on schema 8 without migrating it. Existing label/inspector routes retain their schema 8 compatibility. Release metadata editing, Artist/Recording editors, purchase ownership and media/NAS assertions remain outside this browsing slice.
+
+Release track responses additionally expose `recordingCredits` from the canonical Recording. Existing `credits` remain placement/listing-only; release-wide credits are not propagated into either array. This additive schema-9+ projection preserves provenance while letting clients condense matching Artist ID/role/exact credited spelling for display. Response paging/order and stored source/official numbering are unchanged.
 
 ### Managed Release artwork and provider candidates (schema 11)
 

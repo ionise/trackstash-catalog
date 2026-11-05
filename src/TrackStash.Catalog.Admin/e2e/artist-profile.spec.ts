@@ -62,6 +62,7 @@ test('Artist profile, portrait and tabs preserve conditional edits, private note
   await expect(releases.getByRole('row')).toHaveCount(2)
   await expect(releases.getByRole('img', { name: 'Fixture Catalog Release cover thumbnail', exact: true })).toHaveAttribute('src', /^blob:/)
   await expect(releases.getByRole('link', { name: 'Release Fixture Label', exact: true })).toBeVisible()
+  await releases.getByRole('button', { name: 'Credit details', exact: true }).click()
   await releases.getByLabel(/Recording credit:/).focus()
   await page.keyboard.press('Shift+Tab')
   await page.keyboard.press('Tab')

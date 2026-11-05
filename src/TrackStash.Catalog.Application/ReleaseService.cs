@@ -11,7 +11,8 @@ public sealed record CatalogReleaseDetail(string Id, string? Title, string Versi
     IReadOnlyList<ReleaseContributorDetail> Credits, IReadOnlyList<ReleaseReferenceDetail> ExternalReferences);
 public sealed record ReleaseTrackDetail(string PlacementId, string RecordingId, string? Title, string? MixName,
     string? Isrc, long? DurationMs, int DisplayOrder, int? SourcePosition, string OrderSource, int? DiscNumber, int? TrackNumber,
-    IReadOnlyList<ReleaseContributorDetail> Credits, IReadOnlyList<ReleaseReferenceDetail> ExternalReferences);
+    IReadOnlyList<ReleaseContributorDetail> Credits, IReadOnlyList<ReleaseReferenceDetail> ExternalReferences,
+    IReadOnlyList<ReleaseContributorDetail> RecordingCredits);
 public sealed record ReleaseTrackPage(IReadOnlyList<ReleaseTrackDetail> Items, int Total, int Page, int PageSize);
 public sealed record ReleaseListItem(CatalogReleaseSummary Release, IReadOnlyList<ReleaseContributorDetail> PrimaryArtists,
     string? CoverAssetId);
@@ -49,7 +50,7 @@ public sealed class ReleaseService(IStorageProvider storage) : IReleaseService
         }
         return new(items, page.Total, page.Page, page.PageSize);
     }
-    private static async Task<IReadOnlyList<ReleaseContributorDetail>> Credits(IUnitOfWork unit, IReadOnlyList<CatalogCredit> credits,
+    internal static async Task<IReadOnlyList<ReleaseContributorDetail>> Credits(IUnitOfWork unit, IReadOnlyList<CatalogCredit> credits,
         Dictionary<string, Artist> artists, CancellationToken ct)
     {
         var items = new List<ReleaseContributorDetail>();
@@ -101,7 +102,9 @@ public sealed class ReleaseService(IStorageProvider storage) : IReleaseService
                 recording.DurationMs, placement.DisplayOrder, placement.SourcePosition, placement.OrderSource,
                 placement.DiscNumber, placement.TrackNumber,
                 await Credits(unit, placement.Credits, artists, cancellationToken).ConfigureAwait(false),
-                placement.ExternalReferences.Select(r => new ReleaseReferenceDetail(r.Source, r.ExternalId, r.IsPrimary)).ToArray()));
+                placement.ExternalReferences.Select(r => new ReleaseReferenceDetail(r.Source, r.ExternalId, r.IsPrimary)).ToArray(),
+                await Credits(unit, await unit.CatalogFoundations.GetCreditsAsync(CatalogEntityKind.Recording, recording.Id, cancellationToken).ConfigureAwait(false),
+                    artists, cancellationToken).ConfigureAwait(false)));
         }
         return new(items, placements.Count, query.Page, query.PageSize);
     }

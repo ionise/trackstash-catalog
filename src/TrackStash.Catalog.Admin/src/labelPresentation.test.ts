@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { artistLinks, countryPresentation, labelLinks, linkPresentation } from './labelPresentation'
+import { artistLinks, countryPresentation, labelLinks, linkPresentation, releaseLinks } from './labelPresentation'
 
 describe('label presentation', () => {
+  it('generates Release links for numeric provider IDs only, preferred first and without fetching', () => {
+    const record = { id: 'r', title: 'Blöck House', version: 'v', catalogNumber: null, upc: null, publishDate: null, newReleaseDate: null, labels: [], credits: [],
+      externalReferences: [{ source: 'beatport', externalId: '22', isPrimary: false }, { source: 'Beatport', externalId: '11', isPrimary: true },
+        { source: 'beatport', externalId: '11', isPrimary: false }, { source: 'beatport', externalId: '../bad', isPrimary: true }] }
+    expect(releaseLinks(record).map(l => l.url)).toEqual(['https://www.beatport.com/release/block-house/11', 'https://www.beatport.com/release/block-house/22'])
+    expect(releaseLinks({ ...record, title: null })[0].url).toBe('https://www.beatport.com/release/release/11')
+    expect(releaseLinks({ ...record, externalReferences: [] })).toEqual([])
+  })
   it('generates Artist provider links safely, retains multiple identities and prefers curated URLs', () => {
     const artist = { id: 'artist', name: 'Ärtist & Friends', sortName: null, kind: 'person', identityStatus: 'unresolved_compound', version: 'v1', aliases: [],
       externalReferences: [{ source: 'beatport', externalId: '22', isPrimary: true }, { source: 'beatport', externalId: '11', isPrimary: false },

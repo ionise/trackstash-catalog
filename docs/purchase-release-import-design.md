@@ -403,8 +403,9 @@ commerce, playback, Charts, hype/exclusivity or provider-follow controls.
    catalog appearances, not artist signing, ownership, personal relationships or
    permanent manual relationship edges. Keep queries paginated and make the
    supporting releases/tracks available for inspection.
-4. **Infrastructure-dependent controls.** Add genre/subgenre, BPM and key
-   columns/filters only when canonical data, provenance and querying exist.
+4. **Infrastructure-dependent controls.** Reserve genre/subgenre, BPM and key
+   display slots with explicit unavailable states; enable filters only when
+   canonical data, provenance and querying exist.
    Playback, playlists, purchase controls, external provider enrichment and
    Artist split/merge workflows need separate designs. Do not display inactive
    controls that suggest these features already work.
@@ -417,7 +418,25 @@ title-ordered appearance projections and independent page state: one row per
 credited placement (unplaced Recordings separate), one row per distinct Release.
 Roles/spellings are aggregated and focusable evidence icons explain release,
 Recording and track-listing credit locations. Release rows include managed-cover
-thumbnails and linked Labels. Raw credit endpoints remain available for inspection.
+thumbnails and linked Labels. Artist Tracks and Releases now use compact
+Beatport-inspired rows: sequential number, cover thumbnail and title/Artist
+line, Label context, release date and BPM slots; Tracks also reserve
+Genre/subgenre and key slots. Track title/mix and primary/remixer lines reuse
+the Release component. Credit roles, spellings and focusable scope icons are
+retained in expandable Credit details instead of dedicated columns.
+Responses retain the viewed Artist's scoped evidence in `credits` and separately
+provide full `contributors`: explicit placement plus Recording credits for
+track rows, and release-level credits for release rows. Matching Artist
+ID/role/exact credited spelling is condensed without borrowing release-wide
+credits for tracks. Release `publishDate` and `newReleaseDate` are read from
+the existing catalog; the date column uses publish date, then new-release date
+if publish date is absent. Unplaced Recordings have no release date.
+Musical metadata remains unavailable rather than inferred; optional frontend
+Genre/subgenre, BPM/range and key-name fields are display slots, not new backend
+API guarantees.
+Backfill, canonical metadata/provenance, migration and working filters are
+on hold. No disabled filter, playlist or purchase controls imply functionality.
+Raw credit endpoints remain available for inspection.
 The biography heading has a pencil for a biography/source-only editor; the
 portrait camera replaces the redundant header management link. Favourite uses
 a heart, Beatport uses its locally bundled logo, and links/actions have tooltips.
@@ -486,6 +505,12 @@ Read-only Artist browsing provides a sidebar list with literal name/sort-name/al
 Label-scoped Release browsing shows a tiny managed preferred-cover thumbnail and release-level primary Artist credits instead of repeating the current Label. Collaborating primary credits retain their order/spelling; absent release credits are not inferred from tracks or remixers. The global Release list retains Label links. This listing projection is read-only and does not change import identity decisions.
 
 Release browsing and detail presentation now include managed covers/gallery on schema 11, separate from source import. Manual upload and provider-neutral candidate/explicit attachment reuse shared artwork validation, rights, version/history and backup rules. No live provider adapters, automatic downloads, Label-logo fallback or Recording inheritance are enabled. See [shared artwork design](../../trackstash-core/docs/artwork-design.md) and [artwork API](api-design.md#managed-release-artwork-and-provider-candidates-schema-11). Live migration remains separately gated.
+
+### Release track presentation and shared-list roadmap
+
+The approved presentation-first increment removes redundant header artwork management in favour of the cover/camera action and adds a hinted Beatport logo link when a valid numeric release ID is known. Track rows show sequential presentation numbers across pages, title followed by mix name, primary Artists followed by remixers and duration. Label links remain in the Release header rather than repeating a redundant Label column in the track list. Explicit placement and Recording credits are combined and deduplicated by Artist ID/role/exact credited spelling; release-wide credits never stand in for track credits. Separate credit provenance, ISRC, identities and source/official numbering remain in expandable track details. Presentation numbers do not write or assert official numbering.
+
+Artist Tracks now reuse the title/Artist/remixer component and show Label context plus reserved release-date and musical-metadata slots; Artist Releases use the equivalent numbered cover/title/Artist/Label/date/BPM layout. Unavailable dates, Genre/subgenre, BPM and key remain explicit until a richer response is supplied. Redundant Label/date fields remain omitted within a Release. Metadata infrastructure and backfill are on hold; musical key needs a defined representation before a classic/Camelot preference, and filters require real server-side querying. Tiny waveforms require available media and real analysis. Playlist actions require working catalog playlist operations, not misleading inactive buttons. No additional schema migration, media matching or automatic enrichment is introduced by the presentation increment.
 
 1. Completed: read-only cached bundle inspector and paged corpus-flag queue, with no canonical writes. Expose missing details/order and structured credits. Receipt ingestion and deliberate provider refresh remain separate adapter work.
 2. Completed: minimum Artist/Release/Recording/placement/credit/reference/version foundations and migration 9, including unresolved compound state and source-credit expression/evidence for later split resolution, tested without live activation. The actual split-resolution workflow remains future work.

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, ButtonBase, Chip, Divider, LinearProgress, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material'
+import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, ButtonBase, Chip, Divider, IconButton, SvgIcon, Tooltip, LinearProgress, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material'
 import AlbumIcon from '@mui/icons-material/Album'
 import CameraAltIcon from '@mui/icons-material/CameraAlt'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
@@ -9,9 +9,12 @@ import { releaseClient } from './catalog'
 import type { CatalogRelease, GroupPage, ReleaseCredit, ReleaseDetail, ReleaseTrack } from './catalog'
 import { ArtworkImage, ArtworkPanel } from './LabelArtwork'
 import { ArtistCreditName } from './Artists'
+import { siBeatport } from 'simple-icons'
+import { releaseLinks, linkPresentation, trackContributors } from './labelPresentation'
+import { TrackTitleArtists } from './TrackPresentation'
 
 function Pager({ page, total, onPage }: { page: number; total: number; onPage: (page: number) => void }) {
-  return <Stack direction="row" spacing={2} sx={{ alignItems: 'center', my: 2 }}>
+  return <Stack direction="row" spacing={2} useFlexGap sx={{ alignItems: 'center', my: 2, flexWrap: 'wrap' }}>
     <Button disabled={page <= 1} onClick={() => onPage(page - 1)}>Previous page</Button>
     <Typography>Page {page}; {total} results</Typography>
     <Button disabled={page * 25 >= total} onClick={() => onPage(page + 1)}>Next page</Button>
@@ -110,19 +113,23 @@ function Tracks({ id, page, onPage }: { id: string; page: number; onPage: (page:
   if (!data) return <LinearProgress aria-label="Loading catalog release tracks" />
   return <>
     {!data.total && <Typography>No track placements recorded.</Typography>}
-    <Box sx={{ overflowX: 'auto' }}><Table aria-label="Catalog release tracks">
-      <TableHead><TableRow><TableCell>Order</TableCell><TableCell>Track / version</TableCell><TableCell>Placement credits</TableCell><TableCell>Source identity</TableCell></TableRow></TableHead>
-      <TableBody>{data.items.map(track => <TableRow key={track.placementId}>
-        <TableCell>{track.displayOrder} ({track.orderSource})<Typography variant="body2">Source position: {track.sourcePosition ?? 'unknown'}<br />Official disc/track: {track.discNumber ?? '?'}/{track.trackNumber ?? '?'}</Typography></TableCell>
-        <TableCell><Typography sx={{ fontWeight: 600 }}>{track.title ?? 'Untitled recording'}</Typography>
-          <Typography variant="body2" color="text.secondary">{track.mixName}</Typography>
-          <Typography variant="body2">{track.durationMs === null ? 'Duration unknown' : `${Math.floor(track.durationMs / 60000)}:${String(Math.floor(track.durationMs / 1000) % 60).padStart(2, '0')}`}</Typography>
+    <Box sx={{ overflowX: 'auto', width: '100%', minWidth: 0, contain: 'inline-size' }}><Table aria-label="Catalog release tracks">
+      <TableHead><TableRow><TableCell>#</TableCell><TableCell>Title / Artist · Remixer</TableCell><TableCell>Duration</TableCell></TableRow></TableHead>
+      <TableBody>{data.items.map((track, index) => <TableRow key={track.placementId}>
+        <TableCell>{(data.page - 1) * data.pageSize + index + 1}</TableCell>
+        <TableCell>
+          <TrackTitleArtists title={track.title} mixName={track.mixName} credits={trackContributors(track.credits, track.recordingCredits)} />
           <Accordion disableGutters elevation={0} sx={{ bgcolor: 'transparent' }}><AccordionSummary expandIcon={<ExpandMoreIcon />}><Typography variant="caption">Track details</Typography></AccordionSummary>
-            <AccordionDetails><Typography variant="caption" sx={{ overflowWrap: 'anywhere' }}>ISRC: {track.isrc ?? 'unknown'}<br />Recording ID: {track.recordingId}<br />Placement ID: {track.placementId}</Typography></AccordionDetails>
+            <AccordionDetails>
+              <Typography variant="caption" sx={{ overflowWrap: 'anywhere' }}>ISRC: {track.isrc ?? 'unknown'}<br />Recording ID: {track.recordingId}<br />Placement ID: {track.placementId}<br />
+                Catalog display order: {track.displayOrder} ({track.orderSource})<br />Source position: {track.sourcePosition ?? 'unknown'}<br />Official disc/track: {track.discNumber ?? '?'}/{track.trackNumber ?? '?'}</Typography>
+              <Typography variant="subtitle2">Track listing credits</Typography><Credits items={track.credits} />
+              <Typography variant="subtitle2">Recording credits</Typography><Credits items={track.recordingCredits} />
+              {track.externalReferences.map(r => <Typography variant="caption" sx={{ display: 'block' }} key={`${r.source}:${r.externalId}`}>{r.source}: {r.externalId}</Typography>)}
+            </AccordionDetails>
           </Accordion>
         </TableCell>
-        <TableCell><Credits items={track.credits} /></TableCell>
-        <TableCell>{track.externalReferences.map(r => <Typography key={`${r.source}:${r.externalId}`}>{r.source}: {r.externalId}</Typography>)}</TableCell>
+        <TableCell>{track.durationMs === null ? 'Unknown' : `${Math.floor(track.durationMs / 60000)}:${String(Math.floor(track.durationMs / 1000) % 60).padStart(2, '0')}`}</TableCell>
       </TableRow>)}</TableBody>
     </Table></Box>
     <Pager page={page} total={data.total} onPage={onPage} />
@@ -148,7 +155,7 @@ function Detail({ id }: { id: string }) {
     <Title title={data.title ?? 'Release'} />
     <Stack component="header" direction={{ xs: 'column', sm: 'row' }} spacing={3} sx={{ alignItems: 'flex-start' }}>
       <Box sx={{ width: 240, maxWidth: '100%', flexShrink: 0 }}>
-        <ButtonBase aria-label="Change release artwork" disabled={artwork.busy} onClick={artwork.manage}
+        <Tooltip title="Change release cover and gallery"><span><ButtonBase aria-label="Change release artwork" disabled={artwork.busy} onClick={artwork.manage}
           sx={{ position: 'relative', width: 240, maxWidth: '100%', borderRadius: 2, overflow: 'hidden',
             '& .cover-action': { opacity: 0 },
             '&:hover .cover-action, &.Mui-focusVisible .cover-action': { opacity: 1 },
@@ -164,13 +171,17 @@ function Detail({ id }: { id: string }) {
             display: 'flex', borderRadius: '50%', bgcolor: 'background.paper', color: 'text.primary', boxShadow: 2 }}>
             <CameraAltIcon />
           </Box>
-        </ButtonBase>
-        <Button fullWidth disabled={artwork.busy} onClick={artwork.manage} sx={{ mt: 1 }}>Manage release artwork</Button>
+        </ButtonBase></span></Tooltip>
         {artwork.error && <Alert severity="warning">{artwork.error}</Alert>}
       </Box>
-      <Stack spacing={2} sx={{ minWidth: 0 }}>
+      <Stack spacing={2} sx={{ minWidth: 0, maxWidth: '100%' }}>
         <Chip label="Release" variant="outlined" size="small" sx={{ alignSelf: 'flex-start' }} />
         <Typography component="h1" variant="h3" sx={{ fontWeight: 600, overflowWrap: 'anywhere' }}>{data.title ?? 'Untitled release'}</Typography>
+        <Stack direction="row" spacing={1}>{releaseLinks(data).map(link => <Tooltip key={link.url} title={`Open ${linkPresentation(link).label} in a new tab`}>
+          <IconButton component="a" href={link.url} target="_blank" rel="noopener noreferrer" aria-label={linkPresentation(link).label}>
+            <SvgIcon viewBox="0 0 24 24"><path d={siBeatport.path} /></SvgIcon>
+          </IconButton>
+        </Tooltip>)}</Stack>
         <Stack direction="row" useFlexGap spacing={1} sx={{ flexWrap: 'wrap' }}>{data.labels.map(label =>
           <Link key={label.id} to={`/labels/${encodeURIComponent(label.id)}/show`}>{label.name ?? label.id}{label.isPrimary ? ' (primary label)' : ''}</Link>)}</Stack>
         <Typography>Catalog number: {data.catalogNumber ?? 'Unknown'}; UPC: {data.upc ?? 'Unknown'}</Typography>
@@ -180,7 +191,6 @@ function Detail({ id }: { id: string }) {
     </Stack>
     <Divider />
     <Typography component="h2" variant="h6">Tracks</Typography>
-    <Typography variant="body2" color="text.secondary">Display order is separate from source sequence and official disc/track numbers. Unknown numbers are not inferred.</Typography>
     <Tracks key={`${id}:${page}`} id={id} page={page} onPage={setPage} />
     {gallery}
     <Accordion><AccordionSummary expandIcon={<ExpandMoreIcon />}><Typography>Details and provider identities</Typography></AccordionSummary>
@@ -196,7 +206,7 @@ function Detail({ id }: { id: string }) {
 export function ReleaseShow() {
   const { id } = useParams()
   const { isPending } = useAuthenticated()
-  return <Box sx={{ p: 3 }}><Link to="/releases">All releases</Link>
+  return <Box sx={{ p: 3, minWidth: 0, width: '100%' }}><Link to="/releases">All releases</Link>
     {!isPending && id && <Detail key={id} id={id} />}
   </Box>
 }

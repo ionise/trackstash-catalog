@@ -111,6 +111,14 @@ export interface GroupedArtistAppearance {
   trackTitle: string | null; mixName: string | null; coverAssetId: string | null
   labels: { id: string; name: string | null; isPrimary: boolean }[]
   credits: { role: string; scope: string; creditedName: string | null }[]
+  contributors: ReleaseCredit[]
+  publishDate: string | null
+  newReleaseDate: string | null
+  genre?: string | null
+  subgenre?: string | null
+  bpm?: number | null
+  bpmMax?: number | null
+  keyName?: string | null
 }
 export interface ReleaseDetail {
   id: string; title: string | null; version: string; catalogNumber: string | null; upc: string | null
@@ -121,7 +129,7 @@ export interface ReleaseDetail {
 export interface ReleaseTrack {
   placementId: string; recordingId: string; title: string | null; mixName: string | null; isrc: string | null
   durationMs: number | null; displayOrder: number; sourcePosition: number | null; orderSource: string
-  discNumber: number | null; trackNumber: number | null; credits: ReleaseCredit[]
+  discNumber: number | null; trackNumber: number | null; credits: ReleaseCredit[]; recordingCredits: ReleaseCredit[]
   externalReferences: { source: string; externalId: string; isPrimary: boolean }[]
 }
 export interface ImportPreview {
