@@ -132,6 +132,21 @@ export interface ReleaseTrack {
   discNumber: number | null; trackNumber: number | null; credits: ReleaseCredit[]; recordingCredits: ReleaseCredit[]
   externalReferences: { source: string; externalId: string; isPrimary: boolean }[]
 }
+export interface CatalogTrack {
+  placementId: string | null; recordingId: string; title: string | null; mixName: string | null; isrc: string | null
+  durationMs: number | null; releaseId: string | null; releaseTitle: string | null; coverAssetId: string | null
+  publishDate: string | null; newReleaseDate: string | null; displayOrder: number | null; sourcePosition: number | null
+  orderSource: string | null; discNumber: number | null; trackNumber: number | null; releaseCount: number
+  labels: { id: string; name: string | null; role: string | null; isPrimary: boolean }[]
+  credits: ReleaseCredit[]; recordingCredits: ReleaseCredit[]
+  externalReferences: { source: string; externalId: string; isPrimary: boolean }[]
+  artistCredits: { role: string; scope: string; creditedName: string | null }[]
+  genre?: string | null; subgenre?: string | null; bpm?: number | null; keyName?: string | null
+}
+export interface RecordingDetail {
+  id: string; title: string | null; mixName: string | null; isrc: string | null; durationMs: number | null; version: string
+  credits: ReleaseCredit[]; externalReferences: { source: string; externalId: string; isPrimary: boolean }[]; releaseCount: number
+}
 export interface ImportPreview {
   operationId: string; expiresUtc: string; sourceReleaseId: number; title: string | null
   releaseId: string; labelId: string; sourceDigest: string; noOp: boolean; identityCount: number; trackCount: number
@@ -508,6 +523,12 @@ export function createCatalogClient(fetcher: typeof fetch = fetch) {
     tracks: async (id: string, page: number, signal?: AbortSignal): Promise<GroupPage<ReleaseTrack>> =>
       (await request(`/${encodeURIComponent(id)}/tracks?page=${page}&pageSize=25`, { signal }, 'releases')).json(),
   }
+  const trackClient = {
+    list: async (query: URLSearchParams, signal?: AbortSignal): Promise<GroupPage<CatalogTrack>> =>
+      (await request(`?${query}`, { signal }, 'tracks')).json(),
+    recording: async (id: string, signal?: AbortSignal): Promise<RecordingDetail> =>
+      (await request(`/${encodeURIComponent(id)}`, { signal }, 'recordings')).json(),
+  }
   const artistClient = {
     appearances: async (id: string, tracks: boolean, page: number, signal?: AbortSignal): Promise<GroupPage<GroupedArtistAppearance>> =>
       (await request(`/${encodeURIComponent(id)}/${tracks ? 'track' : 'release'}-appearances?page=${page}&pageSize=25`, { signal }, 'artists')).json(),
@@ -532,7 +553,7 @@ export function createCatalogClient(fetcher: typeof fetch = fetch) {
     credits: async (id: string, tracks: boolean, page: number, signal?: AbortSignal): Promise<GroupPage<ArtistAppearance>> =>
       (await request(`/${encodeURIComponent(id)}/${tracks ? 'tracks' : 'releases'}?page=${page}&pageSize=25`, { signal }, 'artists')).json(),
   }
-  return { dataProvider, authProvider, mergeClient, artworkClient, releaseArtworkClient, artistArtworkClient, backupsClient, relationshipsClient, groupClient, purchaseReleaseClient, releaseImportClient, releaseClient, artistClient }
+  return { dataProvider, authProvider, mergeClient, artworkClient, releaseArtworkClient, artistArtworkClient, backupsClient, relationshipsClient, groupClient, purchaseReleaseClient, releaseImportClient, releaseClient, artistClient, trackClient }
 }
 
-export const { dataProvider, authProvider, mergeClient, artworkClient, releaseArtworkClient, artistArtworkClient, backupsClient, relationshipsClient, groupClient, purchaseReleaseClient, releaseImportClient, releaseClient, artistClient } = createCatalogClient()
+export const { dataProvider, authProvider, mergeClient, artworkClient, releaseArtworkClient, artistArtworkClient, backupsClient, relationshipsClient, groupClient, purchaseReleaseClient, releaseImportClient, releaseClient, artistClient, trackClient } = createCatalogClient()

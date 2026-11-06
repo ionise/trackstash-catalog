@@ -49,6 +49,8 @@ internal sealed class ApiExceptionHandler(ILogger<ApiExceptionHandler> logger) :
             ReleaseArtworkNotFoundException => (404, "release_not_found", "Release not found", (string?)"Catalog release was not found.", (string?)null),
             ReleaseArtworkUnavailableException artwork => (409, "release_artwork_unavailable", "Release artwork unavailable", (string?)artwork.Message, (string?)null),
             ReleaseQueryValidationException query => (400, "validation_failed", "Invalid release query", (string?)query.Message, (string?)null),
+            TrackBrowseUnavailableException => (409, "track_schema_required", "Track browsing unavailable",
+                (string?)"Track browsing requires schema 9 or later. A live migration must be approved separately.", (string?)null),
             ReleaseBrowseUnavailableException => (409, "release_schema_required", "Release browsing unavailable",
                 (string?)"Canonical release browsing requires schema 9 or later. A live migration must be approved separately.", (string?)null),
             ReleaseImportException import => (import.Status, import.Code, "Release import not completed", (string?)import.Message, (string?)null),

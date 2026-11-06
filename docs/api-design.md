@@ -18,6 +18,34 @@ Status: shared label foundation, reviewed pairwise label merges, loopback-only H
 
 These browsing routes are read-only, bearer/origin protected, cancellable and no-store. Unknown/repeated query fields or invalid bounds return 400; missing Artist detail/credits returns 404. Schema 9+ is required; schema 8 returns `409 artist_schema_required` without migration while Label/inspector routes remain usable. Identity editing, split/merge and private purchase endpoints remain out of scope.
 
+### Tracks and Recordings
+
+A **Recording** is one piece of audio (title, mix, ISRC, credits). A **track** is
+a Recording placed on a release (`release_recording`); the same Recording can be
+a track on several releases. Media files are separate copies and are not linked yet.
+
+`GET /api/v1/tracks` is the single track query behind every GUI track list.
+Filters combine: `releaseId`, `labelId` (any release-label link), `artistId`
+with optional `role` (`primary`/`remixer`; placement or Recording credit), and
+`recordingId`. `q` splits on whitespace (up to 8 words); every word must match
+the title, mix, exact ISRC, release title or a credited Artist/credit name.
+`sort` is `date` (publish date, falling back to new-release date; default, newest
+first), `title`, `artist` (first primary credit), `release`, or `order` (display
+order; default with `releaseId`, which it requires); `order=asc|desc` overrides
+the direction. `groupBy=recording` returns one row per Recording represented by
+its newest release, with `releaseCount`. Unplaced Recordings are rows with null
+placement/release fields. Rows include labels, the preferred cover asset ID
+(schema 11+), placement and Recording credits, provider identities, and, when
+filtered by Artist, that Artist's credit evidence. `page`/`pageSize` (1-100);
+unknown, repeated or invalid fields return 400; a missing filter entity returns
+404 (`release_not_found`, `label_not_found`, `artist_not_found`,
+`recording_not_found`); schema below 9 returns 409 `track_schema_required`.
+
+`GET /api/v1/recordings/{id}` returns title, mix, ISRC, duration, credits,
+provider identities and release count with an ETag. Both routes are read-only and
+no-store. The older `/releases/{id}/tracks` and `/artists/{id}/track-appearances`
+routes remain for compatibility.
+
 The Artist GUI uses additional grouped browsing routes:
 
 - `GET /api/v1/artists/{id}/track-appearances`: one row per credited placement,

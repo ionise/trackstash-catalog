@@ -19,7 +19,10 @@ export function artistLinks(record: ArtistDetail, profile?: ArtistProfile) {
 export function releaseLinks(record: ReleaseDetail) {
   return beatportLinks('release', record.title, [], record.externalReferences)
 }
-function beatportLinks(entity: 'label' | 'artist' | 'release', name: string | null, curated: ArtistProfile['links'],
+export function recordingLinks(record: { title: string | null; externalReferences: { source: string; externalId: string; isPrimary: boolean }[] }) {
+  return beatportLinks('track', record.title, [], record.externalReferences)
+}
+function beatportLinks(entity: 'label' | 'artist' | 'release' | 'track', name: string | null, curated: ArtistProfile['links'],
   external: { source: string; externalId: string; isPrimary: boolean }[]) {
   const links = [...curated]
   const linkedIds = new Set(links.flatMap(link => {

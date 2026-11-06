@@ -9,6 +9,8 @@ import { Backups } from './Backups'
 import { PurchaseReleases } from './PurchaseReleases'
 import { ReleaseList, ReleaseShow } from './Releases'
 import { ArtistList, ArtistShow } from './Artists'
+import { RecordingShow, TrackListPage } from './Recordings'
+import QueueMusicIcon from '@mui/icons-material/QueueMusic'
 import SearchIcon from '@mui/icons-material/Search'
 import { LabelGroupList, LabelGroupCreate, LabelGroupShow, LabelGroupEdit } from './LabelGroups'
 import BackupIcon from '@mui/icons-material/Backup'
@@ -25,6 +27,7 @@ function CatalogMenu() {
     <Menu.ResourceItem name="labels" />
     <Menu.ResourceItem name="releases" />
     <Menu.ResourceItem name="artists" />
+    <Menu.ResourceItem name="tracks" />
     <Menu.ResourceItem name="label-groups" />
     <Menu.Item to="/purchase-releases" primaryText="Purchase releases" leftIcon={<SearchIcon />} />
     <MenuItem aria-label="System" aria-expanded={sidebarOpen && expanded} aria-controls="system-backup-menu" onClick={() => {
@@ -56,6 +59,8 @@ export default function App() {
       <Resource name="labels" list={LabelList} show={LabelShow} create={LabelCreate} edit={LabelEdit} recordRepresentation="name" />
       <Resource name="releases" list={ReleaseList} show={ReleaseShow} recordRepresentation="title" />
       <Resource name="artists" list={ArtistList} show={ArtistShow} recordRepresentation="name" />
+      <Resource name="tracks" list={TrackListPage} icon={QueueMusicIcon} recordRepresentation="title" />
+      <Resource name="recordings" show={RecordingShow} recordRepresentation="title" />
       <Resource name="label-groups" options={{ label: 'Label groups' }} list={LabelGroupList} show={LabelGroupShow} create={LabelGroupCreate} edit={LabelGroupEdit} recordRepresentation="name" />
       <Resource name="backups" list={Backups} icon={BackupIcon} />
       <Resource name="purchase-releases" list={PurchaseReleases} />

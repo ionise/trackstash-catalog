@@ -551,3 +551,23 @@ Authorization: Bearer {{apiKey}}
 ### Download saved scanner ZIP (job status uses the same backup-jobs/{id} endpoint above)
 GET {{baseUrl}}/api/v1/backups/{{scannerBackupId}}/download?kind=scanner
 Authorization: Bearer {{apiKey}}
+
+### Tracks: newest first, one row per Recording (the top-level Tracks list)
+GET {{baseUrl}}/api/v1/tracks?groupBy=recording&page=1&pageSize=25
+Authorization: Bearer {{apiKey}}
+
+### Tracks on a release in release order
+GET {{baseUrl}}/api/v1/tracks?releaseId={{releaseId}}
+Authorization: Bearer {{apiKey}}
+
+### Tracks remixed by an Artist, searched (every word must match) and sorted by title
+GET {{baseUrl}}/api/v1/tracks?artistId={{artistId}}&role=remixer&q=original%20mix&sort=title&order=asc
+Authorization: Bearer {{apiKey}}
+
+### Invalid sort returns 400 validation_failed
+GET {{baseUrl}}/api/v1/tracks?sort=bpm
+Authorization: Bearer {{apiKey}}
+
+### Recording detail; a missing ID returns 404 recording_not_found
+GET {{baseUrl}}/api/v1/recordings/replace-with-canonical-recording-id
+Authorization: Bearer {{apiKey}}

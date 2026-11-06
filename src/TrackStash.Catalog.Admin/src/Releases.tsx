@@ -6,12 +6,12 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import { Title, useAuthenticated, useLogoutIfAccessDenied } from 'react-admin'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { releaseClient } from './catalog'
-import type { CatalogRelease, GroupPage, ReleaseCredit, ReleaseDetail, ReleaseTrack } from './catalog'
+import type { CatalogRelease, GroupPage, ReleaseCredit, ReleaseDetail } from './catalog'
 import { ArtworkImage, ArtworkPanel } from './LabelArtwork'
 import { ArtistCreditName } from './Artists'
 import { siBeatport } from 'simple-icons'
-import { releaseLinks, linkPresentation, trackContributors } from './labelPresentation'
-import { TrackTitleArtists } from './TrackPresentation'
+import { releaseLinks, linkPresentation } from './labelPresentation'
+import { LocalTrackList } from './TrackList'
 
 function Pager({ page, total, onPage }: { page: number; total: number; onPage: (page: number) => void }) {
   return <Stack direction="row" spacing={2} useFlexGap sx={{ alignItems: 'center', my: 2, flexWrap: 'wrap' }}>
@@ -98,46 +98,8 @@ function Credits({ items }: { items: ReleaseCredit[] }) {
     {credit.identityStatus === 'unresolved_compound' && ' [unresolved compound]'}
   </li>)}</ul> : <Typography color="text.secondary">No credits recorded in this scope.</Typography>
 }
-function Tracks({ id, page, onPage }: { id: string; page: number; onPage: (page: number) => void }) {
-  const [data, setData] = useState<GroupPage<ReleaseTrack>>()
-  const [error, setError] = useState('')
-  const logout = useLogoutIfAccessDenied()
-  useEffect(() => {
-    const controller = new AbortController()
-    void releaseClient.tracks(id, page, controller.signal).then(result => { if (!controller.signal.aborted) setData(result) }).catch(failure => {
-      if (!controller.signal.aborted) { setError(failure instanceof Error ? failure.message : 'Release tracks could not be loaded.'); void logout(failure) }
-    })
-    return () => controller.abort()
-  }, [id, page, logout])
-  if (error) return <Alert severity="error">{error}</Alert>
-  if (!data) return <LinearProgress aria-label="Loading catalog release tracks" />
-  return <>
-    {!data.total && <Typography>No track placements recorded.</Typography>}
-    <Box sx={{ overflowX: 'auto', width: '100%', minWidth: 0, contain: 'inline-size' }}><Table aria-label="Catalog release tracks">
-      <TableHead><TableRow><TableCell>#</TableCell><TableCell>Title / Artist · Remixer</TableCell><TableCell>Duration</TableCell></TableRow></TableHead>
-      <TableBody>{data.items.map((track, index) => <TableRow key={track.placementId}>
-        <TableCell>{(data.page - 1) * data.pageSize + index + 1}</TableCell>
-        <TableCell>
-          <TrackTitleArtists title={track.title} mixName={track.mixName} credits={trackContributors(track.credits, track.recordingCredits)} />
-          <Accordion disableGutters elevation={0} sx={{ bgcolor: 'transparent' }}><AccordionSummary expandIcon={<ExpandMoreIcon />}><Typography variant="caption">Track details</Typography></AccordionSummary>
-            <AccordionDetails>
-              <Typography variant="caption" sx={{ overflowWrap: 'anywhere' }}>ISRC: {track.isrc ?? 'unknown'}<br />Recording ID: {track.recordingId}<br />Placement ID: {track.placementId}<br />
-                Catalog display order: {track.displayOrder} ({track.orderSource})<br />Source position: {track.sourcePosition ?? 'unknown'}<br />Official disc/track: {track.discNumber ?? '?'}/{track.trackNumber ?? '?'}</Typography>
-              <Typography variant="subtitle2">Track listing credits</Typography><Credits items={track.credits} />
-              <Typography variant="subtitle2">Recording credits</Typography><Credits items={track.recordingCredits} />
-              {track.externalReferences.map(r => <Typography variant="caption" sx={{ display: 'block' }} key={`${r.source}:${r.externalId}`}>{r.source}: {r.externalId}</Typography>)}
-            </AccordionDetails>
-          </Accordion>
-        </TableCell>
-        <TableCell>{track.durationMs === null ? 'Unknown' : `${Math.floor(track.durationMs / 60000)}:${String(Math.floor(track.durationMs / 1000) % 60).padStart(2, '0')}`}</TableCell>
-      </TableRow>)}</TableBody>
-    </Table></Box>
-    <Pager page={page} total={data.total} onPage={onPage} />
-  </>
-}
 function Detail({ id }: { id: string }) {
   const [data, setData] = useState<ReleaseDetail>()
-  const [page, setPage] = useState(1)
   const [error, setError] = useState('')
   const logout = useLogoutIfAccessDenied()
   useEffect(() => {
@@ -191,7 +153,7 @@ function Detail({ id }: { id: string }) {
     </Stack>
     <Divider />
     <Typography component="h2" variant="h6">Tracks</Typography>
-    <Tracks key={`${id}:${page}`} id={id} page={page} onPage={setPage} />
+    <LocalTrackList key={id} filter={{ releaseId: id }} context="release" label="Catalog release tracks" />
     {gallery}
     <Accordion><AccordionSummary expandIcon={<ExpandMoreIcon />}><Typography>Details and provider identities</Typography></AccordionSummary>
       <AccordionDetails>

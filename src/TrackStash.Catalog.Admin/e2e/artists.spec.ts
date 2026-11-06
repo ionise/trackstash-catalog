@@ -20,14 +20,15 @@ test('Artist menu, label credits, linked Release credits and paged track appeara
   await page.getByRole('tab', { name: 'Tracks', exact: true }).click()
   const tracks = page.getByRole('table', { name: 'Artist track credits', exact: true })
   await expect(tracks.getByRole('row')).toHaveCount(26)
-  await expect(tracks.getByRole('columnheader')).toHaveText(['#', 'Title / Artist · Remixer', 'Label / Genre · Subgenre', 'Release date', 'BPM', 'Key'])
+  await expect(tracks.getByRole('columnheader')).toHaveText(['#', 'Title / Artist · Remixer', 'Release', 'Label / Genre · Subgenre', 'Release date', 'BPM', 'Key', 'Length'])
   const firstTrack = tracks.getByRole('row').nth(1)
   await expect(firstTrack.getByRole('cell').nth(0)).toHaveText('1')
   await expect(firstTrack).toContainText('Catalog Track 1 Fixture Remix')
   await expect(firstTrack).toContainText('Genre not available')
-  await expect(firstTrack.getByRole('cell').nth(3)).toHaveText('2020-01-01')
-  await expect(firstTrack.getByRole('cell').nth(4)).toHaveText('—')
+  await expect(firstTrack.getByRole('cell').nth(2)).toHaveText('Fixture Catalog Release')
+  await expect(firstTrack.getByRole('cell').nth(4)).toHaveText('2020-01-01')
   await expect(firstTrack.getByRole('cell').nth(5)).toHaveText('—')
+  await expect(firstTrack.getByRole('cell').nth(6)).toHaveText('—')
   await expect(firstTrack.getByRole('link', { name: 'Release Fixture Label', exact: true })).toBeVisible()
   await expect(firstTrack.getByRole('link', { name: 'Fixture Composer', exact: true })).toHaveCount(1)
   await expect(tracks.getByLabel(/Track listing credit:/)).toHaveCount(25)
@@ -53,7 +54,7 @@ test('Artist menu, label credits, linked Release credits and paged track appeara
   const remixTrack = page.getByRole('table', { name: 'Artist track credits' }).getByRole('row').nth(1)
   await expect(remixTrack.getByRole('link', { name: 'Fixture Composer', exact: true })).toBeVisible()
   await expect(remixTrack).not.toContainText('Primary Artist not recorded')
-  await expect(remixTrack.getByRole('cell').nth(3)).toHaveText('2020-01-01')
+  await expect(remixTrack.getByRole('cell').nth(4)).toHaveText('2020-01-01')
   await page.getByRole('tab', { name: 'Releases', exact: true }).click()
   await page.getByRole('table', { name: 'Artist release credits' }).getByRole('link', { name: 'Fixture Catalog Release', exact: true }).click()
   await page.getByRole('link', { name: 'Release Fixture Label (primary label)', exact: true }).click()
@@ -73,16 +74,22 @@ test('Artist menu, label credits, linked Release credits and paged track appeara
 })
 
 test('Artist layout renders supplied metadata and collaborators without requiring backfill', async ({ page }) => {
-  await page.route(/\/api\/v1\/artists\/release-fixture-artist\/(track|release)-appearances\?/, async route => {
+  const composer = { artistId: 'release-fixture-artist', artistName: 'Fixture Composer', creditedName: 'Fixture Composer', role: 'primary', position: 1, identityStatus: 'accepted' }
+  const remixer = { artistId: 'release-fixture-remixer', artistName: 'Fixture Remix Act', creditedName: 'Fixture Remix Act', role: 'remixer', position: 1, identityStatus: 'unresolved_compound' }
+  await page.route(/\/api\/v1\/tracks\?/, async route => {
     const response = await route.fetch()
     const data = await response.json()
     await route.fulfill({ response, json: { ...data, items: data.items.map((item: object) => ({
-      ...item, publishDate: '2026-11-05', genre: 'Progressive House', subgenre: 'Melodic',
-      bpm: 120, bpmMax: route.request().url().includes('/release-appearances') ? 128 : null, keyName: 'G Minor',
-      contributors: [
-        { artistId: 'release-fixture-artist', artistName: 'Fixture Composer', creditedName: 'Fixture Composer', role: 'primary', position: 1, identityStatus: 'accepted' },
-        { artistId: 'release-fixture-remixer', artistName: 'Fixture Remix Act', creditedName: 'Fixture Remix Act', role: 'remixer', position: 1, identityStatus: 'unresolved_compound' },
-      ],
+      ...item, publishDate: '2026-11-05', genre: 'Progressive House', subgenre: 'Melodic', bpm: 120, keyName: 'G Minor',
+      credits: [composer], recordingCredits: [remixer],
+    })) } })
+  })
+  await page.route(/\/api\/v1\/artists\/release-fixture-artist\/release-appearances\?/, async route => {
+    const response = await route.fetch()
+    const data = await response.json()
+    await route.fulfill({ response, json: { ...data, items: data.items.map((item: object) => ({
+      ...item, publishDate: '2026-11-05', genre: 'Progressive House', subgenre: 'Melodic', bpm: 120, bpmMax: 128, keyName: 'G Minor',
+      contributors: [composer, remixer],
     })) } })
   })
   await page.goto('/admin/#/artists/release-fixture-artist/show?tab=Tracks')
@@ -92,9 +99,9 @@ test('Artist layout renders supplied metadata and collaborators without requirin
   const track = tracks.getByRole('row').nth(1)
   await expect(track).toContainText('Fixture Composer · Fixture Remix Act [unresolved compound]')
   await expect(track).toContainText('Progressive House / Melodic')
-  await expect(track.getByRole('cell').nth(3)).toHaveText('2026-11-05')
-  await expect(track.getByRole('cell').nth(4)).toHaveText('120')
-  await expect(track.getByRole('cell').nth(5)).toHaveText('G Minor')
+  await expect(track.getByRole('cell').nth(4)).toHaveText('2026-11-05')
+  await expect(track.getByRole('cell').nth(5)).toHaveText('120')
+  await expect(track.getByRole('cell').nth(6)).toHaveText('G Minor')
   await page.getByRole('tab', { name: 'Releases', exact: true }).click()
   const release = page.getByRole('table', { name: 'Artist release credits', exact: true }).getByRole('row').nth(1)
   await expect(release.getByRole('cell').nth(3)).toHaveText('2026-11-05')
@@ -111,13 +118,13 @@ test('missing Artist has an explicit error and no success-shaped detail', async 
 })
 
 test('Artist tracks use the alternate release date and never borrow viewed-Artist evidence as contributors', async ({ page }) => {
-  await page.route(/\/api\/v1\/artists\/release-fixture-artist\/track-appearances\?/, async route => {
+  await page.route(/\/api\/v1\/tracks\?/, async route => {
     const response = await route.fetch()
     const data = await response.json()
     await route.fulfill({ response, json: { ...data, total: 2, items: [
-      { ...data.items[0], publishDate: null, newReleaseDate: '2020-01-02', contributors: [] },
+      { ...data.items[0], publishDate: null, newReleaseDate: '2020-01-02', credits: [], recordingCredits: [] },
       { ...data.items[1], placementId: null, releaseId: null, releaseTitle: null, labels: [],
-        publishDate: null, newReleaseDate: null, contributors: [] },
+        publishDate: null, newReleaseDate: null, credits: [], recordingCredits: [] },
     ] } })
   })
   await page.goto('/admin/#/artists/release-fixture-artist/show?tab=Tracks')
@@ -125,21 +132,22 @@ test('Artist tracks use the alternate release date and never borrow viewed-Artis
   await page.getByRole('button', { name: 'Connect', exact: true }).click()
   const rows = page.getByRole('table', { name: 'Artist track credits', exact: true }).getByRole('row')
   await expect(rows).toHaveCount(3)
-  await expect(rows.nth(1).getByRole('cell').nth(3)).toHaveText('2020-01-02')
+  await expect(rows.nth(1).getByRole('cell').nth(4)).toHaveText('2020-01-02')
   await expect(rows.nth(1)).toContainText('Primary Artist not recorded')
   await expect(rows.nth(1).getByRole('link', { name: 'Fixture Composer', exact: true })).toHaveCount(0)
-  await rows.nth(1).getByRole('button', { name: 'Credit details', exact: true }).click()
+  await rows.nth(1).getByRole('button', { name: 'Track details', exact: true }).click()
   await expect(rows.nth(1)).toContainText('Credited as: Fixture Composer')
-  await expect(rows.nth(2).getByRole('cell').nth(2)).toContainText('Not recorded')
-  await expect(rows.nth(2).getByRole('cell').nth(3)).toHaveText('Not available')
-  await rows.nth(2).getByRole('button', { name: 'Credit details', exact: true }).click()
+  await expect(rows.nth(2).getByRole('cell').nth(2)).toHaveText('No release placement')
+  await expect(rows.nth(2).getByRole('cell').nth(3)).toContainText('Not recorded')
+  await expect(rows.nth(2).getByRole('cell').nth(4)).toHaveText('Not available')
+  await rows.nth(2).getByRole('button', { name: 'Track details', exact: true }).click()
   await expect(rows.nth(2)).toContainText('No release placement')
   await expect(page.getByRole('button', { name: 'Next page', exact: true })).toBeDisabled()
 })
 
 for (const tracks of [true, false]) {
   test(`Artist ${tracks ? 'track' : 'release'} appearance failures and empty results remain distinct`, async ({ page }) => {
-    const path = `/api/v1/artists/release-fixture-artist/${tracks ? 'track' : 'release'}-appearances`
+    const path = tracks ? '/api/v1/tracks' : '/api/v1/artists/release-fixture-artist/release-appearances'
     let unavailable = true
     await page.route(`**${path}?*`, route => route.fulfill({
       status: unavailable ? 503 : 200,
@@ -153,7 +161,7 @@ for (const tracks of [true, false]) {
     await page.getByLabel('API key').fill(key)
     await page.getByRole('button', { name: 'Connect', exact: true }).click()
     await expect(page.getByRole('alert').filter({ hasText: 'Fixture credits temporarily unavailable.' })).toBeVisible()
-    const empty = page.getByText(`No ${tracks ? 'track' : 'release'} credits recorded.`, { exact: true })
+    const empty = page.getByText(tracks ? 'No tracks recorded.' : 'No release credits recorded.', { exact: true })
     await expect(empty).toHaveCount(0)
     unavailable = false
     await page.getByRole('tab', { name: 'Featured', exact: true }).click()

@@ -24,6 +24,7 @@ import { LabelMerge } from './LabelMerge'
 import { LabelRelationships } from './LabelRelationships'
 import { LabelGroupSections } from './LabelGroups'
 import { LabelReleases } from './Releases'
+import { LocalTrackList } from './TrackList'
 import { countryPresentation, labelLinks, linkPresentation } from './labelPresentation'
 
 const serviceIcons = new Map([
@@ -131,12 +132,10 @@ function RelatedContent({ children }: { children: ReactNode }) {
     </Tabs>
     {sections.map((name, index) => <Box key={name} role="tabpanel" hidden={tab !== index}
       id={`label-panel-${index}`} aria-labelledby={`label-tab-${index}`} sx={{ py: 3, minWidth: 0 }}>
-      {name === 'Releases' ? tab === index && record && <LabelReleases key={record.id} labelId={record.id} /> : name === 'Artists' ? tab === index && record && <LabelArtists key={record.id} labelId={record.id} /> : name === 'Details' ? children : name === 'Relationships' ? <Stack spacing={3} sx={{ minWidth: 0 }}>
+      {name === 'Releases' ? tab === index && record && <LabelReleases key={record.id} labelId={record.id} /> : name === 'Artists' ? tab === index && record && <LabelArtists key={record.id} labelId={record.id} /> : name === 'Tracks' ? tab === index && record && <LocalTrackList key={record.id} filter={{ labelId: record.id }} context="label" label="Label tracks" /> : name === 'Details' ? children : <Stack spacing={3} sx={{ minWidth: 0 }}>
         <LabelRelationships />
         <LabelGroupSections />
-      </Stack> : <Typography color="text.secondary">
-        {name === 'Artists' ? 'Related artists' : name} are not available in Trackstash yet. Search and filters will be added when the supporting catalog features are ready.
-      </Typography>}
+      </Stack>}
     </Box>)}
   </Box>
 }

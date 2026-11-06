@@ -71,6 +71,7 @@ public static class CatalogApiHost
         builder.Services.TryAddScoped<IReleaseImportService, ReleaseImportService>();
         builder.Services.TryAddScoped<IPurchaseBatchAdmissionService, PurchaseBatchAdmissionService>();
         builder.Services.TryAddScoped<IReleaseService, ReleaseService>();
+        builder.Services.TryAddScoped<ITrackService, TrackService>();
         builder.Services.TryAddScoped<IArtistService, ArtistService>();
         builder.Services.TryAddScoped<IReleaseArtworkSourceService, ReleaseArtworkSourceService>();
         builder.Services.AddSingleton<ICatalogBackupService>(services => new CatalogBackupService(
@@ -165,6 +166,7 @@ public static class CatalogApiHost
         app.MapPurchaseReleases();
         app.MapReleaseImports();
         app.MapReleases();
+        app.MapTracks();
         app.MapArtists();
         app.MapBackups();
         var webRoot = Path.Combine(AppContext.BaseDirectory, "wwwroot");

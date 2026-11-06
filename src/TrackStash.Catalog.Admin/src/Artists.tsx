@@ -8,8 +8,6 @@ import FavoriteIcon from '@mui/icons-material/Favorite'
 import FavoriteBorderIcon from '@mui/icons-material/FavoriteBorder'
 import EditIcon from '@mui/icons-material/Edit'
 import AlbumIcon from '@mui/icons-material/Album'
-import MusicNoteIcon from '@mui/icons-material/MusicNote'
-import QueueMusicIcon from '@mui/icons-material/QueueMusic'
 import LanguageIcon from '@mui/icons-material/Language'
 import { siBeatport } from 'simple-icons'
 import { Title, useAuthenticated, useLogoutIfAccessDenied } from 'react-admin'
@@ -19,7 +17,9 @@ import type { GroupedArtistAppearance, ArtistDetail, CatalogArtist, GroupPage, R
 import { ArtistProfilePanel } from './ArtistProfile'
 import { ArtworkImage, ArtworkPanel } from './LabelArtwork'
 import { artistLinks, linkPresentation, trackContributors } from './labelPresentation'
-import { TrackTitleArtists } from './TrackPresentation'
+import { CreditEvidence, TrackTitleArtists } from './TrackPresentation'
+import { TrackList } from './TrackList'
+import { useUrlTrackView } from './trackView'
 
 export function ArtistCreditName({ credit, showStatus = true }: { credit: ReleaseCredit; showStatus?: boolean }) {
   return <><Link to={`/artists/${encodeURIComponent(credit.artistId)}/show`}>{credit.creditedName ?? credit.artistName ?? credit.artistId}</Link>
@@ -104,17 +104,6 @@ export function ArtistList() {
     {!isPending && <ArtistPage key={`${page}:${search}:${role}`} {...{ page, search, role }} onPage={p => change('page', String(p))} />}
   </Stack>
 }
-function CreditEvidence({ credits }: { credits: GroupedArtistAppearance['credits'] }) {
-  const scopes = [
-    { scope: 'release', label: 'Release credit: credited on the whole release; does not imply credit on every track.', icon: <AlbumIcon fontSize="small" /> },
-    { scope: 'recording', label: 'Recording credit: credited on this recording, across its release appearances.', icon: <MusicNoteIcon fontSize="small" /> },
-    { scope: 'placement', label: 'Track listing credit: credited on this track as listed on this release.', icon: <QueueMusicIcon fontSize="small" /> },
-  ]
-  return <Stack direction="row" spacing={0.5}>{scopes.filter(s => credits.some(c => c.scope === s.scope)).map(s => {
-    const hint = `${s.label} ${credits.filter(c => c.scope === s.scope).map(c => `${c.role}${c.creditedName ? ` as ${c.creditedName}` : ' under canonical name'}`).join('; ')}`
-    return <Tooltip key={s.scope} title={hint}><Box component="span" tabIndex={0} aria-label={hint} sx={{ display: 'inline-flex' }}>{s.icon}</Box></Tooltip>
-  })}</Stack>
-}
 function Appearances({ artist, tracks, page, onPage }: { artist: ArtistDetail; tracks: boolean; page: number; onPage: (page: number) => void }) {
   const id = artist.id
   const [data, setData] = useState<GroupPage<GroupedArtistAppearance>>()
@@ -181,6 +170,10 @@ function Appearances({ artist, tracks, page, onPage }: { artist: ArtistDetail; t
     <Pager page={page} total={data.total} onPage={onPage} />
   </>
 }
+function ArtistTracks({ id }: { id: string }) {
+  const [view, setView] = useUrlTrackView('track')
+  return <TrackList filter={{ artistId: id }} context="artist" view={view} onChange={setView} label="Artist track credits" />
+}
 function Detail({ id }: { id: string }) {
   const [artist, setArtist] = useState<ArtistDetail>()
   const [error, setError] = useState('')
@@ -193,7 +186,6 @@ function Detail({ id }: { id: string }) {
     return Number.isSafeInteger(number) && number > 0 ? number : 1
   }
   const releasePage = pageValue('releasePage')
-  const trackPage = pageValue('trackPage')
   function change(key: string, value: string) {
     const next = new URLSearchParams(params); next.set(key, value); setParams(next, { replace: true })
   }
@@ -271,8 +263,8 @@ function Detail({ id }: { id: string }) {
       </Stack>}
       {section === 'Tracks' && tab === section && <Stack spacing={2}>
         <Typography component="h2" variant="h6">Track credits</Typography>
-        <Typography color="text.secondary">One row per credited track listing; repeated appearances remain separate. Ordered by release title. Artists come from explicit listing and Recording credits; dates come from the release. Credit details retain this Artist's evidence. Musical metadata remains unavailable until supported.</Typography>
-        <Appearances key={`tracks:${trackPage}`} artist={artist} tracks page={trackPage} onPage={page => change('trackPage', String(page))} />
+        <Typography color="text.secondary">One row per credited track listing; repeated appearances remain separate. Artists come from explicit listing and Recording credits; dates come from the release. Track details retain this Artist's credit evidence. Musical metadata remains unavailable until supported.</Typography>
+        <ArtistTracks id={id} />
       </Stack>}
       {section === 'Releases' && tab === section && <Stack spacing={2}>
         <Typography component="h2" variant="h6">Release appearances and credits</Typography>
