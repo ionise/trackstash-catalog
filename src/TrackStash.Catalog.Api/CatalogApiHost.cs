@@ -66,6 +66,7 @@ public static class CatalogApiHost
                 throw new InvalidOperationException("Purchase source must be an absolute scanner inventory path, separate from the catalog.");
             return new SqlitePurchaseReleaseSource(path);
         });
+        builder.Services.TryAddSingleton<PurchaseReadinessCache>();
         builder.Services.TryAddScoped<IPurchaseReleaseInspector, PurchaseReleaseInspector>();
         builder.Services.TryAddScoped<IReleaseImportService, ReleaseImportService>();
         builder.Services.TryAddScoped<IReleaseService, ReleaseService>();

@@ -7,7 +7,7 @@ import type { GroupPage, ImportDecision, ImportIdentity, ImportPreview, SourceTr
 
 function decisionKey(item: { kind: string; providerId: number }) { return `${item.kind}:${item.providerId}` }
 function validDecision(decision: ImportDecision) {
-  return !!decision.evidence.trim() && (decision.action !== 'reuse' || !!decision.canonicalId?.trim())
+  return decision.action !== 'reuse' || !!decision.canonicalId?.trim()
 }
 function initialDecision(item: ImportIdentity): ImportDecision {
   const action = item.action === 'reuse' || item.action === 'unresolved' ? item.action : 'create'
@@ -27,22 +27,27 @@ function Decision({ item, draft, busy, onChange, onSave }: {
     {item.mixName && <Typography>Version: {item.mixName}; ISRC: {item.isrc ?? 'unknown'}</Typography>}
     {item.kind === 'recording' && <Typography>Reuse preserves existing Recording metadata and credits; source credits belong to the new placement.</Typography>}
     {item.compoundReview && <Alert severity="warning">This expression may be a collaboration or one genuine act. Do not split on punctuation. Explicitly accept the act or retain an unresolved compound for later evidence-backed splitting.</Alert>}
-    {item.candidates.length > 0 && <><Typography>Similarity/provider candidates are not identity proof:</Typography>
-      <ul>{item.candidates.map(c => <li key={c.id}>{c.name} - {c.mixName} - {c.isrc} - {c.id}</li>)}</ul></>}
+    {item.candidates.length > 0 && <><Typography>Possible existing matches (same name{item.kind === 'recording' ? ' and version, or same ISRC' : ''}, not linked to a different Beatport ID):</Typography>
+      <ul>{item.candidates.map(c => <li key={c.id}>
+        {[c.name, c.mixName, c.isrc].filter(Boolean).join(' - ')} <Typography component="span" variant="body2" color="text.secondary">({c.id})</Typography>
+        {item.kind !== 'release' && item.action !== 'unchanged' && item.action !== 'blocked' &&
+          <Button size="small" disabled={busy} aria-label={`Same as ${c.name ?? c.id} (${c.id})`}
+            onClick={() => onChange({ ...decision, action: 'reuse', canonicalId: c.id })}>Same as this</Button>}
+      </li>)}</ul></>}
     {item.action !== 'unchanged' && item.action !== 'blocked' && <Stack spacing={1} sx={{ mt: 1 }}>
       <TextField select label="Identity action" value={action} disabled={busy} onChange={e =>
         onChange({ ...decision, action: e.target.value as ImportDecision['action'], canonicalId: e.target.value === 'reuse' ? item.canonicalId : null })}>
         <MenuItem value="create">Accept a distinct new identity as supplied</MenuItem>
         {item.kind === 'artist' && <MenuItem value="unresolved">Retain an unresolved compound source identity</MenuItem>}
-        {item.kind !== 'release' && <MenuItem value="reuse">Reuse an existing canonical identity with evidence</MenuItem>}
+        {item.kind !== 'release' && <MenuItem value="reuse">Same as an existing catalog identity</MenuItem>}
       </TextField>
       {action === 'reuse' && <TextField label="Canonical identity ID" value={canonicalId ?? ''} disabled={busy} onChange={e => onChange({ ...decision, canonicalId: e.target.value })}
-        slotProps={{ htmlInput: { maxLength: 200 } }} helperText="Use an existing identity ID, not the provider ID. The server verifies ownership and version conflicts." />}
-      <TextField label="Identity review evidence" multiline value={evidence} disabled={busy} onChange={e => onChange({ ...decision, evidence: e.target.value })}
-        slotProps={{ htmlInput: { maxLength: 2000 } }} />
+        slotProps={{ htmlInput: { maxLength: 200 } }} helperText="Use “Same as this” above, or paste a catalog identity ID (not the Beatport ID)." />}
+      <TextField label="Note (optional)" size="small" value={evidence} disabled={busy} onChange={e => onChange({ ...decision, evidence: e.target.value })}
+        slotProps={{ htmlInput: { maxLength: 2000 } }} helperText="Only if you want to remember why. Leave blank to record a standard note." />
       <Button disabled={busy || !draft || !validDecision(decision)} onClick={() =>
         onSave({ ...decision, canonicalId: action === 'reuse' ? canonicalId!.trim() : null })}>
-        Save decision in a new immutable preview
+        Save decision
       </Button>
     </Stack>}
   </Box>
@@ -189,10 +194,11 @@ export function ReleaseImportReview({ releaseId, onApplied }: { releaseId: numbe
         {' '}<Link to={`/releases/${encodeURIComponent(preview.outcome.releaseId)}/show`}>View release</Link>.
         {' '}{preview.outcome.createdArtists} Artists, {preview.outcome.createdRecordings} Recordings, {preview.outcome.createdPlacements} placements created. Audit {preview.outcome.auditId}.
         {' '}Embedding work remains pending; this does not assert purchases or media ownership.</Alert> : <Stack spacing={1} sx={{ my: 2 }}>
-        <TextField label="Import review reason" multiline value={reason} disabled={busy} onChange={e => setReason(e.target.value)} slotProps={{ htmlInput: { maxLength: 2000 } }} />
+        <TextField label="Import note (optional)" size="small" value={reason} disabled={busy} onChange={e => setReason(e.target.value)} slotProps={{ htmlInput: { maxLength: 2000 } }}
+          helperText="Leave blank to record a standard note. To recover an interrupted apply, retry with the same note." />
         <FormControlLabel control={<Checkbox checked={confirmed} disabled={busy} onChange={e => setConfirmed(e.target.checked)} />}
           label="I reviewed the complete release and identity choices, and confirm this catalog operation" />
-        <Button disabled={busy || !!preview.blockers.length || !!Object.keys(drafts).length || !reason.trim() || !confirmed} onClick={() => void apply()}>
+        <Button disabled={busy || !!preview.blockers.length || !!Object.keys(drafts).length || !confirmed} onClick={() => void apply()}>
           {preview.noOp ? 'Apply reviewed no-op' : 'Apply reviewed catalog import'}
         </Button>
       </Stack>}

@@ -11,7 +11,7 @@ internal static class PurchaseReleaseEndpoints
     {
         app.MapGet("/api/v1/purchase-release-candidates", Query).WithName("QueryPurchaseReleaseCandidates")
             .WithTags("Catalog imports").WithSummary("Page read-only purchase-corpus release candidates")
-            .WithDescription("Derived corpus flags are entry-point hints, not receipt or media ownership proof. Each item reports catalog Releases already owning its Beatport release ID; hideAdmitted=true omits them before paging (schema 9+, otherwise 409). No fetch or catalog write.")
+            .WithDescription("Derived corpus flags are entry-point hints, not receipt or media ownership proof. Each item reports catalog Releases already owning its Beatport release ID; hideAdmitted=true omits them before paging (schema 9+, otherwise 409). Each item also reports import readiness (complete cached source and exactly one catalog label); readyOnly=true keeps only ready releases before paging. Source summaries are cached until the purchase source file changes. No fetch or catalog write.")
             .Produces<PurchaseReleaseCandidatePage>().ProducesProblem(400).ProducesProblem(409).ProducesProblem(503);
         app.MapGet("/api/v1/purchase-release-candidates/{releaseId}", Inspect).WithName("InspectPurchaseReleaseCandidate")
             .WithTags("Catalog imports").WithSummary("Inspect a cached release, structured credits and source completeness")
@@ -22,7 +22,7 @@ internal static class PurchaseReleaseEndpoints
     private static PurchaseReleaseQuery Fields(HttpRequest request, bool inspect = false)
     {
         foreach (var field in request.Query)
-            if (field.Value.Count != 1 || field.Key is not ("page" or "pageSize") && (inspect || field.Key is not ("q" or "hideAdmitted")))
+            if (field.Value.Count != 1 || field.Key is not ("page" or "pageSize") && (inspect || field.Key is not ("q" or "hideAdmitted" or "readyOnly")))
                 throw new PurchaseSourceValidationException("Unknown or repeated query field.");
         int Number(string name, int fallback) => !request.Query.TryGetValue(name, out var value) ? fallback :
             int.TryParse(value[0], NumberStyles.None, CultureInfo.InvariantCulture, out var number) ? number :
@@ -36,12 +36,12 @@ internal static class PurchaseReleaseEndpoints
     private static async Task<IResult> Query(HttpContext context, IPurchaseReleaseInspector service, CancellationToken ct)
     {
         context.Response.Headers.CacheControl = "no-store";
-        var hideAdmitted = context.Request.Query.TryGetValue("hideAdmitted", out var hide) ? hide[0] switch
+        bool Flag(string name) => context.Request.Query.TryGetValue(name, out var value) ? value[0] switch
         {
             "true" => true, "false" => false,
-            _ => throw new PurchaseSourceValidationException("hideAdmitted must be true or false."),
+            _ => throw new PurchaseSourceValidationException($"{name} must be true or false."),
         } : false;
-        return TypedResults.Ok(await service.QueryAsync(Fields(context.Request), hideAdmitted, ct));
+        return TypedResults.Ok(await service.QueryAsync(Fields(context.Request), Flag("hideAdmitted"), Flag("readyOnly"), ct));
     }
 
     private static async Task<IResult> Inspect(string releaseId, HttpContext context, IPurchaseReleaseInspector service, CancellationToken ct)

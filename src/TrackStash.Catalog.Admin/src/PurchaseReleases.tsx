@@ -2,6 +2,7 @@ import { Fragment, useEffect, useRef, useState } from 'react'
 import { Alert, Box, Button, Chip, Collapse, FormControlLabel, IconButton, LinearProgress, Stack, Switch, Table, TableBody, TableCell, TableHead, TableRow, TextField, Tooltip, Typography } from '@mui/material'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import ExpandLess from '@mui/icons-material/ExpandLess'
+import ErrorOutline from '@mui/icons-material/Error'
 import ExpandMore from '@mui/icons-material/ExpandMore'
 import WarningAmber from '@mui/icons-material/WarningAmber'
 import { Title, useLogoutIfAccessDenied } from 'react-admin'
@@ -73,6 +74,25 @@ function Inspection({ id, page, onPage }: { id: number; page: number; onPage: (p
 }
 
 const hideAdmittedKey = 'trackstash.purchaseReleases.hideAdmitted'
+const readyOnlyKey = 'trackstash.purchaseReleases.readyOnly'
+
+function ReadinessStatus({ item }: { item: PurchaseCandidate }) {
+  const r = item.readiness
+  if (!r) return <Tooltip title="The source release could not be summarised. Inspect it for details." describeChild>
+    <Chip size="small" variant="outlined" color="error" icon={<ErrorOutline />} label="Unavailable" />
+  </Tooltip>
+  if (r.readiness === 'ready') return <Tooltip title="Cached source is complete and the label matches exactly one catalog label. Identity review is still required." describeChild>
+    <Chip size="small" color="success" icon={<CheckCircleIcon />} label="Ready" />
+  </Tooltip>
+  if (r.readiness === 'incomplete_source') return <Tooltip describeChild
+    title={`Cached source cannot be imported${r.blockerCodes.length ? `: ${r.blockerCodes.join(', ').replaceAll('_', ' ')}` : ''}.`}>
+    <Chip size="small" color="warning" variant="outlined" icon={<WarningAmber />}
+      label={r.manifestTrackCount ? `Incomplete source - ${r.hydratedTrackCount} of ${r.manifestTrackCount} tracks cached` : 'Incomplete source'} />
+  </Tooltip>
+  return <Tooltip describeChild title={r.labelCandidateCount ? `The source label matches ${r.labelCandidateCount} catalog labels.` : 'The source label matches no catalog label.'}>
+    <Chip size="small" color="warning" variant="outlined" icon={<WarningAmber />} label="Label needs review" />
+  </Tooltip>
+}
 
 function AdmissionStatus({ item, available, localReleaseId }: { item: PurchaseCandidate; available: boolean; localReleaseId?: string }) {
   const ids = localReleaseId && !item.admittedReleaseIds.includes(localReleaseId) ? [...item.admittedReleaseIds, localReleaseId] : item.admittedReleaseIds
@@ -100,16 +120,18 @@ function CandidateDetails({ item, onApplied, onCollapse }: { item: PurchaseCandi
   </Box>
 }
 
-function Queue({ page, search, hideAdmitted, onPage }: { page: number; search: string; hideAdmitted: boolean; onPage: (page: number) => void }) {
+function Queue({ page, search, hideAdmitted, readyOnly, onPage }: { page: number; search: string; hideAdmitted: boolean; readyOnly: boolean; onPage: (page: number) => void }) {
   const [data, setData] = useState<PurchaseCandidatePage>()
   const [error, setError] = useState('')
   const [expanded, setExpanded] = useState<number>()
   const [applied, setApplied] = useState<Record<number, string>>({})
+  const [reload, setReload] = useState(0)
+  const reloadedFor = useRef(new Set<number>())
   const rows = useRef(new Map<number, HTMLTableRowElement>())
   const logout = useLogoutIfAccessDenied()
   useEffect(() => {
     const controller = new AbortController()
-    void purchaseReleaseClient.list(page, search, controller.signal, hideAdmitted).then(result => {
+    void purchaseReleaseClient.list(page, search, controller.signal, hideAdmitted, readyOnly).then(result => {
       if (!controller.signal.aborted) setData(result)
     }).catch(failure => {
       if (!controller.signal.aborted) {
@@ -118,7 +140,18 @@ function Queue({ page, search, hideAdmitted, onPage }: { page: number; search: s
       }
     })
     return () => controller.abort()
-  }, [page, search, hideAdmitted, logout])
+  }, [page, search, hideAdmitted, readyOnly, logout, reload])
+  // With admitted releases hidden, drop a just-imported row once its details are closed so the result stays visible until then.
+  useEffect(() => {
+    if (!hideAdmitted || !data) return
+    const stale = data.items.filter(item => applied[item.releaseId] && item.releaseId !== expanded && !reloadedFor.current.has(item.releaseId))
+    if (!stale.length) return
+    stale.forEach(item => reloadedFor.current.add(item.releaseId))
+    setReload(previous => previous + 1)
+  }, [hideAdmitted, data, applied, expanded])
+  useEffect(() => {
+    if (data && !data.items.length && page > 1) onPage(page - 1)
+  }, [data, page, onPage])
   useEffect(() => {
     if (expanded !== undefined) rows.current.get(expanded)?.scrollIntoView?.({ block: 'start', behavior: 'smooth' })
   }, [expanded])
@@ -126,14 +159,14 @@ function Queue({ page, search, hideAdmitted, onPage }: { page: number; search: s
   if (!data) return <LinearProgress aria-label="Loading purchase candidates" />
   const toggle = (id: number) => setExpanded(current => current === id ? undefined : id)
   return <>
-    <Typography>{data.total} corpus-flagged release candidates{data.hideAdmitted ? ' not yet admitted' : ''}</Typography>
+    <Typography>{data.total} corpus-flagged release candidates{data.readyOnly ? ' ready to import' : ''}{data.hideAdmitted ? ' not yet admitted' : ''}</Typography>
     {!data.admissionStatusAvailable && <Alert severity="warning" sx={{ my: 1 }}>Admission status needs catalog schema 9 or later; every candidate is shown as Unknown.</Alert>}
     {!data.items.length && <Typography>No matching candidates.</Typography>}
     <Box sx={{ minWidth: 0, contain: 'inline-size', overflowX: 'auto' }}>
       <Table aria-label="Purchase release candidates" size="small">
         <TableHead><TableRow>
           <TableCell padding="checkbox">Details</TableCell>
-          <TableCell>Release</TableCell><TableCell>Cache</TableCell><TableCell>Catalog</TableCell>
+          <TableCell>Release</TableCell><TableCell>Ready</TableCell><TableCell>Catalog</TableCell>
         </TableRow></TableHead>
         <TableBody>{data.items.map(item => {
           const open = expanded === item.releaseId
@@ -151,7 +184,7 @@ function Queue({ page, search, hideAdmitted, onPage }: { page: number; search: s
                 </Tooltip>
               </TableCell>
               <TableCell sx={{ overflowWrap: 'anywhere' }}>{item.title}<Typography variant="body2" color="text.secondary">Beatport {item.releaseId}</Typography></TableCell>
-              <TableCell>{item.hasCachedRelease ? 'Cached - completeness unverified' : 'Missing release payload'}</TableCell>
+              <TableCell><ReadinessStatus item={item} /></TableCell>
               <TableCell><AdmissionStatus item={item} available={data.admissionStatusAvailable} localReleaseId={applied[item.releaseId]} /></TableCell>
             </TableRow>
             {open && <TableRow>
@@ -179,6 +212,7 @@ export function PurchaseReleases() {
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(1)
   const [hideAdmitted, setHideAdmitted] = useState(() => localStorage.getItem(hideAdmittedKey) === 'true')
+  const [readyOnly, setReadyOnly] = useState(() => localStorage.getItem(readyOnlyKey) === 'true')
   return <Box sx={{ p: 2, minWidth: 0 }}>
     <Title title="Purchase release inspector" />
     <Typography variant="h4" component="h1">Purchase release inspector</Typography>
@@ -191,7 +225,10 @@ export function PurchaseReleases() {
       <FormControlLabel label="Hide admitted releases" control={<Switch checked={hideAdmitted} onChange={event => {
         setHideAdmitted(event.target.checked); setPage(1); localStorage.setItem(hideAdmittedKey, String(event.target.checked))
       }} />} />
+      <FormControlLabel label="Ready to import only" control={<Switch checked={readyOnly} onChange={event => {
+        setReadyOnly(event.target.checked); setPage(1); localStorage.setItem(readyOnlyKey, String(event.target.checked))
+      }} />} />
     </Stack>
-    <Queue key={`${query}:${page}:${hideAdmitted}`} page={page} search={query} hideAdmitted={hideAdmitted} onPage={setPage} />
+    <Queue key={`${query}:${page}:${hideAdmitted}:${readyOnly}`} page={page} search={query} hideAdmitted={hideAdmitted} readyOnly={readyOnly} onPage={setPage} />
   </Box>
 }

@@ -197,8 +197,14 @@ export interface PurchaseCandidate {
   releaseId: number; title: string; sourceKind: string; hasCachedRelease: boolean
   /** Catalog Releases already owning this Beatport release ID; empty when not admitted or status is unavailable. */
   admittedReleaseIds: string[]
+  /** Import readiness; null when the source release could not be summarised. */
+  readiness: PurchaseReadiness | null
 }
-export interface PurchaseCandidatePage extends GroupPage<PurchaseCandidate> { admissionStatusAvailable: boolean; hideAdmitted: boolean }
+export interface PurchaseReadiness {
+  readiness: 'ready' | 'incomplete_source' | 'label_review'
+  hydratedTrackCount: number; manifestTrackCount: number; labelCandidateCount: number; blockerCodes: string[]
+}
+export interface PurchaseCandidatePage extends GroupPage<PurchaseCandidate> { admissionStatusAvailable: boolean; hideAdmitted: boolean; readyOnly: boolean }
 export interface SourceCredit { providerId: number; name: string; role: string; position: number }
 export interface SourceTrack {
   sourcePosition: number; providerId: number | null; status: string; title: string | null
@@ -461,8 +467,9 @@ export function createCatalogClient(fetcher: typeof fetch = fetch) {
       request(`/${encodeURIComponent(id)}/download${kind === 'scanner' ? '?kind=scanner' : ''}`, { signal }, 'backups'),
   }
   const purchaseReleaseClient = {
-    list: async (page: number, search: string, signal?: AbortSignal, hideAdmitted = false): Promise<PurchaseCandidatePage> =>
-      (await request(`?${new URLSearchParams({ page: String(page), pageSize: '25', q: search, ...(hideAdmitted ? { hideAdmitted: 'true' } : {}) })}`,
+    list: async (page: number, search: string, signal?: AbortSignal, hideAdmitted = false, readyOnly = false): Promise<PurchaseCandidatePage> =>
+      (await request(`?${new URLSearchParams({ page: String(page), pageSize: '25', q: search,
+        ...(hideAdmitted ? { hideAdmitted: 'true' } : {}), ...(readyOnly ? { readyOnly: 'true' } : {}) })}`,
         { signal }, 'purchase-release-candidates')).json(),
     inspect: async (id: number, page: number, signal?: AbortSignal): Promise<PurchaseInspection> =>
       (await request(`/${id}?page=${page}&pageSize=25`, { signal }, 'purchase-release-candidates')).json(),

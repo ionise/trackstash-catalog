@@ -144,6 +144,34 @@ public sealed partial class LabelApiTests
         var result = (await new SqlitePurchaseReleaseSource(PurchaseSourcePath).InspectAsync(10, new(PageSize: 1)))!;
         Assert.Single(result.Tracks.Items); Assert.False(result.SourceComplete);
         Assert.Contains(result.Diagnostics, d => d.Code == code);
+        var batch = Assert.Single(await new SqlitePurchaseReleaseSource(PurchaseSourcePath).InspectAllAsync(), r => r.ReleaseId == 10);
+        Assert.Equal(result.BundleDigest, batch.BundleDigest); Assert.Equal(result.HydratedTrackCount, batch.HydratedTrackCount);
+        Assert.Equal(result.Diagnostics, batch.Diagnostics);
+    }
+
+    [Fact]
+    public async Task PurchaseReadiness_BatchMatchesSingleInspectionAndRebuildsWhenTheSourceChanges()
+    {
+        await CreatePurchaseSource();
+        var source = new SqlitePurchaseReleaseSource(PurchaseSourcePath);
+        var all = await source.InspectAllAsync();
+        Assert.Equal(new long[] { 10, 11 }, all.Select(r => r.ReleaseId));
+        foreach (var batch in all)
+        {
+            var single = (await source.InspectAsync(batch.ReleaseId, new(PageSize: 1)))!;
+            Assert.Equal(single.BundleDigest, batch.BundleDigest); Assert.Equal(single.SourceComplete, batch.SourceComplete);
+            Assert.Equal(single.ManifestTrackCount, batch.ManifestTrackCount); Assert.Equal(single.Diagnostics, batch.Diagnostics);
+        }
+        var cache = new PurchaseReadinessCache(source);
+        var before = await cache.GetAsync(default);
+        Assert.Same(before, await cache.GetAsync(default));
+        Assert.True(before[10].SourceComplete); Assert.Equal(42, before[10].LabelProviderId);
+        Assert.Contains("release_payload_unavailable", before[11].BlockerCodes);
+        await SourceSql("UPDATE beatport_isrc_lookup SET tracks_json=@tracks", ("@tracks", $"[{TrackPayload()}]"));
+        File.SetLastWriteTimeUtc(PurchaseSourcePath, DateTime.UtcNow.AddMinutes(1));
+        var after = await cache.GetAsync(default);
+        Assert.NotSame(before, after);
+        Assert.False(after[10].SourceComplete); Assert.Equal(1, after[10].HydratedTrackCount); Assert.Equal(["track_payload_missing"], after[10].BlockerCodes);
     }
 
     [Theory]

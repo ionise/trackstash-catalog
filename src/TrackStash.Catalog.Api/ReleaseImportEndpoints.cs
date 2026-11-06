@@ -8,10 +8,10 @@ namespace TrackStash.Catalog.Api;
 
 /// <summary>Creates a fresh immutable review; optionally copies prior decisions and changes one bounded decision.</summary>
 public sealed record CreateReleaseImportPreviewRequest(long ReleaseId, string? BasePreviewId = null, ReleaseImportDecisionRequest? Decision = null);
-/// <summary>An evidenced identity decision; create, reuse, or artist-only unresolved compound.</summary>
-public sealed record ReleaseImportDecisionRequest(string Kind, long ProviderId, string Action, string? CanonicalId, string Evidence);
-/// <summary>Deliberate confirmation of the original review with a stable replay reason.</summary>
-public sealed record ApplyReleaseImportRequest(string Reason, bool Confirmed);
+/// <summary>An identity decision; create, reuse, or artist-only unresolved compound. Evidence is an optional note; a standard note is recorded when omitted.</summary>
+public sealed record ReleaseImportDecisionRequest(string Kind, long ProviderId, string Action, string? CanonicalId, string? Evidence);
+/// <summary>Deliberate confirmation of the original review. Reason is optional (a standard reason is recorded) and must match when replaying.</summary>
+public sealed record ApplyReleaseImportRequest(string? Reason, bool Confirmed);
 /// <summary>Payload-free candidate identity; similarity is not identity proof.</summary>
 public sealed record ImportCandidateResponse(string Id, string? Name, string? MixName, string? Isrc);
 /// <summary>A source identity and its reviewed action, with existing candidate identities.</summary>
@@ -64,7 +64,8 @@ internal static class ReleaseImportEndpoints
             if (!decision.TryGetProperty("providerId", out var providerId) || providerId.ValueKind != JsonValueKind.Number || !providerId.TryGetInt64(out var number))
                 throw new ReleaseImportException(400, "validation_failed", "Decision providerId is required.");
             choice = new(Required("kind"), number, Required("action"),
-                decision.TryGetProperty("canonicalId", out var canonical) ? LabelRequests.NullableString(canonical, "canonicalId") : null, Required("evidence"));
+                decision.TryGetProperty("canonicalId", out var canonical) ? LabelRequests.NullableString(canonical, "canonicalId") : null,
+                decision.TryGetProperty("evidence", out var evidence) ? LabelRequests.NullableString(evidence, "evidence") ?? "" : "");
         }
         var prior = fields.TryGetValue("basePreviewId", out var baseId) ? LabelRequests.NullableString(baseId, "basePreviewId") : null;
         var result = await service.PreviewAsync(releaseId, prior, choice, ct);
@@ -106,7 +107,7 @@ internal static class ReleaseImportEndpoints
     {
         var version = LabelRequests.ExpectedVersion(context.Request);
         var fields = await LabelRequests.FieldsAsync(context.Request, "application/json", ct, ["reason", "confirmed"]);
-        var reason = LabelRequests.RequiredString(fields, "reason");
+        var reason = fields.TryGetValue("reason", out var reasonValue) ? LabelRequests.NullableString(reasonValue, "reason") ?? "" : "";
         var confirmed = fields.TryGetValue("confirmed", out var value) && value.ValueKind == JsonValueKind.True;
         var result = await service.ApplyAsync(id, version, reason, confirmed, ct);
         context.Response.Headers.CacheControl = "no-store";

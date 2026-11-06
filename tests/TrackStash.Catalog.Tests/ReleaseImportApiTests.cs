@@ -1,3 +1,4 @@
+using TrackStash.Core.Normalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -202,6 +203,43 @@ public sealed partial class LabelApiTests
         Assert.Equal(new string?[] { "Kasey Taylor", "Amega" }.AsEnumerable(), link.Credits.Select(c => c.CreditedName));
     }
     [Fact]
+    public async Task ReleaseImport_DifferentBeatportIdsAndContradictoryVersionsAreNotReviewCandidates()
+    {
+        var service = await ImportService();
+        static string N(string name) => EntityNameNormalizer.NormalizeStrict(name);
+        await using (var unit = await Provider.BeginUnitOfWorkAsync())
+        {
+            var f = unit.CatalogFoundations!;
+            await f.SaveEntityAsync(new Release { Id = "00000001-0000-4000-8000-000000000000", Title = "Test release", Name = "Test release", NormalizedName = N("test release"), ExternalReferences = [new() { Source = "beatport", ExternalId = "999" }] }, null);
+            await f.SaveEntityAsync(new Artist { Id = "00000002-0000-4000-8000-000000000000", Name = "Kasey Taylor", NormalizedName = N("kasey taylor"), ExternalReferences = [new() { Source = "beatport", ExternalId = "77" }] }, null);
+            await f.SaveEntityAsync(new Artist { Id = "00000003-0000-4000-8000-000000000000", Name = "Amega", NormalizedName = N("amega") }, null);
+            await f.SaveEntityAsync(new Recording { Id = "00000004-0000-4000-8000-000000000000", Title = "Track", Name = "Track", NormalizedName = N("track"), MixName = "Original Mix", Isrc = "OTHER",
+                ExternalReferences = [new() { Source = "beatport", ExternalId = "555" }] }, null);
+            await f.SaveEntityAsync(new Recording { Id = "00000005-0000-4000-8000-000000000000", Title = "Track", Name = "Track", NormalizedName = N("track"), MixName = "Remix", Isrc = "TEST001",
+                ExternalReferences = [new() { Source = "beatport", ExternalId = "556" }] }, null);
+            await f.SaveEntityAsync(new Recording { Id = "00000006-0000-4000-8000-000000000000", Title = "Track", Name = "Track", NormalizedName = N("track"), MixName = "Extended Mix" }, null);
+            await unit.CommitAsync();
+        }
+        var p = await service.PreviewAsync(10, null, null);
+        IReadOnlyList<string> Candidates(string kind, long id) => p.Plan.Identities.Single(i => i.Kind == kind && i.ProviderId == id).Candidates.Select(c => c.Id).ToList();
+        Assert.Empty(Candidates("release", 10));
+        Assert.DoesNotContain(p.Plan.Blockers, b => b.Contains("same-title Release"));
+        Assert.Empty(Candidates("artist", 1));
+        Assert.Equal(["00000003-0000-4000-8000-000000000000"], Candidates("artist", 2));
+        Assert.Empty(Candidates("recording", 101));
+        Assert.Equal(3, await ImportCount("recording WHERE normalized_name='" + N("Track") + "'"));
+        Assert.Equal(["00000005-0000-4000-8000-000000000000"], Candidates("recording", 102));
+        p = await service.PreviewAsync(10, p.Plan.OperationId, new("artist", 1, "create"));
+        Assert.Equal(ReleaseImportService.DefaultEvidence, p.Plan.Decisions.Single(d => d.ProviderId == 1).Evidence);
+        Assert.Equal(1, await ImportCount("release WHERE normalized_name='" + N("Test release") + "'"));
+        Assert.Equal(1, await ImportCount("release_external_ref WHERE external_id='999'"));
+        await ImportSql("DELETE FROM release_external_ref WHERE release_id='00000001-0000-4000-8000-000000000000'");
+        Assert.Equal(0, await ImportCount("release_external_ref WHERE external_id='999'"));
+        var fresh = await service.PreviewAsync(10, null, null);
+        Assert.NotEqual(p.Plan.OperationId, fresh.Plan.OperationId);
+        Assert.Contains(fresh.Plan.Blockers, b => b.Contains("same-title Release"));
+    }
+    [Fact]
     public async Task ReleaseImport_BackupPreservesImmutablePlansOutcomesPendingDocumentsAndReplay()
     {
         var service = await ImportService(); var p = await Reviewed(service);
@@ -316,6 +354,18 @@ public sealed partial class LabelApiTests
         await ProblemAsync(await client.GetAsync("/api/v1/purchase-release-candidates?hideAdmitted=yes"), 400, "validation_failed");
         await ProblemAsync(await client.GetAsync("/api/v1/purchase-release-candidates?hideAdmitted=true&hideAdmitted=false"), 400, "validation_failed");
         await ProblemAsync(await client.GetAsync("/api/v1/purchase-release-candidates/10?hideAdmitted=true"), 400, "validation_failed");
+        var ready = Assert.Single(all.Items, item => item.ReleaseId == 10).Readiness!;
+        Assert.Equal("ready", ready.Readiness); Assert.Equal(1, ready.LabelCandidateCount); Assert.Empty(ready.BlockerCodes);
+        Assert.Equal(ready.ManifestTrackCount, ready.HydratedTrackCount);
+        var incomplete = Assert.Single(all.Items, item => item.ReleaseId == 11).Readiness!;
+        Assert.Equal("incomplete_source", incomplete.Readiness); Assert.NotEmpty(incomplete.BlockerCodes);
+        var readyOnly = (await client.GetFromJsonAsync<PurchaseReleaseCandidatePage>("/api/v1/purchase-release-candidates?readyOnly=true&pageSize=1"))!;
+        Assert.True(readyOnly.ReadyOnly); Assert.Equal(1, readyOnly.Total); Assert.Equal(10, Assert.Single(readyOnly.Items).ReleaseId);
+        var readyHidden = (await client.GetFromJsonAsync<PurchaseReleaseCandidatePage>("/api/v1/purchase-release-candidates?readyOnly=true&hideAdmitted=true"))!;
+        Assert.Equal(0, readyHidden.Total); Assert.Empty(readyHidden.Items);
+        Assert.Equal(0, (await client.GetFromJsonAsync<PurchaseReleaseCandidatePage>("/api/v1/purchase-release-candidates?readyOnly=true&q=11"))!.Total);
+        await ProblemAsync(await client.GetAsync("/api/v1/purchase-release-candidates?readyOnly=1"), 400, "validation_failed");
+        await ProblemAsync(await client.GetAsync("/api/v1/purchase-release-candidates/10?readyOnly=true"), 400, "validation_failed");
         Assert.Equal(catalogHash, System.Security.Cryptography.SHA256.HashData(await File.ReadAllBytesAsync(_path)));
     }
     [Fact]
@@ -344,5 +394,26 @@ public sealed partial class LabelApiTests
         await ProblemAsync(await Apply($"\"{Convert.ToBase64String(Encoding.UTF8.GetBytes("wrong"))}\"", true), 412, "import_state_changed");
         var result = await Apply(get.Headers.ETag.ToString(), true); Assert.Equal(HttpStatusCode.OK, result.StatusCode);
         Assert.Equal(await result.Content.ReadAsStringAsync(), await (await Apply(get.Headers.ETag.ToString(), true)).Content.ReadAsStringAsync());
+    }
+    [Fact]
+    public async Task ReleaseImport_ApiAcceptsDecisionsAndApplyWithoutTypedEvidenceOrReason()
+    {
+        var service = await ImportService();
+        await using var app = Build(b => b.Configuration.AddInMemoryCollection(new Dictionary<string, string?> { ["CatalogApi:PurchaseSourceDatabasePath"] = PurchaseSourcePath }));
+        await app.StartAsync(); using var client = app.GetTestClient(); client.DefaultRequestHeaders.Authorization = new("Bearer", Key);
+        var p = await service.PreviewAsync(10, null, null);
+        foreach (var (kind, id, action) in new[] { ("artist", 1L, "create"), ("artist", 2L, "create"), ("artist", 3L, "unresolved"), ("recording", 101L, "create"), ("recording", 102L, "create") })
+        {
+            object decision = id == 1 ? new { kind, providerId = id, action, canonicalId = (string?)null, evidence = "  " } : new { kind, providerId = id, action };
+            var created = await client.PostAsJsonAsync("/api/v1/release-import-previews", new { releaseId = 10, basePreviewId = p.Plan.OperationId, decision });
+            Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+            p = await service.GetAsync((await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("operationId").GetString()!);
+        }
+        Assert.Empty(p.Plan.Blockers);
+        Assert.All(p.Plan.Decisions, d => Assert.Equal(ReleaseImportService.DefaultEvidence, d.Evidence));
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/release-import-previews/{p.Plan.OperationId}/apply") { Content = JsonContent.Create(new { confirmed = true }) };
+        request.Headers.TryAddWithoutValidation("If-Match", $"\"{Convert.ToBase64String(Encoding.UTF8.GetBytes(p.Plan.Version))}\"");
+        Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(request)).StatusCode);
+        Assert.Equal(1, await ImportCount("release"));
     }
 }

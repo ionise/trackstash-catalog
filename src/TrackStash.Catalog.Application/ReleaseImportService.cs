@@ -61,7 +61,11 @@ public sealed class ReleaseImportService(IStorageProvider storage, IPurchaseRele
             if (previous.Source.ReleaseId != releaseId || stored.Outcome is not null || stored.SupersededBy is not null || previous.ExpiresUtc <= clock.GetUtcNow())
                 throw new ReleaseImportException(409, "import_base_invalid", "Use an unapplied, unexpired review of this release.");
         }
-        if (decision is not null) ValidateDecision(decision);
+        if (decision is not null)
+        {
+            if (string.IsNullOrWhiteSpace(decision.Evidence)) decision = decision with { Evidence = DefaultEvidence };
+            ValidateDecision(decision);
+        }
         var bundle = await Bundle(releaseId, cancellationToken).ConfigureAwait(false);
         var fingerprint = Fingerprint(bundle);
         if (previous is not null && previous.Source.BundleDigest != bundle.BundleDigest)
@@ -97,7 +101,9 @@ public sealed class ReleaseImportService(IStorageProvider storage, IPurchaseRele
         if (releaseOwners.Count > 1) blockers.Add("Multiple Releases own the provider release ID. Resolve identity ambiguity first.");
         if (existing is not null && !noOp)
             blockers.Add("This release already exists with different or unreviewed source state. Graph reconciliation is not available; no existing metadata or manual order will be replaced.");
-        var releaseCandidates = existing is null ? await imports.FindCandidatesAsync(CatalogEntityKind.Release, Normalize(bundle.Title), cancellationToken: cancellationToken).ConfigureAwait(false) : [];
+        // A same-title Release already bound to a different Beatport release is a distinct edition, not a candidate.
+        var releaseCandidates = existing is null ? (await imports.FindCandidatesAsync(CatalogEntityKind.Release, Normalize(bundle.Title), cancellationToken: cancellationToken).ConfigureAwait(false))
+            .Where(c => c.BeatportIds is not { Count: > 0 }).ToList() : [];
         if (releaseCandidates.Count > 100) blockers.Add("More than 100 Release candidates match. Resolve canonical identity before importing.");
         if (releaseCandidates.Count > 0 && !decisions.Any(d => d.Kind == "release" && d.ProviderId == releaseId && d.Action == "create"))
             blockers.Add("Review same-title Release candidates before choosing to create a distinct source edition.");
@@ -126,8 +132,10 @@ public sealed class ReleaseImportService(IStorageProvider storage, IPurchaseRele
                 if (group.Select(c => c.Name).Distinct(StringComparer.Ordinal).Count() != 1)
                     blockers.Add($"Artist {group.Key} has contradictory names within the source bundle.");
                 var owners = await foundations.FindReferenceOwnersAsync(CatalogEntityKind.Artist, "beatport", Id(group.Key), cancellationToken).ConfigureAwait(false);
-                var candidates = await imports.FindCandidatesAsync(CatalogEntityKind.Artist, Normalize(name), cancellationToken: cancellationToken).ConfigureAwait(false);
-                if (candidates.Count > 100) blockers.Add($"Artist {group.Key}: more than 100 matches; resolve identity before importing.");
+                var allCandidates = await imports.FindCandidatesAsync(CatalogEntityKind.Artist, Normalize(name), cancellationToken: cancellationToken).ConfigureAwait(false);
+                // Same-name Artists bound only to other Beatport artist IDs are different acts.
+                var candidates = allCandidates.Where(c => c.BeatportIds is not { Count: > 0 } || c.BeatportIds.Contains(Id(group.Key))).ToList();
+                if (allCandidates.Count > 100) blockers.Add($"Artist {group.Key}: more than 100 matches; resolve identity before importing.");
                 var choice = decisions.SingleOrDefault(d => d.Kind == "artist" && d.ProviderId == group.Key);
                 Artist? before = owners.Count == 1 ? await unit.Artists.GetByIdAsync(owners[0], cancellationToken).ConfigureAwait(false) : null;
                 if (owners.Count > 1) blockers.Add($"Artist {group.Key} has multiple provider-reference owners.");
@@ -180,12 +188,17 @@ public sealed class ReleaseImportService(IStorageProvider storage, IPurchaseRele
                 var legacyOwners = await foundations.FindReferenceOwnersAsync(CatalogEntityKind.Recording, "beatport", Id(trackId), cancellationToken).ConfigureAwait(false);
                 var listingOwners = await imports.FindPlacementOwnersAsync("beatport", Id(trackId), cancellationToken).ConfigureAwait(false);
                 if (listingOwners.Count > 0) blockers.Add($"Track {trackId} already has a placement binding. Resolve release identity before importing.");
-                var candidates = (await imports.FindCandidatesAsync(CatalogEntityKind.Recording, Normalize(track.Title), track.Isrc, cancellationToken).ConfigureAwait(false)).ToList();
-                if (candidates.Count > 100) blockers.Add($"Track {trackId}: more than 100 matches; resolve identity before importing.");
+                var allCandidates = await imports.FindCandidatesAsync(CatalogEntityKind.Recording, Normalize(track.Title), track.Isrc, cancellationToken).ConfigureAwait(false);
+                // Keep only Recordings this track could reuse: same mix, no contradictory ISRC, and either the same ISRC
+                // (compilations share masters) or no Beatport listing yet. Others are distinct versions or listings.
+                var candidates = allCandidates.Where(c => c.BeatportIds?.Contains(Id(trackId)) == true ||
+                    c.MixName == track.MixName && !(c.Isrc is not null && track.Isrc is not null && c.Isrc != track.Isrc) &&
+                    (c.Isrc is not null && c.Isrc == track.Isrc || c.BeatportIds is not { Count: > 0 })).ToList();
+                if (allCandidates.Count > 100) blockers.Add($"Track {trackId}: more than 100 matches; resolve identity before importing.");
                 foreach (var owner in legacyOwners.Where(id => candidates.All(c => c.Id != id)))
                 {
                     var candidate = (await unit.Recordings.GetByIdAsync(owner, cancellationToken).ConfigureAwait(false))!;
-                    candidates.Add(new(candidate.Id, candidate.Title, candidate.MixName, candidate.Isrc));
+                    candidates.Add(new(candidate.Id, candidate.Title, candidate.MixName, candidate.Isrc, [Id(trackId)]));
                 }
                 Recording? before = null;
                 if (choice?.Action == "reuse")
@@ -245,6 +258,8 @@ public sealed class ReleaseImportService(IStorageProvider storage, IPurchaseRele
         new(NewId(), artists[c.ProviderId], c.Role, c.Position, c.Name, "beatport",
             $"{scope}.{(c.Role == "primary" ? "artists" : "remixers")}[{c.Position - 1}]", c.Name,
             JsonSerializer.Serialize(new { SourceArtistId = c.ProviderId, Scope = scope }));
+    public const string DefaultEvidence = "Reviewer chose this identity in the import review.";
+    public const string DefaultReason = "Reviewed and confirmed in the import review.";
     private static void ValidateDecision(ReleaseImportDecision decision)
     {
         if (decision.Kind is not ("artist" or "recording" or "release") || decision.ProviderId <= 0 ||
@@ -254,11 +269,12 @@ public sealed class ReleaseImportService(IStorageProvider storage, IPurchaseRele
             decision.Action == "reuse" && string.IsNullOrWhiteSpace(decision.CanonicalId) ||
             decision.Action != "reuse" && decision.CanonicalId is not null ||
             string.IsNullOrWhiteSpace(decision.Evidence) || decision.Evidence.Length > 2000)
-            throw new ReleaseImportException(400, "validation_failed", "Choose a valid identity action and provide evidence/review rationale of 1-2000 characters.");
+            throw new ReleaseImportException(400, "validation_failed", "Choose a valid identity action; an optional note may be up to 2000 characters.");
     }
     public async ValueTask<ReleaseImportOutcome> ApplyAsync(string operationId, string expectedVersion, string reason, bool confirmed, CancellationToken cancellationToken = default)
     {
         if (!confirmed) throw new ReleaseImportException(400, "confirmation_required", "Deliberate confirmation is required.");
+        if (string.IsNullOrWhiteSpace(reason)) reason = DefaultReason;
         await RequireSchema(cancellationToken).ConfigureAwait(false);
         var stored = await GetAsync(operationId, cancellationToken).ConfigureAwait(false);
         if (stored.Outcome is null)

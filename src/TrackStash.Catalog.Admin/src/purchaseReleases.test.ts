@@ -38,6 +38,9 @@ describe('purchase release inspector transport', () => {
     fetcher.mockResolvedValueOnce(Response.json({ items: [], total: 0, page: 1, pageSize: 25, admissionStatusAvailable: true, hideAdmitted: true }))
     await purchaseReleaseClient.list(1, '', abort.signal, true)
     expect(fetcher.mock.calls[3][0]).toBe('/api/v1/purchase-release-candidates?page=1&pageSize=25&q=&hideAdmitted=true')
+    fetcher.mockResolvedValueOnce(Response.json({ items: [], total: 0, page: 1, pageSize: 25, admissionStatusAvailable: true, hideAdmitted: true, readyOnly: true }))
+    await purchaseReleaseClient.list(1, '', abort.signal, true, true)
+    expect(fetcher.mock.calls[4][0]).toBe('/api/v1/purchase-release-candidates?page=1&pageSize=25&q=&hideAdmitted=true&readyOnly=true')
   })
 
   describe('immutable release import transport', () => {
