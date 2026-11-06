@@ -217,6 +217,19 @@ The label/inspector host still supports schema 8. **Do not migrate the live cata
 
 The minimum shared canonical foundations are now implemented in forward migration **9**, with conditional versions, Artist identity status, Release metadata, Recording duration, stable multi-role credits and repeated placements/manual ordering. They have been validated on temporary databases; **no live upgrade or import has occurred**. The existing label/inspector API remains schema-8 compatible. These are storage foundations, not new public entity editors or reviewed apply endpoints. See [foundation status and remaining work](docs/purchase-release-import-design.md#6-required-core-changes).
 
+### Beatport Broker: Backfill and Browse
+
+When the [Beatport broker](../trackstash-beatport-broker/README.md) is running (`start-prod.sh` starts it and sets `CatalogApi__BeatportBrokerUrl`/`CatalogApi__BeatportBrokerKey`), the catalog API proxies Beatport through it. The broker holds the Beatport session, caches responses and throttles requests; the catalog never stores Beatport credentials.
+
+- **Sign in / status:** `GET /api/v1/beatport/connection`, `POST /api/v1/beatport/sign-in`, `POST /api/v1/beatport/sign-out` (also from the **Purchase releases** page).
+- **Backfill purchase data:** `POST /api/v1/purchase-release-candidates/{id}/beatport-backfill` for one release, or the background job at `/api/v1/beatport-backfill-jobs`. Fetched data lands in the broker's tables in the scanner database, which purchase readiness reads.
+- **Browse (read-only):** the **Beatport** page in the admin sidebar, also reachable from a label's **Browse on Beatport** button. Search releases by name and/or Beatport label, sort by newest/oldest/name, expand a release to see its tracks, and search labels by name. Each result shows whether it is already **in the catalog** (via Beatport external references) or in your **purchase history**.
+  - `GET /api/v1/beatport/releases?q=&labelId=&artistId=&sort=newest|oldest|name&page=1&pageSize=25` (`q` or a filter is required; `pageSize` ≤ 50)
+  - `GET /api/v1/beatport/releases/{id}` (release plus up to 100 tracks)
+  - `GET /api/v1/beatport/labels?q=&page=1&pageSize=25` and `GET /api/v1/beatport/labels/{id}`
+
+Browsing never writes to the catalog and never adds purchase candidates; responses are only cached by the broker. Errors use Problem Details: `409 beatport_sign_in_required` (sign in first; 409 so the GUI doesn't log you out), `503 beatport_broker_not_configured`/`beatport_broker_unavailable` (start the broker), `404 beatport_release_not_found`/`beatport_label_not_found`, and `400 validation_failed` for bad query values. A wishlist that pre-stages releases is designed but not built yet: see [docs/beatport-wishlist-design.md](docs/beatport-wishlist-design.md).
+
 ## Command Surface
 
 Current commands:

@@ -39,6 +39,41 @@ internal static class BeatportEndpoints
             return TypedResults.NoContent();
         }).WithName("SignOutOfBeatport").WithSummary("Revoke and forget the broker's Beatport session").ProducesProblem(503);
 
+        group.MapGet("/releases", async (HttpContext context, IBeatportBrowseService browse, CancellationToken ct) =>
+        {
+            context.Response.Headers.CacheControl = "no-store";
+            var sort = Text(context, "sort", 20) ?? "newest";
+            if (!BeatportBrowseService.Sorts.ContainsKey(sort))
+                throw new ApiRequestException(400, "validation_failed", "sort must be newest, oldest or name.", "sort");
+            return TypedResults.Ok(await browse.SearchReleasesAsync(new(Text(context, "q", 200), Id(context, "labelId"), Id(context, "artistId"), sort,
+                Number(context, "page", 1, 1, 10_000), Number(context, "pageSize", 25, 1, 50)), ct));
+        }).WithName("SearchBeatportReleases").WithSummary("Search or browse Beatport releases through the broker")
+            .WithDescription("Query: q (release name), labelId, artistId, sort (newest|oldest|name), page, pageSize (1-50). Each release reports catalog Releases and Labels that already reference it and whether it is in the purchase history. Read-only; responses come from the broker's cache when fresh.")
+            .Produces<BeatportReleasePage>().ProducesProblem(400).ProducesProblem(409).ProducesProblem(429).ProducesProblem(502).ProducesProblem(503);
+
+        group.MapGet("/releases/{id}", async (string id, HttpContext context, IBeatportBrowseService browse, CancellationToken ct) =>
+        {
+            context.Response.Headers.CacheControl = "no-store";
+            return TypedResults.Ok(await browse.GetReleaseAsync(PositiveId(id, "Release ID"), ct));
+        }).WithName("GetBeatportRelease").WithSummary("A Beatport release with its tracks and catalog status")
+            .Produces<BeatportReleaseDetail>().ProducesProblem(400).ProducesProblem(404).ProducesProblem(409).ProducesProblem(502).ProducesProblem(503);
+
+        group.MapGet("/labels", async (HttpContext context, IBeatportBrowseService browse, CancellationToken ct) =>
+        {
+            context.Response.Headers.CacheControl = "no-store";
+            var q = Text(context, "q", 200) ?? throw new ApiRequestException(400, "validation_failed", "q is required.", "q");
+            return TypedResults.Ok(await browse.SearchLabelsAsync(q, Number(context, "page", 1, 1, 10_000), Number(context, "pageSize", 25, 1, 50), ct));
+        }).WithName("SearchBeatportLabels").WithSummary("Search Beatport labels by name")
+            .WithDescription("Each label lists the catalog Labels that already carry its Beatport ID.")
+            .Produces<BeatportLabelPage>().ProducesProblem(400).ProducesProblem(409).ProducesProblem(502).ProducesProblem(503);
+
+        group.MapGet("/labels/{id}", async (string id, HttpContext context, IBeatportBrowseService browse, CancellationToken ct) =>
+        {
+            context.Response.Headers.CacheControl = "no-store";
+            return TypedResults.Ok(await browse.GetLabelAsync(PositiveId(id, "Label ID"), ct));
+        }).WithName("GetBeatportLabel").WithSummary("A Beatport label and the catalog Labels that reference it")
+            .Produces<BeatportLabelItem>().ProducesProblem(400).ProducesProblem(404).ProducesProblem(409).ProducesProblem(502).ProducesProblem(503);
+
         app.MapPost("/api/v1/purchase-release-candidates/{releaseId}/beatport-backfill",
             async (string releaseId, HttpContext context, IBeatportBackfillService service, CancellationToken ct) =>
             {
@@ -73,4 +108,29 @@ internal static class BeatportEndpoints
             .WithTags("Beatport").WithName("CancelBeatportBackfillJob").WithSummary("Stop a running bulk backfill after the current request")
             .Produces<BeatportBackfillJobResponse>().ProducesProblem(404);
     }
+
+    private static string? Raw(HttpContext context, string name) =>
+        context.Request.Query.TryGetValue(name, out var values) ? values.Count == 1 ? values[0]
+            : throw new ApiRequestException(400, "validation_failed", $"{name} may be given once.", name) : null;
+
+    private static string? Text(HttpContext context, string name, int max) => Raw(context, name)?.Trim() switch
+    {
+        null or "" => null,
+        { Length: var length } when length > max => throw new ApiRequestException(400, "validation_failed", $"{name} must be at most {max} characters.", name),
+        var text => text,
+    };
+
+    private static long PositiveId(string? value, string name) =>
+        long.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var id) && id > 0 ? id
+            : throw new ApiRequestException(400, "validation_failed", $"{name} must be a positive Beatport ID.");
+
+    private static long? Id(HttpContext context, string name) => Raw(context, name) is { Length: > 0 } value
+        ? long.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var id) && id > 0 ? id
+            : throw new ApiRequestException(400, "validation_failed", $"{name} must be a positive Beatport ID.", name)
+        : null;
+
+    private static int Number(HttpContext context, string name, int fallback, int min, int max) => Raw(context, name) is { Length: > 0 } value
+        ? int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var n) && n >= min && n <= max ? n
+            : throw new ApiRequestException(400, "validation_failed", $"{name} must be between {min} and {max}.", name)
+        : fallback;
 }

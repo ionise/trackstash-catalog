@@ -250,6 +250,22 @@ export interface BeatportBackfillResult {
   releaseId: number; sourceCompleteBefore: boolean; sourceCompleteAfter: boolean; releaseRefreshed: boolean
   tracksRequested: number; tracksFetched: number; tracksNotFound: number; remainingBlockers: string[]
 }
+export interface BeatportRef { id: number; name: string }
+export interface BeatportReleaseItem {
+  id: number; name: string; type: string | null; artists: BeatportRef[]; remixers: BeatportRef[]; label: BeatportRef | null
+  catalogLabelIds: string[]; catalogNumber: string | null; publishDate: string | null; trackCount: number | null; imageUrl: string | null
+  beatportUrl: string; catalogReleaseIds: string[]; inPurchaseHistory: boolean | null; purchaseSourceComplete: boolean | null
+}
+export interface BeatportReleasePage { items: BeatportReleaseItem[]; total: number; page: number; pageSize: number }
+export interface BeatportTrackItem {
+  id: number; number: number | null; name: string; mixName: string | null; artists: BeatportRef[]; remixers: BeatportRef[]
+  isrc: string | null; lengthMs: number | null; bpm: number | null; key: string | null; genre: string | null; beatportUrl: string
+}
+export interface BeatportReleaseDetail { release: BeatportReleaseItem; tracks: BeatportTrackItem[]; trackTotal: number }
+export interface BeatportLabelItem { id: number; name: string; imageUrl: string | null; beatportUrl: string; catalogLabelIds: string[] }
+export interface BeatportLabelPage { items: BeatportLabelItem[]; total: number; page: number; pageSize: number }
+export type BeatportReleaseSort = 'newest' | 'oldest' | 'name'
+export interface BeatportReleaseSearch { q?: string; labelId?: number; artistId?: number; sort?: BeatportReleaseSort; page?: number; pageSize?: number }
 export interface BeatportBackfillJob {
   id: string; status: 'queued' | 'running' | 'completed' | 'cancelled' | 'failed'; createdUtc: string
   totalReleases: number; processedReleases: number; completedReleases: number; tracksFetched: number; tracksNotFound: number
@@ -514,6 +530,17 @@ export function createCatalogClient(fetcher: typeof fetch = fetch) {
       (await request(`/${encodeURIComponent(id)}`, { signal }, 'beatport-backfill-jobs')).json(),
     cancelJob: async (id: string): Promise<BeatportBackfillJob> =>
       (await request(`/${encodeURIComponent(id)}/cancel`, { method: 'POST' }, 'beatport-backfill-jobs')).json(),
+    releases: async (search: BeatportReleaseSearch, signal?: AbortSignal): Promise<BeatportReleasePage> => {
+      const query = new URLSearchParams()
+      for (const [key, value] of Object.entries(search)) if (value !== undefined && value !== '') query.set(key, String(value))
+      return (await request(`/releases?${query}`, { signal }, 'beatport')).json()
+    },
+    release: async (id: number, signal?: AbortSignal): Promise<BeatportReleaseDetail> =>
+      (await request(`/releases/${id}`, { signal }, 'beatport')).json(),
+    labels: async (q: string, page: number, signal?: AbortSignal): Promise<BeatportLabelPage> =>
+      (await request(`/labels?${new URLSearchParams({ q, page: String(page), pageSize: '25' })}`, { signal }, 'beatport')).json(),
+    label: async (id: number, signal?: AbortSignal): Promise<BeatportLabelItem> =>
+      (await request(`/labels/${id}`, { signal }, 'beatport')).json(),
   }
   const purchaseReleaseClient = {
     list: async (page: number, search: string, signal?: AbortSignal, hideAdmitted = false, readyOnly = false): Promise<PurchaseCandidatePage> =>

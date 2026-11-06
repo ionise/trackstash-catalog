@@ -85,6 +85,7 @@ public static class CatalogApiHost
         builder.Services.AddHttpClient(BeatportBrokerClient.HttpClientName, client => client.Timeout = TimeSpan.FromMinutes(6));
         builder.Services.TryAddSingleton<IBeatportBrokerClient, BeatportBrokerClient>();
         builder.Services.TryAddScoped<IBeatportBackfillService, BeatportBackfillService>();
+        builder.Services.TryAddScoped<IBeatportBrowseService, BeatportBrowseService>();
         builder.Services.AddSingleton<BeatportBackfillJobs>();
         builder.Services.AddHostedService(services => services.GetRequiredService<BeatportBackfillJobs>());
         builder.Services.ConfigureHttpJsonOptions(options =>

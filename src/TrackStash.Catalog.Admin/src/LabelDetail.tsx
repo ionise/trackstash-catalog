@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link as RouterLink } from 'react-router-dom'
 import { LabelArtists } from './Artists'
 import type { ReactNode } from 'react'
 import {
@@ -62,6 +63,8 @@ function Favourite({ record }: { record: LabelRecord }) {
 }
 
 function Header({ record, artwork }: { record: LabelRecord; artwork: LabelArtworkState }) {
+  const beatportRefs = (record.externalReferences ?? []).filter(ref => ref.source === 'beatport' && /^[1-9][0-9]*$/.test(ref.externalId))
+  const beatportId = (beatportRefs.find(ref => ref.isPrimary) ?? beatportRefs[0])?.externalId
   const preferred = artwork.gallery?.items.find(item => item.isPreferred)
   const country = countryPresentation(record.profile?.countryCode)
   const profile = record.profile
@@ -89,7 +92,7 @@ function Header({ record, artwork }: { record: LabelRecord; artwork: LabelArtwor
     <Stack spacing={2} sx={{ flex: 1, minWidth: 0 }}>
       <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start', justifyContent: 'space-between' }}>
         <Typography component="h1" variant="h4" sx={{ overflowWrap: 'anywhere', fontWeight: 600 }}>{record.name || 'Unnamed label'}</Typography>
-        <Stack direction="row" sx={{ flexShrink: 0 }}><EditButton /><LabelMerge /></Stack>
+        <Stack direction="row" sx={{ flexShrink: 0 }}>{beatportId && <Button size="small" component={RouterLink} to={`/beatport?labelId=${beatportId}`}>Browse on Beatport</Button>}<EditButton /><LabelMerge /></Stack>
       </Stack>
       <Stack direction="row" useFlexGap spacing={1} sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
         <Favourite record={record} />

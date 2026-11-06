@@ -20,6 +20,8 @@ public interface IBeatportBrokerClient
     Task<BeatportConnectionResponse> SignInAsync(string username, string password, CancellationToken ct);
     Task SignOutAsync(CancellationToken ct);
     Task<BrokerFetchOutcome> FetchAsync(string entityType, long id, bool refresh, CancellationToken ct);
+    /// <summary>GETs a <c>/v4/catalog/...</c> resource through the broker; returns null when Beatport answers 404.</summary>
+    Task<JsonElement?> GetCatalogAsync(string path, IEnumerable<KeyValuePair<string, string>> query, CancellationToken ct);
 }
 
 /// <summary>Talks to the loopback Beatport broker; the broker owns Beatport credentials, caching and throttling.</summary>
@@ -132,5 +134,18 @@ public sealed class BeatportBrokerClient : IBeatportBrokerClient
             return BrokerFetchOutcome.NotFound;
         if (!response.IsSuccessStatusCode) throw await ErrorAsync(response, ct);
         return BrokerFetchOutcome.Fetched;
+    }
+
+    public async Task<JsonElement?> GetCatalogAsync(string path, IEnumerable<KeyValuePair<string, string>> query, CancellationToken ct)
+    {
+        if (!path.StartsWith("/v4/catalog/", StringComparison.Ordinal) || !path.EndsWith('/') || path.Contains("..", StringComparison.Ordinal))
+            throw new ArgumentOutOfRangeException(nameof(path));
+        var queryString = string.Join('&', query.Select(pair => Uri.EscapeDataString(pair.Key) + "=" + Uri.EscapeDataString(pair.Value)));
+        using var request = new HttpRequestMessage(HttpMethod.Get, queryString.Length == 0 ? path : path + "?" + queryString);
+        using var response = await SendAsync(request, ct);
+        if (response.StatusCode == HttpStatusCode.NotFound && response.Content.Headers.ContentType?.MediaType != "application/problem+json")
+            return null;
+        if (!response.IsSuccessStatusCode) throw await ErrorAsync(response, ct);
+        return await response.Content.ReadFromJsonAsync<JsonElement>(ct);
     }
 }

@@ -119,6 +119,33 @@ describe('purchase release inspector transport', () => {
     await expect(beatportClient.backfillRelease(10)).rejects.toMatchObject({ status: 409, message: 'Sign in to Beatport first.' })
   })
 
+  it('sends read-only Beatport browse requests to the catalog with encoded filters', async () => {
+    const fetcher = vi.fn<typeof fetch>()
+    const { authProvider, beatportClient } = createCatalogClient(fetcher)
+    fetcher.mockResolvedValueOnce(Response.json({ items: [] }))
+    await authProvider.login({ apiKey: 'test-key' })
+    fetcher.mockClear()
+    const page = { items: [], total: 0, page: 2, pageSize: 25 }
+    fetcher.mockResolvedValueOnce(Response.json(page))
+    await expect(beatportClient.releases({ q: 'A & B', labelId: 42, sort: 'oldest', page: 2, pageSize: 25 })).resolves.toEqual(page)
+    expect(fetcher.mock.calls[0][0]).toBe('/api/v1/beatport/releases?q=A+%26+B&labelId=42&sort=oldest&page=2&pageSize=25')
+    expect(fetcher.mock.calls[0][1]?.method).toBeUndefined()
+    fetcher.mockResolvedValueOnce(Response.json(page))
+    await beatportClient.releases({ q: '', labelId: 42 })
+    expect(fetcher.mock.calls[1][0]).toBe('/api/v1/beatport/releases?labelId=42')
+    fetcher.mockResolvedValueOnce(Response.json({ release: {}, tracks: [], trackTotal: 0 }))
+    await beatportClient.release(7)
+    expect(fetcher.mock.calls[2][0]).toBe('/api/v1/beatport/releases/7')
+    fetcher.mockResolvedValueOnce(Response.json(page))
+    await beatportClient.labels('Toolroom & Co', 3)
+    expect(fetcher.mock.calls[3][0]).toBe('/api/v1/beatport/labels?q=Toolroom+%26+Co&page=3&pageSize=25')
+    fetcher.mockResolvedValueOnce(Response.json({ id: 42 }))
+    await beatportClient.label(42)
+    expect(fetcher.mock.calls[4][0]).toBe('/api/v1/beatport/labels/42')
+    fetcher.mockResolvedValueOnce(Response.json({ detail: 'Sign in to Beatport first.', code: 'beatport_sign_in_required' }, { status: 409 }))
+    await expect(beatportClient.release(7)).rejects.toMatchObject({ status: 409, body: { code: 'beatport_sign_in_required' } })
+  })
+
   it('surfaces unavailable source errors without retries', async () => {
     const fetcher = vi.fn<typeof fetch>()
     const { authProvider, purchaseReleaseClient } = createCatalogClient(fetcher)

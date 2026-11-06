@@ -7,6 +7,8 @@ import { LabelCreate, LabelEdit, LabelList, LabelShow } from './labels'
 import { LoginPage } from './LoginPage'
 import { Backups } from './Backups'
 import { PurchaseReleases } from './PurchaseReleases'
+import { BeatportBrowse } from './BeatportBrowse'
+import TravelExploreIcon from '@mui/icons-material/TravelExplore'
 import { ReleaseList, ReleaseShow } from './Releases'
 import { ArtistList, ArtistShow } from './Artists'
 import { RecordingShow, TrackListPage } from './Recordings'
@@ -30,6 +32,7 @@ function CatalogMenu() {
     <Menu.ResourceItem name="tracks" />
     <Menu.ResourceItem name="label-groups" />
     <Menu.Item to="/purchase-releases" primaryText="Purchase releases" leftIcon={<SearchIcon />} />
+    <Menu.Item to="/beatport" primaryText="Beatport" leftIcon={<TravelExploreIcon />} />
     <MenuItem aria-label="System" aria-expanded={sidebarOpen && expanded} aria-controls="system-backup-menu" onClick={() => {
       if (!sidebarOpen) { setSidebarOpen(true); setExpanded(true) }
       else setExpanded(!expanded)
@@ -64,6 +67,7 @@ export default function App() {
       <Resource name="label-groups" options={{ label: 'Label groups' }} list={LabelGroupList} show={LabelGroupShow} create={LabelGroupCreate} edit={LabelGroupEdit} recordRepresentation="name" />
       <Resource name="backups" list={Backups} icon={BackupIcon} />
       <Resource name="purchase-releases" list={PurchaseReleases} />
+      <Resource name="beatport" list={BeatportBrowse} />
     </Admin>
   )
 }

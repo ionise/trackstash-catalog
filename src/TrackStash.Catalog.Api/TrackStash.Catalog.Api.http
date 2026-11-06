@@ -571,3 +571,27 @@ Authorization: Bearer {{apiKey}}
 ### Recording detail; a missing ID returns 404 recording_not_found
 GET {{baseUrl}}/api/v1/recordings/replace-with-canonical-recording-id
 Authorization: Bearer {{apiKey}}
+
+### Beatport browse (read-only, through the broker); 409 beatport_sign_in_required until signed in
+GET {{baseUrl}}/api/v1/beatport/releases?q=essentials&sort=newest&page=1&pageSize=25
+Authorization: Bearer {{apiKey}}
+
+### Releases from one Beatport label, oldest first
+GET {{baseUrl}}/api/v1/beatport/releases?labelId=1&sort=oldest
+Authorization: Bearer {{apiKey}}
+
+### Beatport release with its tracks; an unknown ID returns 404 beatport_release_not_found
+GET {{baseUrl}}/api/v1/beatport/releases/1
+Authorization: Bearer {{apiKey}}
+
+### Search Beatport labels by name (q is required)
+GET {{baseUrl}}/api/v1/beatport/labels?q=toolroom&page=1&pageSize=25
+Authorization: Bearer {{apiKey}}
+
+### One Beatport label, with matching catalog label IDs
+GET {{baseUrl}}/api/v1/beatport/labels/1
+Authorization: Bearer {{apiKey}}
+
+### Invalid paging returns 400 validation_failed without calling Beatport
+GET {{baseUrl}}/api/v1/beatport/releases?q=x&pageSize=500
+Authorization: Bearer {{apiKey}}

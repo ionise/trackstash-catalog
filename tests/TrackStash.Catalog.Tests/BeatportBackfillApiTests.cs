@@ -22,6 +22,8 @@ public sealed partial class LabelApiTests
     private sealed class FakeBroker(string scannerPath) : HttpMessageHandler
     {
         public Dictionary<string, string> Payloads { get; } = [];
+        /// <summary>Canned answers for list and detail URLs, keyed by path plus query exactly as the catalog sends them.</summary>
+        public Dictionary<string, string> Pages { get; } = [];
         public List<string> Requests { get; } = [];
         public bool SignedIn { get; set; } = true;
         public string? LastSignInBody { get; private set; }
@@ -33,7 +35,7 @@ public sealed partial class LabelApiTests
         {
             Assert.Equal("Bearer " + BrokerKey, request.Headers.Authorization?.ToString());
             var path = request.RequestUri!.AbsolutePath;
-            Requests.Add($"{request.Method} {path}{(request.Headers.Contains("X-Broker-Refresh") ? " refresh" : "")}");
+            Requests.Add($"{request.Method} {path}{request.RequestUri.Query}{(request.Headers.Contains("X-Broker-Refresh") ? " refresh" : "")}");
             switch (path)
             {
                 case "/broker/status":
@@ -46,6 +48,12 @@ public sealed partial class LabelApiTests
                 case "/broker/sign-out":
                     SignedIn = false;
                     return new HttpResponseMessage(HttpStatusCode.NoContent);
+            }
+            if (Pages.Count > 0)
+            {
+                if (!SignedIn) return Json(HttpStatusCode.Unauthorized, """{"code":"beatport_sign_in_required"}""", "application/problem+json");
+                return Pages.TryGetValue(path + request.RequestUri.Query, out var page) ? Json(HttpStatusCode.OK, page)
+                    : Json(HttpStatusCode.NotFound, """{"detail":"Not found."}""");
             }
             var match = Regex.Match(path, "^/v4/catalog/(tracks|releases)/([0-9]+)/$");
             Assert.True(match.Success, path);
