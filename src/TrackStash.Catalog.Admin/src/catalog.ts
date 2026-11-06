@@ -204,6 +204,12 @@ export interface PurchaseReadiness {
   readiness: 'ready' | 'incomplete_source' | 'label_review'
   hydratedTrackCount: number; manifestTrackCount: number; labelCandidateCount: number; blockerCodes: string[]
 }
+export interface PurchaseBatchItem {
+  releaseId: number; title: string; status: 'admitted' | 'would_admit' | 'needs_review' | 'failed'; reasons: string[]
+  tracks: number; newArtists: number; unresolvedArtists: number; newRecordings: number; reusedRecordings: number; catalogReleaseId: string | null
+}
+export interface PurchaseBatchReport { dryRun: boolean; items: PurchaseBatchItem[] }
+export const purchaseBatchSize = 25
 export interface PurchaseCandidatePage extends GroupPage<PurchaseCandidate> { admissionStatusAvailable: boolean; hideAdmitted: boolean; readyOnly: boolean }
 export interface SourceCredit { providerId: number; name: string; role: string; position: number }
 export interface SourceTrack {
@@ -473,6 +479,11 @@ export function createCatalogClient(fetcher: typeof fetch = fetch) {
         { signal }, 'purchase-release-candidates')).json(),
     inspect: async (id: number, page: number, signal?: AbortSignal): Promise<PurchaseInspection> =>
       (await request(`/${id}?page=${page}&pageSize=25`, { signal }, 'purchase-release-candidates')).json(),
+    readyIds: async (signal?: AbortSignal): Promise<number[]> =>
+      (await (await request('/ready', { signal }, 'purchase-release-admissions')).json() as { releaseIds: number[] }).releaseIds,
+    admit: async (releaseIds: number[], dryRun: boolean, signal?: AbortSignal): Promise<PurchaseBatchReport> =>
+      (await request('', { method: 'POST', signal, headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ releaseIds, dryRun, confirmed: !dryRun }) }, 'purchase-release-admissions')).json(),
   }
   const releaseImportClient = {
     preview: async (releaseId: number, basePreviewId?: string, decision?: ImportDecision, signal?: AbortSignal) =>

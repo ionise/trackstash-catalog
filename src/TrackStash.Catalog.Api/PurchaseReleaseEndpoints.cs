@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json;
 using TrackStash.Catalog.Api.Middleware;
 using TrackStash.Catalog.Application;
 using TrackStash.Core.Storage;
@@ -17,6 +18,39 @@ internal static class PurchaseReleaseEndpoints
             .WithTags("Catalog imports").WithSummary("Inspect a cached release, structured credits and source completeness")
             .WithDescription("Tracks are paged but completeness diagnostics and digest cover the whole source bundle. SourceComplete does not certify canonical identity. No import occurs.")
             .Produces<PurchaseReleaseInspectorResponse>().ProducesProblem(400).ProducesProblem(404).ProducesProblem(503);
+        app.MapGet("/api/v1/purchase-release-admissions/ready", Ready).WithName("ListReadyPurchaseReleases")
+            .WithTags("Catalog imports").WithSummary("List ready purchase releases not yet admitted")
+            .WithDescription("Release IDs with complete cached source and exactly one catalog label whose Beatport release ID no catalog Release owns. Read-only.")
+            .Produces<ReadyPurchaseReleasesResponse>().ProducesProblem(409).ProducesProblem(503);
+        app.MapPost("/api/v1/purchase-release-admissions", Admit).WithName("AdmitPurchaseReleases")
+            .WithTags("Catalog imports").WithSummary("Batch-admit purchase releases whose identities are all clear-cut")
+            .WithDescription("Body: releaseIds (1-25), dryRun, confirmed (required when dryRun is false). Each release gets its own immutable plan and atomic apply. New Beatport identities are created, compound artist names are created unresolved, and a Recording with the same ISRC and mix is reused. Releases needing judgement are reported as needs_review with reasons and left untouched. A dry run stores nothing.")
+            .Accepts<AdmitPurchaseReleasesRequest>("application/json").Produces<PurchaseBatchAdmissionReport>()
+            .ProducesProblem(400).ProducesProblem(409).ProducesProblem(503);
+    }
+
+    private static async Task<IResult> Ready(HttpContext context, IPurchaseBatchAdmissionService service, CancellationToken ct)
+    {
+        context.Response.Headers.CacheControl = "no-store";
+        if (context.Request.Query.Count > 0) throw new PurchaseSourceValidationException("No query fields are accepted.");
+        return TypedResults.Ok(new ReadyPurchaseReleasesResponse(await service.ReadyReleaseIdsAsync(ct)));
+    }
+
+    private static async Task<IResult> Admit(HttpContext context, IPurchaseBatchAdmissionService service, CancellationToken ct)
+    {
+        context.Response.Headers.CacheControl = "no-store";
+        var fields = await LabelRequests.FieldsAsync(context.Request, "application/json", ct, ["releaseIds", "dryRun", "confirmed"]);
+        if (!fields.TryGetValue("releaseIds", out var list) || list.ValueKind != JsonValueKind.Array ||
+            list.EnumerateArray().Any(v => v.ValueKind != JsonValueKind.Number || !v.TryGetInt64(out _)))
+            throw new ReleaseImportException(400, "validation_failed", "releaseIds must be an array of numeric Beatport release IDs.");
+        bool Flag(string name) => !fields.TryGetValue(name, out var value) ? false : value.ValueKind switch
+        {
+            JsonValueKind.True => true, JsonValueKind.False => false,
+            _ => throw new ReleaseImportException(400, "validation_failed", $"{name} must be true or false."),
+        };
+        var dryRun = Flag("dryRun");
+        if (!dryRun && !Flag("confirmed")) throw new ReleaseImportException(400, "confirmation_required", "Deliberate confirmation is required to admit releases.");
+        return TypedResults.Ok(await service.RunAsync(list.EnumerateArray().Select(v => v.GetInt64()).ToArray(), dryRun, ct));
     }
 
     private static PurchaseReleaseQuery Fields(HttpRequest request, bool inspect = false)
@@ -55,3 +89,9 @@ internal static class PurchaseReleaseEndpoints
         return TypedResults.Ok(response);
     }
 }
+
+/// <summary>Batch admission request: up to 25 Beatport release IDs; confirmed must be true unless dryRun.</summary>
+public sealed record AdmitPurchaseReleasesRequest(IReadOnlyList<long> ReleaseIds, bool DryRun, bool Confirmed);
+
+/// <summary>Ready purchase releases not yet admitted to the catalog.</summary>
+public sealed record ReadyPurchaseReleasesResponse(IReadOnlyList<long> ReleaseIds);

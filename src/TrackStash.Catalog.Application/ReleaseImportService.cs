@@ -12,6 +12,8 @@ public interface IReleaseImportService
     ValueTask<StoredReleaseImport> PreviewAsync(long releaseId, string? basePreviewId, ReleaseImportDecision? decision, CancellationToken cancellationToken = default);
     ValueTask<StoredReleaseImport> GetAsync(string operationId, CancellationToken cancellationToken = default);
     ValueTask<ReleaseImportOutcome> ApplyAsync(string operationId, string expectedVersion, string reason, bool confirmed, CancellationToken cancellationToken = default);
+    /// <summary>Builds a fresh review with all <paramref name="decisions"/>; when <paramref name="persist"/> is false nothing is stored.</summary>
+    ValueTask<ReleaseImportPlan> PlanAsync(long releaseId, IReadOnlyList<ReleaseImportDecision> decisions, bool persist, CancellationToken cancellationToken = default);
 }
 
 public sealed class ReleaseImportService(IStorageProvider storage, IPurchaseReleaseSource source, TimeProvider clock) : IReleaseImportService
@@ -66,16 +68,31 @@ public sealed class ReleaseImportService(IStorageProvider storage, IPurchaseRele
             if (string.IsNullOrWhiteSpace(decision.Evidence)) decision = decision with { Evidence = DefaultEvidence };
             ValidateDecision(decision);
         }
-        var bundle = await Bundle(releaseId, cancellationToken).ConfigureAwait(false);
-        var fingerprint = Fingerprint(bundle);
-        if (previous is not null && previous.Source.BundleDigest != bundle.BundleDigest)
-            throw new ReleaseImportException(412, "import_source_changed", "Source changed; start a fresh preview and review decisions again.");
         var decisions = previous?.Decisions.ToList() ?? [];
         if (decision is not null)
         {
             decisions.RemoveAll(d => d.Kind == decision.Kind && d.ProviderId == decision.ProviderId);
             decisions.Add(decision);
         }
+        return new(await BuildAsync(releaseId, previous, decisions, persist: true, cancellationToken).ConfigureAwait(false), null);
+    }
+    public async ValueTask<ReleaseImportPlan> PlanAsync(long releaseId, IReadOnlyList<ReleaseImportDecision> decisions, bool persist, CancellationToken cancellationToken = default)
+    {
+        if (releaseId <= 0) throw new ReleaseImportException(400, "validation_failed", "Release ID must be positive.");
+        await RequireSchema(cancellationToken).ConfigureAwait(false);
+        var list = decisions.Select(d => string.IsNullOrWhiteSpace(d.Evidence) ? d with { Evidence = DefaultEvidence } : d).ToList();
+        list.ForEach(ValidateDecision);
+        if (list.GroupBy(d => (d.Kind, d.ProviderId)).Any(g => g.Count() > 1))
+            throw new ReleaseImportException(400, "validation_failed", "Each identity may have only one decision.");
+        return await BuildAsync(releaseId, null, list, persist, cancellationToken).ConfigureAwait(false);
+    }
+    private async ValueTask<ReleaseImportPlan> BuildAsync(long releaseId, ReleaseImportPlan? previous, List<ReleaseImportDecision> decisions, bool persist,
+        CancellationToken cancellationToken)
+    {
+        var bundle = await Bundle(releaseId, cancellationToken).ConfigureAwait(false);
+        var fingerprint = Fingerprint(bundle);
+        if (previous is not null && previous.Source.BundleDigest != bundle.BundleDigest)
+            throw new ReleaseImportException(412, "import_source_changed", "Source changed; start a fresh preview and review decisions again.");
         await using var unit = await storage.BeginUnitOfWorkAsync(cancellationToken).ConfigureAwait(false);
         var imports = Imports(unit);
         var foundations = unit.CatalogFoundations!;
@@ -107,7 +124,7 @@ public sealed class ReleaseImportService(IStorageProvider storage, IPurchaseRele
         if (releaseCandidates.Count > 100) blockers.Add("More than 100 Release candidates match. Resolve canonical identity before importing.");
         if (releaseCandidates.Count > 0 && !decisions.Any(d => d.Kind == "release" && d.ProviderId == releaseId && d.Action == "create"))
             blockers.Add("Review same-title Release candidates before choosing to create a distinct source edition.");
-        if (decision is { Kind: "release" } && decision.ProviderId != releaseId)
+        if (decisions.Any(d => d.Kind == "release" && d.ProviderId != releaseId))
             throw new ReleaseImportException(400, "validation_failed", "Release decision does not belong to this bundle.");
         var proposed = existing ?? new Release
         {
@@ -153,7 +170,7 @@ public sealed class ReleaseImportService(IStorageProvider storage, IPurchaseRele
                 if (before is null && action == "undecided") blockers.Add($"Artist {group.Key}: explicitly accept a new identity, unresolved compound, or evidenced reuse.");
                 if (compound && before is null && choice is null) blockers.Add($"Artist {group.Key}: compound expression needs explicit review.");
                 if (compound && before?.IdentityStatus == "unknown" && choice is null)
-                    blockers.Add($"Artist {group.Key}: existing compound expression has not been reviewed; choose evidenced reuse or unresolved status.");
+                    blockers.Add($"Artist {group.Key}: {UnreviewedCompoundBlocker}; choose evidenced reuse or unresolved status.");
                 if (before is not null && before.Name != name)
                     warnings.Add($"Artist {group.Key}: keep curated name '{before.Name}' and retain source credit '{name}'.");
                 var after = before ?? new Artist { Id = NewId(), Name = name, NormalizedName = Normalize(name),
@@ -183,7 +200,7 @@ public sealed class ReleaseImportService(IStorageProvider storage, IPurchaseRele
             {
                 var trackId = track.ProviderId!.Value;
                 if (track.Isrc is not null && sharedIsrcs.Contains(track.Isrc) || sharedVersions.Contains((Normalize(track.Title), track.MixName)))
-                    warnings.Add($"Track {trackId}: another source listing shares ISRC or title/version. Review master identity; distinct listings are not automatically merged.");
+                    warnings.Add($"Track {trackId}: {SharedListingWarning} ISRC or title/version. Review master identity; distinct listings are not automatically merged.");
                 var choice = decisions.SingleOrDefault(d => d.Kind == "recording" && d.ProviderId == trackId);
                 var legacyOwners = await foundations.FindReferenceOwnersAsync(CatalogEntityKind.Recording, "beatport", Id(trackId), cancellationToken).ConfigureAwait(false);
                 var listingOwners = await imports.FindPlacementOwnersAsync("beatport", Id(trackId), cancellationToken).ConfigureAwait(false);
@@ -242,9 +259,10 @@ public sealed class ReleaseImportService(IStorageProvider storage, IPurchaseRele
             decisions.OrderBy(d => d.Kind, StringComparer.Ordinal).ThenBy(d => d.ProviderId).ToArray(), identities, artistWrites, recordingWrites,
             placements, blockers.Distinct().ToArray(), warnings.Distinct().ToArray(), noOp);
         plan = plan with { Version = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(plan)))).ToLowerInvariant() };
+        if (!persist) return plan;
         await imports.SavePreviewAsync(plan, cancellationToken).ConfigureAwait(false);
         await unit.CommitAsync(cancellationToken).ConfigureAwait(false);
-        return new(plan, null);
+        return plan;
     }
     private static bool ValidDate(string value) => DateOnly.TryParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out _);
     private static string Fingerprint(PurchaseReleaseInspection bundle) =>
@@ -258,6 +276,8 @@ public sealed class ReleaseImportService(IStorageProvider storage, IPurchaseRele
         new(NewId(), artists[c.ProviderId], c.Role, c.Position, c.Name, "beatport",
             $"{scope}.{(c.Role == "primary" ? "artists" : "remixers")}[{c.Position - 1}]", c.Name,
             JsonSerializer.Serialize(new { SourceArtistId = c.ProviderId, Scope = scope }));
+    internal const string UnreviewedCompoundBlocker = "existing compound expression has not been reviewed";
+    internal const string SharedListingWarning = "another source listing shares";
     public const string DefaultEvidence = "Reviewer chose this identity in the import review.";
     public const string DefaultReason = "Reviewed and confirmed in the import review.";
     private static void ValidateDecision(ReleaseImportDecision decision)

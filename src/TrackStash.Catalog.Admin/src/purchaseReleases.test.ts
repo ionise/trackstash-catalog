@@ -43,6 +43,25 @@ describe('purchase release inspector transport', () => {
     expect(fetcher.mock.calls[4][0]).toBe('/api/v1/purchase-release-candidates?page=1&pageSize=25&q=&hideAdmitted=true&readyOnly=true')
   })
 
+  it('lists ready releases and sends batch admissions as dry runs or confirmed runs', async () => {
+    const fetcher = vi.fn<typeof fetch>()
+    const { authProvider, purchaseReleaseClient } = createCatalogClient(fetcher)
+    fetcher.mockResolvedValueOnce(Response.json({ items: [] }))
+    await authProvider.login({ apiKey: 'test-key' })
+    fetcher.mockClear()
+    fetcher.mockResolvedValueOnce(Response.json({ releaseIds: [10, 11] }))
+    await expect(purchaseReleaseClient.readyIds()).resolves.toEqual([10, 11])
+    expect(fetcher.mock.calls[0][0]).toBe('/api/v1/purchase-release-admissions/ready')
+    fetcher.mockResolvedValueOnce(Response.json({ dryRun: true, items: [] }))
+    await purchaseReleaseClient.admit([10, 11], true)
+    expect(fetcher.mock.calls[1][0]).toBe('/api/v1/purchase-release-admissions')
+    expect(fetcher.mock.calls[1][1]?.method).toBe('POST')
+    expect(JSON.parse(fetcher.mock.calls[1][1]?.body as string)).toEqual({ releaseIds: [10, 11], dryRun: true, confirmed: false })
+    fetcher.mockResolvedValueOnce(Response.json({ dryRun: false, items: [] }))
+    await purchaseReleaseClient.admit([10], false)
+    expect(JSON.parse(fetcher.mock.calls[2][1]?.body as string)).toEqual({ releaseIds: [10], dryRun: false, confirmed: true })
+  })
+
   describe('immutable release import transport', () => {
     it('keeps plans server-side, requires an original token and submits one evidenced decision at a time', async () => {
       const fetcher = vi.fn<typeof fetch>()

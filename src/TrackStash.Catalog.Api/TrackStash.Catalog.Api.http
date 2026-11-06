@@ -248,6 +248,24 @@ Authorization: Bearer {{apiKey}}
 GET {{baseUrl}}/api/v1/purchase-release-candidates/0
 Authorization: Bearer {{apiKey}}
 
+### Ready, unadmitted purchase releases for batch admission
+GET {{baseUrl}}/api/v1/purchase-release-admissions/ready
+Authorization: Bearer {{apiKey}}
+
+### Batch admission dry run (writes nothing; 1-25 IDs)
+POST {{baseUrl}}/api/v1/purchase-release-admissions
+Authorization: Bearer {{apiKey}}
+Content-Type: application/json
+
+{ "releaseIds": [325565], "dryRun": true }
+
+### Batch admission (take a catalog backup first); without confirmed returns 400 confirmation_required
+POST {{baseUrl}}/api/v1/purchase-release-admissions
+Authorization: Bearer {{apiKey}}
+Content-Type: application/json
+
+{ "releaseIds": [325565], "confirmed": true }
+
 ### Search flat groups, not release labels
 GET {{baseUrl}}/api/v1/label-groups?q=anjuna&kind=family&page=1&pageSize=25&sort=name&order=asc
 Authorization: Bearer {{apiKey}}

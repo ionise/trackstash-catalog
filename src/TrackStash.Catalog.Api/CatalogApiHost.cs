@@ -69,6 +69,7 @@ public static class CatalogApiHost
         builder.Services.TryAddSingleton<PurchaseReadinessCache>();
         builder.Services.TryAddScoped<IPurchaseReleaseInspector, PurchaseReleaseInspector>();
         builder.Services.TryAddScoped<IReleaseImportService, ReleaseImportService>();
+        builder.Services.TryAddScoped<IPurchaseBatchAdmissionService, PurchaseBatchAdmissionService>();
         builder.Services.TryAddScoped<IReleaseService, ReleaseService>();
         builder.Services.TryAddScoped<IArtistService, ArtistService>();
         builder.Services.TryAddScoped<IReleaseArtworkSourceService, ReleaseArtworkSourceService>();

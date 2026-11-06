@@ -35,6 +35,7 @@ static async Task<int> RunAsync(string[] args)
             "validate-entity" => await RunValidateEntityAsync(options, jsonMode).ConfigureAwait(false),
             "apply-entity"  => await RunApplyEntityAsync(CreateCatalogCommands(config, out var applyTarget), applyTarget.DatabasePath, options, jsonMode).ConfigureAwait(false),
             "get-entity"    => await RunGetEntityAsync(CreateCatalogCommands(config, out var getTarget), getTarget.DatabasePath, options, jsonMode).ConfigureAwait(false),
+            "admit-purchases" => await RunAdmitPurchasesAsync(config, options, jsonMode).ConfigureAwait(false),
             "resolve-entity-identity" => await RunResolveEntityIdentityAsync(CreateCatalogCommandsForIdentity(config), options, jsonMode).ConfigureAwait(false),
             _               => UnknownCommand(command),
         };
@@ -93,6 +94,65 @@ static async Task<int> RunBackupAsync(string command, CatalogConfig config,
     if (jsonMode) CommandOutput.WriteJson(command, ok: true, exitCode: 0, data: result);
     else Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(result, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
     return 0;
+}
+
+static async Task<int> RunAdmitPurchasesAsync(CatalogConfig config, IReadOnlyDictionary<string, string?> options, bool jsonMode)
+{
+    var target = ResolveCatalogTarget(config);
+    if (!string.Equals(target.Provider, "sqlite", StringComparison.OrdinalIgnoreCase))
+        throw new ArgumentException("Purchase admission currently supports SQLite only.");
+    if (!File.Exists(target.DatabasePath)) throw new ArgumentException($"Catalog database not found: {target.DatabasePath}");
+    var sourcePath = GetOption(options, "source") ?? Environment.GetEnvironmentVariable("TRACKSTASH_SCAN_DATABASE_PATH")
+        ?? throw new ArgumentException("--source <purchase source database> or TRACKSTASH_SCAN_DATABASE_PATH is required.");
+    sourcePath = Path.GetFullPath(sourcePath);
+    if (!File.Exists(sourcePath) || sourcePath == Path.GetFullPath(target.DatabasePath))
+        throw new ArgumentException("--source must be an existing purchase source database, separate from the catalog.");
+    var dryRun = options.ContainsKey("dry-run");
+    if (!dryRun && !options.ContainsKey("yes"))
+        throw new ArgumentException("Run with --dry-run first, then add --yes to admit releases.");
+    var limit = GetOption(options, "limit") is { } text
+        ? int.TryParse(text, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var n) && n > 0 ? n
+            : throw new ArgumentException("--limit must be a positive integer.")
+        : int.MaxValue;
+
+    var storage = new SqliteStorageProviderFactory().Create(new StorageProviderDescriptor("sqlite", DatabasePath: target.DatabasePath));
+    var source = new SqlitePurchaseReleaseSource(sourcePath);
+    var inspector = new TrackStash.Catalog.Application.PurchaseReleaseInspector(source, storage, new TrackStash.Catalog.Application.PurchaseReadinessCache(source));
+    var service = new TrackStash.Catalog.Application.PurchaseBatchAdmissionService(
+        new TrackStash.Catalog.Application.ReleaseImportService(storage, source, TimeProvider.System), inspector);
+
+    IReadOnlyList<long> ids = GetOption(options, "release") is { } list
+        ? list.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(v =>
+            long.TryParse(v, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var id) && id > 0 ? id
+                : throw new ArgumentException("--release takes comma-separated Beatport release IDs.")).Distinct().ToArray()
+        : await service.ReadyReleaseIdsAsync().ConfigureAwait(false);
+    ids = ids.Take(limit).ToArray();
+
+    object? backup = null;
+    if (!dryRun && ids.Count > 0 && !options.ContainsKey("no-backup"))
+    {
+        backup = await new CatalogBackupService(new SqliteCatalogSnapshotSource(target.DatabasePath),
+            new ManagedArtworkStore(GetOption(options, "artwork-root")), GetOption(options, "backup-root")).CreateAsync().ConfigureAwait(false);
+        if (!jsonMode) Console.WriteLine($"Catalog backup created before admission: {System.Text.Json.JsonSerializer.Serialize(backup)}");
+    }
+
+    var items = new List<TrackStash.Catalog.Application.PurchaseBatchAdmissionItem>();
+    foreach (var chunk in ids.Chunk(TrackStash.Catalog.Application.PurchaseBatchAdmissionService.MaxReleasesPerRequest))
+    {
+        var report = await service.RunAsync(chunk, dryRun).ConfigureAwait(false);
+        items.AddRange(report.Items);
+        if (jsonMode) continue;
+        foreach (var item in report.Items)
+        {
+            Console.WriteLine($"{item.Status,-12} {item.ReleaseId,9}  {item.Title}" + (item.Status is "admitted" or "would_admit"
+                ? $"  ({item.Tracks} tracks; new artists {item.NewArtists}, unresolved {item.UnresolvedArtists}; new recordings {item.NewRecordings}, reused {item.ReusedRecordings})" : ""));
+            foreach (var reason in item.Reasons) Console.WriteLine($"{"",23}- {reason}");
+        }
+    }
+    var summary = new TrackStash.Catalog.Application.PurchaseBatchAdmissionReport(dryRun, items);
+    if (jsonMode) CommandOutput.WriteJson("admit-purchases", ok: summary.Failed == 0, exitCode: summary.Failed == 0 ? 0 : 1, data: new { summary, backup });
+    else Console.WriteLine($"{(dryRun ? "Dry run" : "Done")}: {summary.Admitted} admitted, {summary.WouldAdmit} would be admitted, {summary.NeedsReview} need review, {summary.Failed} failed (of {items.Count}).");
+    return summary.Failed == 0 ? 0 : 1;
 }
 
 static async Task<int> RunImportCsvAsync(
@@ -647,6 +707,7 @@ static void PrintUsage()
     Console.WriteLine("  trackstash-catalog validate-entity --file <path.yaml> [--output json]");
     Console.WriteLine("  trackstash-catalog apply-entity  [--catalog <name>] [--db-path <path>] --file <path.yaml> [--dry-run] [--output json]");
     Console.WriteLine("  trackstash-catalog get-entity    [--catalog <name>] [--db-path <path>] --type <label|artist|release|recording> --id <id> [--format yaml] [--output json]");
+    Console.WriteLine("  trackstash-catalog admit-purchases [--catalog <name>] [--db-path <path>] --source <purchase.db> (--dry-run | --yes) [--release <id,id>] [--limit <n>] [--no-backup] [--artwork-root <path>] [--backup-root <path>] [--output json]");
     Console.WriteLine("  trackstash-catalog resolve-entity-identity --value <name> [--output json]");
 }
 

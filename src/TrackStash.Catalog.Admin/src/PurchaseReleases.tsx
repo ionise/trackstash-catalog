@@ -10,6 +10,7 @@ import { Link } from 'react-router-dom'
 import { purchaseReleaseClient } from './catalog'
 import type { PurchaseCandidate, PurchaseCandidatePage, PurchaseInspection, SourceCredit } from './catalog'
 import { ReleaseImportReview } from './ReleaseImportReview'
+import { BatchAdmission } from './BatchAdmission'
 
 function Credits({ items }: { items: SourceCredit[] }) {
   return items.length ? <ul>{items.map((credit, index) =>
@@ -213,10 +214,12 @@ export function PurchaseReleases() {
   const [page, setPage] = useState(1)
   const [hideAdmitted, setHideAdmitted] = useState(() => localStorage.getItem(hideAdmittedKey) === 'true')
   const [readyOnly, setReadyOnly] = useState(() => localStorage.getItem(readyOnlyKey) === 'true')
+  const [generation, setGeneration] = useState(0)
   return <Box sx={{ p: 2, minWidth: 0 }}>
     <Title title="Purchase release inspector" />
     <Typography variant="h4" component="h1">Purchase release inspector</Typography>
     <Alert severity="info" sx={{ my: 2 }}>Inspection is read-only. Catalog import requires a separate immutable review and deliberate apply. No network refresh, purchase accounting or media changes. Corpus flags do not prove receipt or file ownership.</Alert>
+    <BatchAdmission onAdmitted={() => setGeneration(value => value + 1)} />
     <Stack component="form" direction="row" spacing={2} useFlexGap sx={{ my: 2, flexWrap: 'wrap', alignItems: 'center' }} onSubmit={event => {
       event.preventDefault(); setQuery(search); setPage(1)
     }}>
@@ -229,6 +232,6 @@ export function PurchaseReleases() {
         setReadyOnly(event.target.checked); setPage(1); localStorage.setItem(readyOnlyKey, String(event.target.checked))
       }} />} />
     </Stack>
-    <Queue key={`${query}:${page}:${hideAdmitted}:${readyOnly}`} page={page} search={query} hideAdmitted={hideAdmitted} readyOnly={readyOnly} onPage={setPage} />
+    <Queue key={`${query}:${page}:${hideAdmitted}:${readyOnly}:${generation}`} page={page} search={query} hideAdmitted={hideAdmitted} readyOnly={readyOnly} onPage={setPage} />
   </Box>
 }

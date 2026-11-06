@@ -222,6 +222,7 @@ The minimum shared canonical foundations are now implemented in forward migratio
 Current commands:
 
 - `import-csv`
+- `admit-purchases`
 - `summary`
 - `doctor`
 - `delete-entity`
@@ -235,6 +236,19 @@ Notes:
 
 - `doctor` currently focuses on readiness and consistency heuristics using provider-agnostic contracts.
 - `repair-indexes` currently provides an idempotent maintenance entry point and dry-run reporting; backend-specific rebuild actions can be registered as catalog adds derived index structures.
+
+### `admit-purchases`
+
+Batch-admits ready, unadmitted purchase releases using the same rules as the GUI's **Batch admit ready releases** panel. One of `--dry-run` or `--yes` is required:
+
+```bash
+trackstash-catalog admit-purchases --db-path ./Trackstash.Catalog.db --source ./JetDrive.Metadata.db --dry-run
+trackstash-catalog admit-purchases --db-path ./Trackstash.Catalog.db --source ./JetDrive.Metadata.db --yes
+```
+
+- `--source` defaults to `TRACKSTASH_SCAN_DATABASE_PATH`; `--release 1,2` limits to specific releases and `--limit n` caps the count; `--output json` prints the report.
+- A real run creates a verified catalog + artwork backup first (`--backup-root`, `--artwork-root`); pass `--no-backup` only if you have just taken one.
+- Releases are processed in groups of 25 and each is applied atomically on its own. Stop the API or avoid editing during a run. The exit code is 1 if any release failed.
 
 ## Catalog Target Resolution
 
