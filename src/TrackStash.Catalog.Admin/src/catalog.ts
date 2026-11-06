@@ -242,6 +242,20 @@ export interface PurchaseInspection {
   labelCandidates: RelatedLabel[]; labelCandidateCount: number
 }
 
+export interface BeatportConnection {
+  configured: boolean; reachable: boolean; signedIn: boolean; username: string | null; signedInUtc: string | null
+  cachedResponses: number; cachedEntities: number; upstreamRequests: number; throttled: number
+}
+export interface BeatportBackfillResult {
+  releaseId: number; sourceCompleteBefore: boolean; sourceCompleteAfter: boolean; releaseRefreshed: boolean
+  tracksRequested: number; tracksFetched: number; tracksNotFound: number; remainingBlockers: string[]
+}
+export interface BeatportBackfillJob {
+  id: string; status: 'queued' | 'running' | 'completed' | 'cancelled' | 'failed'; createdUtc: string
+  totalReleases: number; processedReleases: number; completedReleases: number; tracksFetched: number; tracksNotFound: number
+  currentReleaseId: number | null; finishedUtc?: string | null; error?: string | null; stillIncomplete?: number[] | null
+}
+
 export function createCatalogClient(fetcher: typeof fetch = fetch) {
   let token: string | undefined
 
@@ -487,6 +501,20 @@ export function createCatalogClient(fetcher: typeof fetch = fetch) {
     download: async (id: string, signal?: AbortSignal, kind: BackupKind = 'catalog') =>
       request(`/${encodeURIComponent(id)}/download${kind === 'scanner' ? '?kind=scanner' : ''}`, { signal }, 'backups'),
   }
+  const json = { 'Content-Type': 'application/json' }
+  const beatportClient = {
+    connection: async (signal?: AbortSignal): Promise<BeatportConnection> => (await request('/connection', { signal }, 'beatport')).json(),
+    signIn: async (username: string, password: string): Promise<BeatportConnection> =>
+      (await request('/sign-in', { method: 'POST', headers: json, body: JSON.stringify({ username, password }) }, 'beatport')).json(),
+    signOut: async () => { await request('/sign-out', { method: 'POST' }, 'beatport') },
+    backfillRelease: async (releaseId: number, signal?: AbortSignal): Promise<BeatportBackfillResult> =>
+      (await request(`/${releaseId}/beatport-backfill`, { method: 'POST', signal }, 'purchase-release-candidates')).json(),
+    startJob: async (): Promise<BeatportBackfillJob> => (await request('', { method: 'POST' }, 'beatport-backfill-jobs')).json(),
+    job: async (id: string, signal?: AbortSignal): Promise<BeatportBackfillJob> =>
+      (await request(`/${encodeURIComponent(id)}`, { signal }, 'beatport-backfill-jobs')).json(),
+    cancelJob: async (id: string): Promise<BeatportBackfillJob> =>
+      (await request(`/${encodeURIComponent(id)}/cancel`, { method: 'POST' }, 'beatport-backfill-jobs')).json(),
+  }
   const purchaseReleaseClient = {
     list: async (page: number, search: string, signal?: AbortSignal, hideAdmitted = false, readyOnly = false): Promise<PurchaseCandidatePage> =>
       (await request(`?${new URLSearchParams({ page: String(page), pageSize: '25', q: search,
@@ -553,7 +581,7 @@ export function createCatalogClient(fetcher: typeof fetch = fetch) {
     credits: async (id: string, tracks: boolean, page: number, signal?: AbortSignal): Promise<GroupPage<ArtistAppearance>> =>
       (await request(`/${encodeURIComponent(id)}/${tracks ? 'tracks' : 'releases'}?page=${page}&pageSize=25`, { signal }, 'artists')).json(),
   }
-  return { dataProvider, authProvider, mergeClient, artworkClient, releaseArtworkClient, artistArtworkClient, backupsClient, relationshipsClient, groupClient, purchaseReleaseClient, releaseImportClient, releaseClient, artistClient, trackClient }
+  return { dataProvider, authProvider, mergeClient, artworkClient, releaseArtworkClient, artistArtworkClient, backupsClient, relationshipsClient, groupClient, beatportClient, purchaseReleaseClient, releaseImportClient, releaseClient, artistClient, trackClient }
 }
 
-export const { dataProvider, authProvider, mergeClient, artworkClient, releaseArtworkClient, artistArtworkClient, backupsClient, relationshipsClient, groupClient, purchaseReleaseClient, releaseImportClient, releaseClient, artistClient, trackClient } = createCatalogClient()
+export const { dataProvider, authProvider, mergeClient, artworkClient, releaseArtworkClient, artistArtworkClient, backupsClient, relationshipsClient, groupClient, beatportClient, purchaseReleaseClient, releaseImportClient, releaseClient, artistClient, trackClient } = createCatalogClient()

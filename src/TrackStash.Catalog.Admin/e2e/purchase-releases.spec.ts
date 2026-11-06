@@ -140,3 +140,43 @@ test('expanded purchase details stay within a narrow touch viewport', async ({ b
   expect(width).toBeLessThanOrEqual(390)
   await context.close()
 })
+
+test('Beatport sign-in and fetching an incomplete release go through the catalog without exposing the password afterwards', async ({ page }) => {
+  let signedIn = false
+  const signInBodies: unknown[] = []
+  await page.route('**/api/v1/beatport/connection', route => route.fulfill({ json: {
+    configured: true, reachable: true, signedIn, username: signedIn ? 'dj' : null, signedInUtc: null,
+    cachedResponses: 0, cachedEntities: signedIn ? 3 : 0, upstreamRequests: 0, throttled: 0,
+  } }))
+  await page.route('**/api/v1/beatport/sign-in', async route => {
+    signInBodies.push(route.request().postDataJSON())
+    signedIn = true
+    await route.fulfill({ json: { configured: true, reachable: true, signedIn: true, username: 'dj', signedInUtc: null,
+      cachedResponses: 0, cachedEntities: 3, upstreamRequests: 0, throttled: 0 } })
+  })
+  let fetched = 0
+  await page.route('**/api/v1/purchase-release-candidates/901/beatport-backfill', route => {
+    fetched++
+    return route.fulfill({ json: { releaseId: 901, sourceCompleteBefore: false, sourceCompleteAfter: false, releaseRefreshed: true,
+      tracksRequested: 2, tracksFetched: 1, tracksNotFound: 1, remainingBlockers: ['track_payload_missing'] } })
+  })
+  await page.goto('/admin/#/purchase-releases')
+  await page.getByLabel('API key').fill(key)
+  await page.getByRole('button', { name: 'Connect', exact: true }).click()
+  const panel = page.getByRole('region', { name: 'Beatport connection' })
+  await expect(panel.getByText('Signed out')).toBeVisible()
+  await panel.getByLabel('Beatport username').fill('dj')
+  await panel.getByLabel('Beatport password').fill('secret-password')
+  await panel.getByRole('button', { name: 'Sign in' }).click()
+  await expect(panel.getByText('Signed in as dj')).toBeVisible()
+  await expect(panel.getByRole('button', { name: 'Fetch missing data for all incomplete releases' })).toBeVisible()
+  expect(signInBodies).toEqual([{ username: 'dj', password: 'secret-password' }])
+
+  await page.getByRole('button', { name: 'Inspect Inspector missing release (901)' }).click()
+  const inspector = page.getByRole('region', { name: 'Release inspection' })
+  await inspector.getByRole('button', { name: 'Fetch missing from Beatport' }).click()
+  await expect(page.getByText(/Fetched 1 of 2 tracks \(1 no longer on Beatport\)\. Still blocked: track payload missing\./)).toBeVisible()
+  expect(fetched).toBe(1)
+  await page.getByRole('button', { name: 'Inspect Inspector complete release (900)' }).click()
+  await expect(page.getByRole('region', { name: 'Release inspection' }).getByRole('button', { name: 'Fetch missing from Beatport' })).toHaveCount(0)
+})

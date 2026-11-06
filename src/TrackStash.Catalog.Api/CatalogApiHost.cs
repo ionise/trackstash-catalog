@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.OpenApi.Models;
+using TrackStash.Catalog.Api.Beatport;
 using TrackStash.Catalog.Api.Middleware;
 using TrackStash.Catalog.Application;
 using TrackStash.Core.Sqlite;
@@ -81,6 +82,11 @@ public static class CatalogApiHost
         builder.Services.AddSingleton<BackupJobs>();
         builder.Services.AddHostedService(services => services.GetRequiredService<BackupJobs>());
         builder.Services.AddHostedService<CatalogReadinessCheck>();
+        builder.Services.AddHttpClient(BeatportBrokerClient.HttpClientName, client => client.Timeout = TimeSpan.FromMinutes(6));
+        builder.Services.TryAddSingleton<IBeatportBrokerClient, BeatportBrokerClient>();
+        builder.Services.TryAddScoped<IBeatportBackfillService, BeatportBackfillService>();
+        builder.Services.AddSingleton<BeatportBackfillJobs>();
+        builder.Services.AddHostedService(services => services.GetRequiredService<BeatportBackfillJobs>());
         builder.Services.ConfigureHttpJsonOptions(options =>
         {
             options.SerializerOptions.PropertyNameCaseInsensitive = false;
@@ -147,6 +153,7 @@ public static class CatalogApiHost
         // Resolve configuration before accepting requests; no migrations or seeding run here.
         _ = app.Services.GetRequiredService<IStorageProvider>();
         _ = app.Services.GetRequiredService<IPurchaseReleaseSource>();
+        _ = app.Services.GetRequiredService<IBeatportBrokerClient>();
         app.UseExceptionHandler();
         app.UseMiddleware<LocalAccessMiddleware>();
         app.UseCors();
@@ -169,6 +176,7 @@ public static class CatalogApiHost
         app.MapTracks();
         app.MapArtists();
         app.MapBackups();
+        app.MapBeatport();
         var webRoot = Path.Combine(AppContext.BaseDirectory, "wwwroot");
         if (File.Exists(Path.Combine(webRoot, "admin", "index.html")))
         {

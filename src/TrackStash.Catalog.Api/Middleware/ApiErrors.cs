@@ -6,7 +6,8 @@ using TrackStash.Catalog.Application;
 
 namespace TrackStash.Catalog.Api.Middleware;
 
-internal sealed class ApiRequestException(int status, string code, string message, string? field = null) : Exception(message)
+internal sealed class ApiRequestException(int status, string code, string message, string? field = null, Exception? inner = null)
+    : Exception(message, inner)
 {
     public int Status { get; } = status;
     public string Code { get; } = code;

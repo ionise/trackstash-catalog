@@ -109,6 +109,55 @@ public sealed partial class LabelApiTests
         await ProblemAsync(await client.GetAsync("/api/v1/purchase-release-candidates/10?q=ignored"), 400, "validation_failed");
     }
 
+    private const string BrokerEntitySchema = """
+        CREATE TABLE beatport_broker_entity (entity_type TEXT NOT NULL, entity_id INTEGER NOT NULL, payload_json TEXT NOT NULL,
+            fetched_utc TEXT NOT NULL, source_request_key TEXT NOT NULL, PRIMARY KEY (entity_type, entity_id));
+        """;
+
+    [Fact]
+    public async Task PurchaseInspector_BrokerFetchedTracksFillMissingAndSupersedeConflictingPayloads()
+    {
+        await CreatePurchaseSource();
+        // Track 102 is missing from ISRC lookups and track 101 has two disagreeing observations.
+        await SourceSql("UPDATE beatport_isrc_lookup SET tracks_json = @tracks", ("@tracks", $"[{TrackPayload()},{TrackPayload().Replace("Original Mix", "Other")}]"));
+        var source = new SqlitePurchaseReleaseSource(PurchaseSourcePath);
+        var before = (await source.InspectAsync(10, new()))!;
+        Assert.Contains(before.Diagnostics, d => d.Code == "track_payload_missing");
+        Assert.Contains(before.Diagnostics, d => d.Code == "conflicting_track_payloads");
+
+        await SourceSql(BrokerEntitySchema + """
+            INSERT INTO beatport_broker_entity VALUES ('track', 101, @t101, '2026-11-06T00:00:00.0000000Z', '/v4/catalog/tracks/101/');
+            INSERT INTO beatport_broker_entity VALUES ('track', 102, @t102, '2026-11-06T00:00:00.0000000Z', '/v4/catalog/tracks/102/');
+            """, ("@t101", TrackPayload()), ("@t102", TrackPayload(102)));
+        var after = (await source.InspectAsync(10, new()))!;
+        Assert.True(after.SourceComplete, string.Join(", ", after.Diagnostics.Where(d => d.Severity == "blocker").Select(d => d.Code)));
+        Assert.Equal(2, after.HydratedTrackCount);
+        Assert.NotEqual(before.BundleDigest, after.BundleDigest);
+        var batch = Assert.Single(await source.InspectAllAsync(), r => r.ReleaseId == 10);
+        Assert.Equal(after.BundleDigest, batch.BundleDigest);
+    }
+
+    [Fact]
+    public async Task PurchaseInspector_UsesTheNewerOfCachedAndBrokerReleasePayloads()
+    {
+        await CreatePurchaseSource();
+        await SourceSql(BrokerEntitySchema + """
+            INSERT INTO beatport_broker_entity VALUES ('release', 10, @old, '2026-01-01T00:00:00.0000000Z', '/v4/catalog/releases/10/');
+            INSERT INTO beatport_broker_entity VALUES ('release', 11, @release11, '2026-11-06T00:00:00.0000000Z', '/v4/catalog/releases/11/');
+            """, ("@old", ReleasePayload().Replace("Test release", "Old title")), ("@release11", ReleasePayload(id: 11).Replace("Test release", "Broker title")));
+        var source = new SqlitePurchaseReleaseSource(PurchaseSourcePath);
+        Assert.Equal("Test release", (await source.InspectAsync(10, new()))!.Title);
+        Assert.Equal("Broker title", (await source.InspectAsync(11, new()))!.Title);
+        var all = await source.InspectAllAsync();
+        Assert.Equal("Test release", all.Single(r => r.ReleaseId == 10).Title);
+        Assert.Equal("Broker title", all.Single(r => r.ReleaseId == 11).Title);
+        var queue = await source.QueryAsync(new());
+        Assert.True(queue.Items.Single(r => r.ReleaseId == 11).HasCachedRelease);
+
+        await SourceSql("UPDATE beatport_broker_entity SET fetched_utc = '2026-11-07T00:00:00.0000000Z' WHERE entity_id = 10");
+        Assert.Equal("Old title", (await source.InspectAsync(10, new()))!.Title);
+    }
+
     [Theory]
     [InlineData("null", "release_payload_invalid")]
     [InlineData("{broken", "release_payload_invalid")]

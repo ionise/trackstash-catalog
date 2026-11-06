@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { Alert, Box, Button, Chip, Collapse, FormControlLabel, IconButton, LinearProgress, Stack, Switch, Table, TableBody, TableCell, TableHead, TableRow, TextField, Tooltip, Typography } from '@mui/material'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import ExpandLess from '@mui/icons-material/ExpandLess'
@@ -11,13 +11,14 @@ import { purchaseReleaseClient } from './catalog'
 import type { PurchaseCandidate, PurchaseCandidatePage, PurchaseInspection, SourceCredit } from './catalog'
 import { ReleaseImportReview } from './ReleaseImportReview'
 import { BatchAdmission } from './BatchAdmission'
+import { BeatportFetchButton, BeatportPanel } from './BeatportPanel'
 
 function Credits({ items }: { items: SourceCredit[] }) {
   return items.length ? <ul>{items.map((credit, index) =>
     <li key={index}>{credit.name} ({credit.providerId}) - {credit.role}, source position {credit.position}</li>)}</ul> : <span>No credits in source</span>
 }
 
-function Inspection({ id, page, onPage }: { id: number; page: number; onPage: (page: number) => void }) {
+function Inspection({ id, page, onPage, onFetched }: { id: number; page: number; onPage: (page: number) => void; onFetched: (summary: string) => void }) {
   const [data, setData] = useState<PurchaseInspection>()
   const [error, setError] = useState('')
   const logout = useLogoutIfAccessDenied()
@@ -42,12 +43,13 @@ function Inspection({ id, page, onPage }: { id: number; page: number; onPage: (p
       {source.sourceComplete ? 'Cached source coverage complete - identity review still required.' : 'Cached source incomplete or contradictory - cannot import.'}
       {' '}{source.hydratedTrackCount}/{source.manifestTrackCount} tracks hydrated; declared count {source.declaredTrackCount ?? 'unknown'}.
     </Alert>
+    {!source.sourceComplete && <BeatportFetchButton releaseId={source.releaseId} onFetched={onFetched} />}
     <Typography>Label: {source.label ? `${source.label.name} (${source.label.providerId})` : 'Unknown'}</Typography>
     <Typography>Canonical label matches: {data.labelCandidateCount}. {data.labelCandidateCount === 1 ? 'Candidate only; not an accepted binding.' : 'Review required.'}</Typography>
     {data.labelCandidates.map(label => <Box key={label.id}><Link to={`/labels/${encodeURIComponent(label.id)}/show`}>{label.name ?? label.id}</Link></Box>)}
     <Typography>Catalog number: {source.catalogNumber ?? 'Unknown'}; UPC: {source.upc ?? 'Unknown'}</Typography>
     <Typography>Source publish date: {source.publishDate ?? 'Unknown'}; source new release date: {source.newReleaseDate ?? 'Unknown'}</Typography>
-    <Typography>Cache retrieved: {source.retrievedUtc ?? 'Unknown'} (not refreshed from Beatport)</Typography>
+    <Typography>Release data retrieved: {source.retrievedUtc ?? 'Unknown'}</Typography>
     <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>Source bundle digest: {source.bundleDigest}</Typography>
     <Typography component="h3" variant="h6">Release credits</Typography>
     <Credits items={source.credits} />
@@ -110,13 +112,19 @@ function AdmissionStatus({ item, available, localReleaseId }: { item: PurchaseCa
   return <Chip size="small" variant="outlined" label="Not admitted" />
 }
 
-function CandidateDetails({ item, onApplied, onCollapse }: { item: PurchaseCandidate; onApplied: (releaseId: string) => void; onCollapse: () => void }) {
+function CandidateDetails({ item, onApplied, onCollapse, onSourceChanged }: {
+  item: PurchaseCandidate; onApplied: (releaseId: string) => void; onCollapse: () => void; onSourceChanged: () => void
+}) {
   const [trackPage, setTrackPage] = useState(1)
+  const [fetches, setFetches] = useState(0)
+  const [fetched, setFetched] = useState('')
   return <Box id={`purchase-candidate-${item.releaseId}`} sx={{ py: 1, minWidth: 0, contain: 'inline-size' }}>
+    {fetched && <Alert severity="info" sx={{ mb: 1 }} onClose={() => setFetched('')}>{fetched}</Alert>}
     <Box sx={{ overflowX: 'auto' }}>
-      <Inspection key={`${item.releaseId}:${trackPage}`} id={item.releaseId} page={trackPage} onPage={setTrackPage} />
+      <Inspection key={`${item.releaseId}:${trackPage}:${fetches}`} id={item.releaseId} page={trackPage} onPage={setTrackPage}
+        onFetched={summary => { setFetched(summary); setFetches(value => value + 1); onSourceChanged() }} />
     </Box>
-    <ReleaseImportReview key={item.releaseId} releaseId={item.releaseId} onApplied={onApplied} />
+    <ReleaseImportReview key={`${item.releaseId}:${fetches}`} releaseId={item.releaseId} onApplied={onApplied} />
     <Button startIcon={<ExpandLess />} onClick={onCollapse} sx={{ mt: 1 }}>Collapse {item.title}</Button>
   </Box>
 }
@@ -192,7 +200,8 @@ function Queue({ page, search, hideAdmitted, readyOnly, onPage }: { page: number
               <TableCell colSpan={4} sx={{ py: 0, bgcolor: 'action.hover', maxWidth: 0 }}>
                 <Collapse in appear timeout="auto">
                   <CandidateDetails item={item} onCollapse={() => { setExpanded(undefined); rows.current.get(item.releaseId)?.querySelector('button')?.focus() }}
-                    onApplied={releaseId => setApplied(current => ({ ...current, [item.releaseId]: releaseId }))} />
+                    onApplied={releaseId => setApplied(current => ({ ...current, [item.releaseId]: releaseId }))}
+                    onSourceChanged={() => setReload(previous => previous + 1)} />
                 </Collapse>
               </TableCell>
             </TableRow>}
@@ -215,11 +224,13 @@ export function PurchaseReleases() {
   const [hideAdmitted, setHideAdmitted] = useState(() => localStorage.getItem(hideAdmittedKey) === 'true')
   const [readyOnly, setReadyOnly] = useState(() => localStorage.getItem(readyOnlyKey) === 'true')
   const [generation, setGeneration] = useState(0)
+  const sourceChanged = useCallback(() => setGeneration(value => value + 1), [])
   return <Box sx={{ p: 2, minWidth: 0 }}>
     <Title title="Purchase release inspector" />
     <Typography variant="h4" component="h1">Purchase release inspector</Typography>
-    <Alert severity="info" sx={{ my: 2 }}>Inspection is read-only. Catalog import requires a separate immutable review and deliberate apply. No network refresh, purchase accounting or media changes. Corpus flags do not prove receipt or file ownership.</Alert>
-    <BatchAdmission onAdmitted={() => setGeneration(value => value + 1)} />
+    <Alert severity="info" sx={{ my: 2 }}>Inspection is read-only. Catalog import requires a separate immutable review and deliberate apply. Fetching from Beatport only fills the scanner's Beatport cache; it never changes the catalog, purchases or media. Corpus flags do not prove receipt or file ownership.</Alert>
+    <BeatportPanel onSourceChanged={sourceChanged} />
+    <BatchAdmission onAdmitted={sourceChanged} />
     <Stack component="form" direction="row" spacing={2} useFlexGap sx={{ my: 2, flexWrap: 'wrap', alignItems: 'center' }} onSubmit={event => {
       event.preventDefault(); setQuery(search); setPage(1)
     }}>
