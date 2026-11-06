@@ -202,7 +202,7 @@ Canonical **Releases** can now be browsed from the left menu or a label's filter
 
 The [release-centred import design](docs/purchase-release-import-design.md) uses a purchase/corpus candidate to review one complete Beatport release, resolve its existing label, and create accepted recording placements and individual artist/remixer credits. The first **read-only inspector** is available in **Purchase releases** in the admin sidebar and through:
 
-- `GET /api/v1/purchase-release-candidates?q=325565&page=1&pageSize=25`
+- `GET /api/v1/purchase-release-candidates?q=325565&page=1&pageSize=25` (add `hideAdmitted=true` to omit releases already in the catalog)
 - `GET /api/v1/purchase-release-candidates/325565?page=1&pageSize=25`
 
 Set `CatalogApi__PurchaseSourceDatabasePath` to an absolute existing scanner inventory path containing the Beatport corpus/cache tables. If absent, the inspector uses `CatalogApi__ScannerDatabasePath` (or `TRACKSTASH_SCAN_DATABASE_PATH`). The source must be separate from the canonical catalog. Restart the API after configuration/build changes. An unavailable, unconfigured or unsupported source returns safe 503 Problem Details, not an empty success.

@@ -232,6 +232,10 @@ If-Match: {{importEtag}}
 GET {{baseUrl}}/api/v1/purchase-release-candidates?q=325565&page=1&pageSize=25
 Authorization: Bearer {{apiKey}}
 
+### Only candidates not yet admitted (no catalog Release owns the Beatport ID); schema 9+, older schemas 409
+GET {{baseUrl}}/api/v1/purchase-release-candidates?hideAdmitted=true&page=1&pageSize=25
+Authorization: Bearer {{apiKey}}
+
 ### Inspect Block House; source completeness/digest cover the whole release, tracks are paged
 GET {{baseUrl}}/api/v1/purchase-release-candidates/325565?page=1&pageSize=25
 Authorization: Bearer {{apiKey}}

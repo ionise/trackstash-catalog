@@ -205,7 +205,7 @@ Reimporting a source release resolves existing references and produces an unchan
 
 Implemented inspection surface:
 
-- `GET /api/v1/purchase-release-candidates`: paged configured-source candidates, with explicit derived-corpus provenance.
+- `GET /api/v1/purchase-release-candidates`: paged configured-source candidates, with explicit derived-corpus provenance. Each item lists `admittedReleaseIds` (catalog Releases owning its Beatport release reference); the page reports `admissionStatusAvailable` (schema 9+) and `hideAdmitted`. `hideAdmitted=true` excludes admitted IDs in the source query before counting/paging and returns 409 `admission_status_unavailable` before schema 9. The Admin GUI expands inspection and review inside the selected row.
 - `GET /api/v1/purchase-release-candidates/{releaseId}`: cached corpus release inspection, with paged tracks and whole-bundle diagnostics/digest. The initial queue is corpus-only, not receipt-backed.
 
 Implemented reviewed-import HTTP surface (schema 10; temporary databases only):

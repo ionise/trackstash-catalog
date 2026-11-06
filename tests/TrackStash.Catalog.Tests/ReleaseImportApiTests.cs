@@ -290,8 +290,33 @@ public sealed partial class LabelApiTests
         await using var app = Build(b => b.Configuration.AddInMemoryCollection(new Dictionary<string, string?> { ["CatalogApi:PurchaseSourceDatabasePath"] = PurchaseSourcePath }));
         await app.StartAsync(); using var client = app.GetTestClient(); client.DefaultRequestHeaders.Authorization = new("Bearer", Key);
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/v1/purchase-release-candidates/10")).StatusCode);
+        var unknown = (await client.GetFromJsonAsync<PurchaseReleaseCandidatePage>("/api/v1/purchase-release-candidates"))!;
+        Assert.False(unknown.AdmissionStatusAvailable); Assert.All(unknown.Items, item => Assert.Empty(item.AdmittedReleaseIds));
+        await ProblemAsync(await client.GetAsync("/api/v1/purchase-release-candidates?hideAdmitted=true"), 409, "admission_status_unavailable");
         await ProblemAsync(await client.PostAsJsonAsync("/api/v1/release-import-previews", new { releaseId = 10 }), 409, "import_schema_required");
         Assert.Equal(0, await ImportCount("release_import_preview")); Assert.Equal(8, await Provider.Migrations.GetCurrentVersionAsync());
+    }
+    [Fact]
+    public async Task PurchaseCandidates_ReportAdmittedReleasesAndHideThemBeforePagingWithoutWrites()
+    {
+        var service = await ImportService(); var p = await Reviewed(service);
+        var outcome = await service.ApplyAsync(p.Plan.OperationId, p.Plan.Version, "Reviewed release", true);
+        await using var app = Build(b => b.Configuration.AddInMemoryCollection(new Dictionary<string, string?> { ["CatalogApi:PurchaseSourceDatabasePath"] = PurchaseSourcePath }));
+        await app.StartAsync(); using var client = app.GetTestClient(); client.DefaultRequestHeaders.Authorization = new("Bearer", Key);
+        var catalogHash = System.Security.Cryptography.SHA256.HashData(await File.ReadAllBytesAsync(_path));
+        var all = (await client.GetFromJsonAsync<PurchaseReleaseCandidatePage>("/api/v1/purchase-release-candidates?hideAdmitted=false"))!;
+        Assert.True(all.AdmissionStatusAvailable); Assert.False(all.HideAdmitted); Assert.Equal(2, all.Total);
+        Assert.Equal(outcome.ReleaseId, Assert.Single(Assert.Single(all.Items, item => item.ReleaseId == 10).AdmittedReleaseIds));
+        Assert.Empty(Assert.Single(all.Items, item => item.ReleaseId == 11).AdmittedReleaseIds);
+        var hidden = (await client.GetFromJsonAsync<PurchaseReleaseCandidatePage>("/api/v1/purchase-release-candidates?hideAdmitted=true&pageSize=1"))!;
+        Assert.True(hidden.HideAdmitted); Assert.Equal(1, hidden.Total);
+        Assert.Equal(11, Assert.Single(hidden.Items).ReleaseId);
+        var searched = (await client.GetFromJsonAsync<PurchaseReleaseCandidatePage>("/api/v1/purchase-release-candidates?hideAdmitted=true&q=10"))!;
+        Assert.Equal(0, searched.Total); Assert.Empty(searched.Items);
+        await ProblemAsync(await client.GetAsync("/api/v1/purchase-release-candidates?hideAdmitted=yes"), 400, "validation_failed");
+        await ProblemAsync(await client.GetAsync("/api/v1/purchase-release-candidates?hideAdmitted=true&hideAdmitted=false"), 400, "validation_failed");
+        await ProblemAsync(await client.GetAsync("/api/v1/purchase-release-candidates/10?hideAdmitted=true"), 400, "validation_failed");
+        Assert.Equal(catalogHash, System.Security.Cryptography.SHA256.HashData(await File.ReadAllBytesAsync(_path)));
     }
     [Fact]
     public async Task ReleaseImport_ApiRequiresAuthOriginalEtagValidBodyConfirmationAndReturnsFrozenPages()

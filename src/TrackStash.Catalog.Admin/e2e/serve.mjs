@@ -41,7 +41,7 @@ try {
     CREATE TABLE IF NOT EXISTS bpc_release (beatport_release_id INTEGER PRIMARY KEY, title TEXT NOT NULL, in_purchase_corpus INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS beatport_release_cache (beatport_release_id INTEGER PRIMARY KEY, release_json TEXT NOT NULL, fetched_utc TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS beatport_isrc_lookup (normalized_isrc TEXT PRIMARY KEY, lookup_status TEXT NOT NULL, result_count INTEGER NOT NULL, tracks_json TEXT NOT NULL, searched_utc TEXT NOT NULL);
-    INSERT INTO bpc_release (beatport_release_id, title, in_purchase_corpus) VALUES (900, 'Inspector complete release', 1), (901, 'Inspector missing release', 1);
+    INSERT INTO bpc_release (beatport_release_id, title, in_purchase_corpus) VALUES (900, 'Inspector complete release', 1), (901, 'Inspector missing release', 1), (999001, 'Inspector admitted release', 1);
     INSERT INTO beatport_release_cache (beatport_release_id, release_json, fetched_utc) VALUES (900, ${sqlString(sourceRelease)}, '2026-11-05T00:00:00Z'), (901, 'null', '2026-11-05T00:00:00Z');
     INSERT INTO beatport_isrc_lookup (normalized_isrc, lookup_status, result_count, tracks_json, searched_utc) VALUES ('INSPECTOR', 'Success', 26, ${sqlString(sourceTracks)}, '2026-11-05T00:00:00Z');
   `])

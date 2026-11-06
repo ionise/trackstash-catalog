@@ -96,7 +96,7 @@ function FrozenPages({ preview, busy, drafts, onChange, onSave }: {
   </>
 }
 
-export function ReleaseImportReview({ releaseId }: { releaseId: number }) {
+export function ReleaseImportReview({ releaseId, onApplied }: { releaseId: number; onApplied?: (catalogReleaseId: string) => void }) {
   const [preview, setPreview] = useState<ImportPreview>()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -155,13 +155,13 @@ export function ReleaseImportReview({ releaseId }: { releaseId: number }) {
     setBusy(true); setError('')
     try {
       const outcome = await releaseImportClient.apply(preview, reason, confirmed)
-      if (mounted.current) setPreview({ ...preview, outcome })
+      if (mounted.current) { setPreview({ ...preview, outcome }); onApplied?.(outcome.releaseId) }
     } catch (failure) {
       if (mounted.current) { setError(failure instanceof Error ? failure.message : 'Apply outcome unknown. Retry the same operation/reason to recover a saved result.'); void logout(failure) }
     } finally { if (mounted.current) setBusy(false) }
   }
   return <Box component="section" aria-label="Immutable catalog import review" sx={{ mt: 3 }}>
-    <Typography component="h2" variant="h5">Reviewed catalog import</Typography>
+    <Typography component="h2" variant="h6">Reviewed catalog import</Typography>
     <Button disabled={busy} onClick={() => void create()}>{preview ? 'Start a fresh preview (discard decisions)' : 'Create immutable import preview'}</Button>
     {busy && <LinearProgress aria-label="Saving import review" />}
     {error && <Alert severity="error">{error} No automatic retry. If stale, start a fresh preview and review again.</Alert>}

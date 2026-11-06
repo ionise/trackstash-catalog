@@ -56,6 +56,8 @@ internal sealed class ApiExceptionHandler(ILogger<ApiExceptionHandler> logger) :
             CatalogFoundationConflictException => (409, "import_conflict", "Catalog identity conflict", (string?)"Review the source identities and existing catalog bindings.", (string?)null),
             CatalogFoundationStaleException => (412, "import_state_changed", "Catalog changed", (string?)"Create a fresh import review.", (string?)null),
             PurchaseSourceValidationException source => (400, "validation_failed", "Invalid source inspection request", (string?)source.Message, (string?)null),
+            PurchaseAdmissionStatusUnavailableException => (409, "admission_status_unavailable", "Admission status unavailable",
+                (string?)"Hiding admitted releases requires catalog schema 9 or later. A live migration must be approved separately.", (string?)null),
             PurchaseSourceUnavailableException => (503, "purchase_source_unavailable", "Purchase source unavailable",
                 (string?)"The read-only purchase source is unconfigured, unavailable or unsupported. Check server configuration and logs.", (string?)null),
             BackupBusyException => (409, "backup_busy", "Backup storage is busy", (string?)"Wait for the current backup or download to finish, then retry.", (string?)null),

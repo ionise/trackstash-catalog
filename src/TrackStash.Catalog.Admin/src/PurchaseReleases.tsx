@@ -1,9 +1,13 @@
-import { useEffect, useState } from 'react'
-import { Alert, Box, Button, LinearProgress, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material'
+import { Fragment, useEffect, useRef, useState } from 'react'
+import { Alert, Box, Button, Chip, Collapse, FormControlLabel, IconButton, LinearProgress, Stack, Switch, Table, TableBody, TableCell, TableHead, TableRow, TextField, Tooltip, Typography } from '@mui/material'
+import CheckCircleIcon from '@mui/icons-material/CheckCircle'
+import ExpandLess from '@mui/icons-material/ExpandLess'
+import ExpandMore from '@mui/icons-material/ExpandMore'
+import WarningAmber from '@mui/icons-material/WarningAmber'
 import { Title, useLogoutIfAccessDenied } from 'react-admin'
 import { Link } from 'react-router-dom'
 import { purchaseReleaseClient } from './catalog'
-import type { GroupPage, PurchaseCandidate, PurchaseInspection, SourceCredit } from './catalog'
+import type { PurchaseCandidate, PurchaseCandidatePage, PurchaseInspection, SourceCredit } from './catalog'
 import { ReleaseImportReview } from './ReleaseImportReview'
 
 function Credits({ items }: { items: SourceCredit[] }) {
@@ -30,8 +34,8 @@ function Inspection({ id, page, onPage }: { id: number; page: number; onPage: (p
   if (error) return <Alert severity="error">{error}</Alert>
   if (!data) return <LinearProgress aria-label="Loading release inspection" />
   const source = data.source
-  return <Box component="section" aria-label="Release inspection" sx={{ mt: 3 }}>
-    <Typography variant="h5" component="h2">{source.title ?? 'Unavailable release'} ({source.releaseId})</Typography>
+  return <Box component="section" aria-label="Release inspection" sx={{ mt: 1 }}>
+    <Typography variant="h6" component="h2">{source.title ?? 'Unavailable release'} ({source.releaseId})</Typography>
     <Alert severity={source.sourceComplete ? 'info' : 'error'} sx={{ my: 1 }}>
       {source.sourceComplete ? 'Cached source coverage complete - identity review still required.' : 'Cached source incomplete or contradictory - cannot import.'}
       {' '}{source.hydratedTrackCount}/{source.manifestTrackCount} tracks hydrated; declared count {source.declaredTrackCount ?? 'unknown'}.
@@ -68,13 +72,44 @@ function Inspection({ id, page, onPage }: { id: number; page: number; onPage: (p
   </Box>
 }
 
-function Queue({ page, search, onSelect, onPage }: { page: number; search: string; onSelect: (id: number) => void; onPage: (page: number) => void }) {
-  const [data, setData] = useState<GroupPage<PurchaseCandidate>>()
+const hideAdmittedKey = 'trackstash.purchaseReleases.hideAdmitted'
+
+function AdmissionStatus({ item, available, localReleaseId }: { item: PurchaseCandidate; available: boolean; localReleaseId?: string }) {
+  const ids = localReleaseId && !item.admittedReleaseIds.includes(localReleaseId) ? [...item.admittedReleaseIds, localReleaseId] : item.admittedReleaseIds
+  if (ids.length === 1) return <Tooltip title="Open the catalog Release that owns this Beatport release ID" describeChild>
+    <Chip component={Link} to={`/releases/${encodeURIComponent(ids[0])}/show`} clickable size="small" color="success"
+      icon={<CheckCircleIcon />} label="Admitted" aria-label={`Admitted - view catalog release for ${item.title}`} />
+  </Tooltip>
+  if (ids.length > 1) return <Tooltip title="More than one catalog Release owns this Beatport release ID. Resolve identity before importing." describeChild>
+    <Chip size="small" color="warning" icon={<WarningAmber />} label={`Admitted ${ids.length}×`} />
+  </Tooltip>
+  if (!available) return <Tooltip title="Admission status needs catalog schema 9 or later" describeChild>
+    <Chip size="small" variant="outlined" label="Unknown" />
+  </Tooltip>
+  return <Chip size="small" variant="outlined" label="Not admitted" />
+}
+
+function CandidateDetails({ item, onApplied, onCollapse }: { item: PurchaseCandidate; onApplied: (releaseId: string) => void; onCollapse: () => void }) {
+  const [trackPage, setTrackPage] = useState(1)
+  return <Box id={`purchase-candidate-${item.releaseId}`} sx={{ py: 1, minWidth: 0, contain: 'inline-size' }}>
+    <Box sx={{ overflowX: 'auto' }}>
+      <Inspection key={`${item.releaseId}:${trackPage}`} id={item.releaseId} page={trackPage} onPage={setTrackPage} />
+    </Box>
+    <ReleaseImportReview key={item.releaseId} releaseId={item.releaseId} onApplied={onApplied} />
+    <Button startIcon={<ExpandLess />} onClick={onCollapse} sx={{ mt: 1 }}>Collapse {item.title}</Button>
+  </Box>
+}
+
+function Queue({ page, search, hideAdmitted, onPage }: { page: number; search: string; hideAdmitted: boolean; onPage: (page: number) => void }) {
+  const [data, setData] = useState<PurchaseCandidatePage>()
   const [error, setError] = useState('')
+  const [expanded, setExpanded] = useState<number>()
+  const [applied, setApplied] = useState<Record<number, string>>({})
+  const rows = useRef(new Map<number, HTMLTableRowElement>())
   const logout = useLogoutIfAccessDenied()
   useEffect(() => {
     const controller = new AbortController()
-    void purchaseReleaseClient.list(page, search, controller.signal).then(result => {
+    void purchaseReleaseClient.list(page, search, controller.signal, hideAdmitted).then(result => {
       if (!controller.signal.aborted) setData(result)
     }).catch(failure => {
       if (!controller.signal.aborted) {
@@ -83,21 +118,55 @@ function Queue({ page, search, onSelect, onPage }: { page: number; search: strin
       }
     })
     return () => controller.abort()
-  }, [page, search, logout])
+  }, [page, search, hideAdmitted, logout])
+  useEffect(() => {
+    if (expanded !== undefined) rows.current.get(expanded)?.scrollIntoView?.({ block: 'start', behavior: 'smooth' })
+  }, [expanded])
   if (error) return <Alert severity="error">{error}</Alert>
   if (!data) return <LinearProgress aria-label="Loading purchase candidates" />
+  const toggle = (id: number) => setExpanded(current => current === id ? undefined : id)
   return <>
-    <Typography>{data.total} corpus-flagged release candidates</Typography>
+    <Typography>{data.total} corpus-flagged release candidates{data.hideAdmitted ? ' not yet admitted' : ''}</Typography>
+    {!data.admissionStatusAvailable && <Alert severity="warning" sx={{ my: 1 }}>Admission status needs catalog schema 9 or later; every candidate is shown as Unknown.</Alert>}
     {!data.items.length && <Typography>No matching candidates.</Typography>}
-    <Table aria-label="Purchase release candidates">
-      <TableHead><TableRow><TableCell>Release</TableCell><TableCell>Source</TableCell><TableCell>Cache</TableCell><TableCell>Inspect</TableCell></TableRow></TableHead>
-      <TableBody>{data.items.map(item => <TableRow key={item.releaseId}>
-        <TableCell>{item.title} ({item.releaseId})</TableCell><TableCell>Derived corpus flag</TableCell>
-        <TableCell>{item.hasCachedRelease ? 'Row present - completeness unverified' : 'Missing release payload'}</TableCell>
-        <TableCell><Button onClick={() => onSelect(item.releaseId)} aria-label={`Inspect ${item.title} (${item.releaseId})`}>Inspect</Button></TableCell>
-      </TableRow>)}</TableBody>
-    </Table>
-    <Stack direction="row" spacing={2} sx={{ my: 2 }}>
+    <Box sx={{ minWidth: 0, contain: 'inline-size', overflowX: 'auto' }}>
+      <Table aria-label="Purchase release candidates" size="small">
+        <TableHead><TableRow>
+          <TableCell padding="checkbox">Details</TableCell>
+          <TableCell>Release</TableCell><TableCell>Cache</TableCell><TableCell>Catalog</TableCell>
+        </TableRow></TableHead>
+        <TableBody>{data.items.map(item => {
+          const open = expanded === item.releaseId
+          const label = `${item.title} (${item.releaseId})`
+          return <Fragment key={item.releaseId}>
+            <TableRow hover selected={open} ref={element => { if (element) rows.current.set(item.releaseId, element); else rows.current.delete(item.releaseId) }}
+              sx={{ cursor: 'pointer', '& > td': open ? { borderBottom: 'unset' } : undefined, scrollMarginTop: 72 }}
+              onClick={event => { if (!(event.target as HTMLElement).closest('a,button')) toggle(item.releaseId) }}>
+              <TableCell padding="checkbox">
+                <Tooltip title={open ? 'Collapse release details' : 'Inspect release and review import'}>
+                  <IconButton size="small" aria-label={`Inspect ${label}`} aria-expanded={open}
+                    aria-controls={open ? `purchase-candidate-${item.releaseId}` : undefined} onClick={() => toggle(item.releaseId)}>
+                    {open ? <ExpandLess /> : <ExpandMore />}
+                  </IconButton>
+                </Tooltip>
+              </TableCell>
+              <TableCell sx={{ overflowWrap: 'anywhere' }}>{item.title}<Typography variant="body2" color="text.secondary">Beatport {item.releaseId}</Typography></TableCell>
+              <TableCell>{item.hasCachedRelease ? 'Cached - completeness unverified' : 'Missing release payload'}</TableCell>
+              <TableCell><AdmissionStatus item={item} available={data.admissionStatusAvailable} localReleaseId={applied[item.releaseId]} /></TableCell>
+            </TableRow>
+            {open && <TableRow>
+              <TableCell colSpan={4} sx={{ py: 0, bgcolor: 'action.hover', maxWidth: 0 }}>
+                <Collapse in appear timeout="auto">
+                  <CandidateDetails item={item} onCollapse={() => { setExpanded(undefined); rows.current.get(item.releaseId)?.querySelector('button')?.focus() }}
+                    onApplied={releaseId => setApplied(current => ({ ...current, [item.releaseId]: releaseId }))} />
+                </Collapse>
+              </TableCell>
+            </TableRow>}
+          </Fragment>
+        })}</TableBody>
+      </Table>
+    </Box>
+    <Stack direction="row" spacing={2} useFlexGap sx={{ my: 2, flexWrap: 'wrap', alignItems: 'center' }}>
       <Button disabled={page === 1} onClick={() => onPage(page - 1)}>Previous candidates</Button>
       <Typography>Candidate page {page}</Typography>
       <Button disabled={page * data.pageSize >= data.total} onClick={() => onPage(page + 1)}>Next candidates</Button>
@@ -109,20 +178,20 @@ export function PurchaseReleases() {
   const [search, setSearch] = useState('')
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(1)
-  const [selected, setSelected] = useState<number>()
-  const [trackPage, setTrackPage] = useState(1)
-  return <Box sx={{ p: 2 }}>
+  const [hideAdmitted, setHideAdmitted] = useState(() => localStorage.getItem(hideAdmittedKey) === 'true')
+  return <Box sx={{ p: 2, minWidth: 0 }}>
     <Title title="Purchase release inspector" />
     <Typography variant="h4" component="h1">Purchase release inspector</Typography>
     <Alert severity="info" sx={{ my: 2 }}>Inspection is read-only. Catalog import requires a separate immutable review and deliberate apply. No network refresh, purchase accounting or media changes. Corpus flags do not prove receipt or file ownership.</Alert>
-    <Stack component="form" direction="row" spacing={2} sx={{ my: 2 }} onSubmit={event => {
-      event.preventDefault(); setQuery(search); setPage(1); setSelected(undefined); setTrackPage(1)
+    <Stack component="form" direction="row" spacing={2} useFlexGap sx={{ my: 2, flexWrap: 'wrap', alignItems: 'center' }} onSubmit={event => {
+      event.preventDefault(); setQuery(search); setPage(1)
     }}>
       <TextField label="Release title or Beatport ID" value={search} onChange={event => setSearch(event.target.value)} slotProps={{ htmlInput: { maxLength: 200 } }} />
       <Button type="submit">Search candidates</Button>
+      <FormControlLabel label="Hide admitted releases" control={<Switch checked={hideAdmitted} onChange={event => {
+        setHideAdmitted(event.target.checked); setPage(1); localStorage.setItem(hideAdmittedKey, String(event.target.checked))
+      }} />} />
     </Stack>
-    <Queue key={`${query}:${page}`} page={page} search={query} onPage={setPage} onSelect={id => { setSelected(id); setTrackPage(1) }} />
-    {selected !== undefined && <Inspection key={`${selected}:${trackPage}`} id={selected} page={trackPage} onPage={setTrackPage} />}
-    {selected !== undefined && <ReleaseImportReview key={selected} releaseId={selected} />}
+    <Queue key={`${query}:${page}:${hideAdmitted}`} page={page} search={query} hideAdmitted={hideAdmitted} onPage={setPage} />
   </Box>
 }
