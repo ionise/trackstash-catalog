@@ -10,6 +10,7 @@ import { linkPresentation, recordingLinks } from './labelPresentation'
 import { TrackArtists } from './TrackPresentation'
 import { LocalTrackList, TrackList } from './TrackList'
 import { formatDuration, useUrlTrackView } from './trackView'
+import { RecordingEnrichment } from './RecordingEnrichment'
 
 export function TrackListPage() {
   const { isPending } = useAuthenticated()
@@ -49,6 +50,7 @@ function Detail({ id }: { id: string }) {
       <Typography>ISRC: {data.isrc ?? 'Unknown'}; length: {formatDuration(data.durationMs)}; releases: {data.releaseCount}</Typography>
     </Stack>
     <Divider />
+    <RecordingEnrichment key={id} id={id} />
     <Typography component="h2" variant="h6">Releases of this Recording</Typography>
     <LocalTrackList filter={{ recordingId: id }} context="recording" label="Recording releases" />
     <Accordion><AccordionSummary expandIcon={<ExpandMoreIcon />}><Typography>Details and provider identities</Typography></AccordionSummary>

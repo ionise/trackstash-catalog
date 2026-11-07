@@ -62,6 +62,58 @@ public sealed class SonoVaultEnrichmentProviderTests
     }
 
     [Theory]
+    [InlineData("""["House"]""", """["Progressive House"]""")]
+    [InlineData("""["House","Electronic"]""", """["Progressive House","Melodic House"]""")]
+    [InlineData("[]", "[]")]
+    public async Task Genre_and_subgenre_arrays_are_preserved_with_separate_evidence(string genres, string subgenres)
+    {
+        var json = Track.Replace("\"genre\":[\"House\"]", $"\"genre\":{genres},\"subgenre\":{subgenres}");
+        var handler = new Handler(_ => new(HttpStatusCode.OK) { Content = Json(json) });
+        using var http = new HttpClient(handler);
+        var result = await new SonoVaultEnrichmentProvider(http, "test-key").FindAsync(Query());
+        var candidate = Assert.Single(result.Candidates);
+        var expectedGenres = System.Text.Json.JsonSerializer.Deserialize<string[]>(genres)!;
+        var expectedSubgenres = System.Text.Json.JsonSerializer.Deserialize<string[]>(subgenres)!;
+        Assert.Equal(expectedGenres, candidate.Metadata.Genres);
+        Assert.Equal(expectedSubgenres, candidate.Metadata.Subgenres);
+        Assert.Equal(expectedGenres.Length == 1 ? expectedGenres[0] : null, candidate.Metadata.Genre);
+        Assert.Equal(expectedGenres.Length > 0, candidate.Evidence.Any(e => e.Field == EnrichmentField.Genre));
+        Assert.Equal(expectedSubgenres.Length > 0, candidate.Evidence.Any(e => e.Field == EnrichmentField.Subgenre));
+        Assert.DoesNotContain(result.Warnings, warning => warning.Contains("exactly one genre"));
+    }
+
+    [Theory]
+    [InlineData("Flat Surfaces (Kohra Remix)", "Flat Surfaces", "Kohra Remix", true)]
+    [InlineData("Flat Surfaces (kohra remix)", "Flat Surfaces", "Kohra Remix", true)]
+    [InlineData("Flat Surfaces (Live) (Kohra Remix)", "Flat Surfaces (Live)", "Kohra Remix", true)]
+    [InlineData("Flat Surfaces (Other Remix)", "Flat Surfaces", "Kohra Remix", false)]
+    [InlineData("Other Title (Kohra Remix)", "Flat Surfaces", "Kohra Remix", false)]
+    [InlineData("Flat Surfaces (Live)", "Flat Surfaces (Live)", null, false)]
+    [InlineData("Flat Surfaces (Kohra Remix)", "Flat Surfaces", null, false)]
+    public async Task Combined_title_is_only_split_when_both_catalog_title_and_mix_match(
+        string providerTitle, string catalogTitle, string? catalogMix, bool split)
+    {
+        var json = Track.Replace("\"Example\"", System.Text.Json.JsonSerializer.Serialize(providerTitle));
+        var handler = new Handler(_ => new(HttpStatusCode.OK) { Content = Json(json) });
+        using var http = new HttpClient(handler);
+        var candidate = Assert.Single((await new SonoVaultEnrichmentProvider(http, "test-key").FindAsync(
+            Query() with { Name = catalogTitle, MixName = catalogMix })).Candidates);
+        Assert.Equal(split ? catalogTitle : providerTitle, candidate.Metadata.Name);
+        if (split)
+        {
+            Assert.Equal(catalogMix, candidate.Metadata.MixName, ignoreCase: true);
+            Assert.Empty(candidate.Match.Conflicts);
+            Assert.Contains(candidate.Evidence, e => e.Field == EnrichmentField.MixName && e.Attribution!.Contains(providerTitle));
+        }
+        else
+        {
+            Assert.Null(candidate.Metadata.MixName);
+            Assert.DoesNotContain(candidate.Evidence, e => e.Field == EnrichmentField.MixName);
+            if (catalogMix is not null) Assert.NotEmpty(candidate.Match.Conflicts);
+        }
+    }
+
+    [Theory]
     [InlineData(401, "authentication_failed")]
     [InlineData(403, "access_denied")]
     [InlineData(429, "rate_limited")]

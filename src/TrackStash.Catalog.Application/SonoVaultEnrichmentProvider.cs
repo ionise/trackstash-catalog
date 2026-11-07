@@ -94,9 +94,7 @@ public sealed class SonoVaultEnrichmentProvider(HttpClient http, string? apiKey)
             if (basis == EnrichmentMatchBasis.MetadataSearch && Text(root, "next_cursor") is not null)
                 warnings.Add("More search results exist. Only the first page was fetched to conserve quota.");
             var candidates = tracks.Select(track => Map(track, query, basis, retrieved)).ToArray();
-            if (candidates.Any(c => c.Metadata.Genre is null))
-                warnings.Add("Genre is only proposed when exactly one genre is supplied.");
-            warnings.Add("Duration units and separate mix names are not verified; duration, mix name and release-specific metadata are not proposed.");
+            warnings.Add("Duration units are not verified and release-specific metadata is not proposed. Mix names are only separated when a trailing parenthesized suffix matches the catalog title and recorded mix.");
             return new("sonovault", query, retrieved, candidates, warnings);
         }
         catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
@@ -113,11 +111,27 @@ public sealed class SonoVaultEnrichmentProvider(HttpClient http, string? apiKey)
         var title = Text(track, "title");
         if (id <= 0 || string.IsNullOrWhiteSpace(title))
             throw new SonoVaultLookupException("invalid_response", "SonoVault returned an invalid Recording identity.");
+        var rawTitle = title;
+        string? mixName = null;
+        if (!string.IsNullOrWhiteSpace(query.Name) && !string.IsNullOrWhiteSpace(query.MixName))
+        {
+            var suffix = $" ({query.MixName.Trim()})";
+            if (title.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+            {
+                var mainTitle = title[..^suffix.Length].TrimEnd();
+                if (string.Equals(mainTitle, query.Name.Trim(), StringComparison.OrdinalIgnoreCase))
+                {
+                    title = mainTitle;
+                    mixName = rawTitle[(rawTitle.Length - suffix.Length + 2)..^1];
+                }
+            }
+        }
         var isrc = Text(track, "isrc");
         var bpm = track.TryGetProperty("bpm", out var tempo) && tempo.ValueKind != JsonValueKind.Null ? tempo.GetDecimal() : (decimal?)null;
         if (bpm <= 0) throw new SonoVaultLookupException("invalid_response", "SonoVault returned an invalid tempo.");
         var key = Text(track, "key_alphanumeric");
-        var genres = track.GetProperty("genre").EnumerateArray().Select(g => g.GetString()).ToArray();
+        var genres = Classifications(track, "genre");
+        var subgenres = Classifications(track, "subgenre");
         var credits = track.GetProperty("artists").EnumerateArray().Select(a =>
         {
             var artistId = a.GetProperty("id").GetInt64();
@@ -133,24 +147,41 @@ public sealed class SonoVaultEnrichmentProvider(HttpClient http, string? apiKey)
             conflicts.Add("Returned ISRC differs from or is missing relative to the catalog ISRC.");
         if (query.Name is not null && !string.Equals(query.Name.Trim(), title, StringComparison.OrdinalIgnoreCase))
             conflicts.Add("Returned title differs from the catalog title; review recording/version identity.");
-        if (!string.IsNullOrWhiteSpace(query.MixName))
+        if (!string.IsNullOrWhiteSpace(query.MixName) && mixName is null)
             conflicts.Add("The response has no separately verified mix-name field; review the requested version.");
         var reference = new EnrichmentReference("sonovault", id.ToString(CultureInfo.InvariantCulture));
-        var metadata = new EnrichmentMetadata(Name: title, Isrc: isrc, Bpm: bpm,
+        var metadata = new EnrichmentMetadata(Name: title, MixName: mixName, Isrc: isrc, Bpm: bpm,
             MusicalKey: key is null ? null : new(key, "Camelot"),
-            Genre: genres.Length == 1 ? genres[0] : null, ExternalReferences: [reference], Credits: credits);
+            Genre: genres.Length == 1 ? genres[0] : null, ExternalReferences: [reference], Credits: credits,
+            Genres: genres, Subgenres: subgenres);
         var fields = new List<EnrichmentField> { EnrichmentField.Name, EnrichmentField.ExternalReferences };
+        if (mixName is not null) fields.Add(EnrichmentField.MixName);
         if (isrc is not null) fields.Add(EnrichmentField.Isrc);
         if (bpm is not null) fields.Add(EnrichmentField.Bpm);
         if (key is not null) fields.Add(EnrichmentField.MusicalKey);
-        if (metadata.Genre is not null) fields.Add(EnrichmentField.Genre);
+        if (genres.Length > 0) fields.Add(EnrichmentField.Genre);
+        if (subgenres.Length > 0) fields.Add(EnrichmentField.Subgenre);
         if (credits.Length > 0) fields.Add(EnrichmentField.Credits);
         return new("sonovault", reference.ExternalId, null, null, EnrichmentEntityKind.Recording,
             new(basis, "SonoVault lookup candidate; the lookup basis is not proof of canonical identity.", conflicts),
             metadata, fields.Select(field => new EnrichmentFieldEvidence(field, "sonovault", reference.ExternalId,
-                null, retrieved, null)).ToArray());
+                null, retrieved, mixName is not null && (field is EnrichmentField.Name or EnrichmentField.MixName)
+                    ? $"Separated from SonoVault title \"{rawTitle}\" using the catalog's matching title and mix suffix; not an independent mix-name field."
+                    : null)).ToArray());
     }
 
     private static string? Text(JsonElement value, string property) =>
         value.TryGetProperty(property, out var field) && field.ValueKind != JsonValueKind.Null ? field.GetString() : null;
+
+    private static string[] Classifications(JsonElement track, string property)
+    {
+        if (!track.TryGetProperty(property, out var values) || values.ValueKind == JsonValueKind.Null) return [];
+        return values.EnumerateArray().Select(value =>
+        {
+            var name = value.GetString();
+            return string.IsNullOrWhiteSpace(name)
+                ? throw new SonoVaultLookupException("invalid_response", "SonoVault returned an invalid genre classification.")
+                : name;
+        }).ToArray();
+    }
 }

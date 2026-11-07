@@ -251,6 +251,23 @@ export interface BeatportBackfillResult {
   tracksRequested: number; tracksFetched: number; tracksNotFound: number; remainingBlockers: string[]
 }
 export interface BeatportRef { id: number; name: string }
+export interface EnrichmentMetadata {
+  name: string | null; mixName: string | null; isrc: string | null; durationMs: number | null
+  bpm: number | null; musicalKey: { value: string; notation: string } | null
+  genre: string | null; labelName: string | null; catalogNumber: string | null; releaseDate: string | null
+  genres?: string[] | null; subgenres?: string[] | null
+  externalReferences: { source: string; externalId: string }[] | null
+  credits: { name: string; role: string; reference: { source: string; externalId: string } | null }[] | null
+}
+export interface EnrichmentLookup {
+  providerId: string; retrievedAt: string
+  query: { catalogId: string; catalogVersion: string; name: string | null; mixName: string | null
+    isrc: string | null; durationMs: number | null; artistNames: string[] }
+  candidates: { providerId: string; candidateId: string; editionId: string | null; revision: string | null
+    match: { basis: string; explanation: string; conflicts: string[] }; metadata: EnrichmentMetadata
+    evidence: { field: string; source: string; sourceRecordId: string | null; sourceUrl: string | null; retrievedAt: string; attribution: string | null }[] }[]
+  warnings: string[]
+}
 export interface BeatportReleaseItem {
   id: number; name: string; type: string | null; artists: BeatportRef[]; remixers: BeatportRef[]; label: BeatportRef | null
   catalogLabelIds: string[]; catalogNumber: string | null; publishDate: string | null; trackCount: number | null; imageUrl: string | null
@@ -589,6 +606,8 @@ export function createCatalogClient(fetcher: typeof fetch = fetch) {
   const trackClient = {
     list: async (query: URLSearchParams, signal?: AbortSignal): Promise<GroupPage<CatalogTrack>> =>
       (await request(`?${query}`, { signal }, 'tracks')).json(),
+    enrichment: async (id: string, signal?: AbortSignal): Promise<EnrichmentLookup> =>
+      (await request(`/${encodeURIComponent(id)}/enrichment/sonovault`, { method: 'POST', signal }, 'recordings')).json(),
     recording: async (id: string, signal?: AbortSignal): Promise<RecordingDetail> =>
       (await request(`/${encodeURIComponent(id)}`, { signal }, 'recordings')).json(),
   }

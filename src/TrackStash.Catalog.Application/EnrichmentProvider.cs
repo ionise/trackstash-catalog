@@ -61,13 +61,15 @@ public sealed record EnrichmentMetadata(
     string? Genre = null,
     string? LabelName = null,
     IReadOnlyList<EnrichmentReference>? ExternalReferences = null,
-    IReadOnlyList<EnrichmentCredit>? Credits = null);
+    IReadOnlyList<EnrichmentCredit>? Credits = null,
+    IReadOnlyList<string>? Genres = null,
+    IReadOnlyList<string>? Subgenres = null);
 
 /// <summary>Proposed fields for which an adapter can expose source evidence.</summary>
 public enum EnrichmentField
 {
     Name, MixName, Isrc, CatalogNumber, ReleaseDate, DurationMs, Bpm,
-    MusicalKey, Genre, LabelName, ExternalReferences, Credits
+    MusicalKey, Genre, LabelName, ExternalReferences, Credits, Subgenre
 }
 
 /// <summary>Evidence for one proposed field, separating the API provider from an attributed upstream source.</summary>

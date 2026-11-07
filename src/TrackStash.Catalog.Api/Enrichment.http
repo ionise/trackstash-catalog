@@ -1,0 +1,11 @@
+@baseUrl = http://localhost:5187
+@catalogApiKey = replace-with-catalog-api-key-not-sonovault-key
+@recordingId = replace-with-canonical-recording-id
+
+### Explicit read-only lookup; the server supplies the SonoVault key
+POST {{baseUrl}}/api/v1/recordings/{{recordingId}}/enrichment/sonovault
+Authorization: Bearer {{catalogApiKey}}
+
+### Missing Recording returns 404 without calling SonoVault
+POST {{baseUrl}}/api/v1/recordings/not-an-existing-recording/enrichment/sonovault
+Authorization: Bearer {{catalogApiKey}}
