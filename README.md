@@ -238,7 +238,7 @@ Browsing never writes to the catalog and never adds purchase candidates; respons
 
 ### Metadata Enrichment Provider Boundary
 
-The application layer defines [`IEnrichmentProvider`](src/TrackStash.Catalog.Application/EnrichmentProvider.cs) for server-registered, read-only metadata adapters. This is a contract only: no SonoVault adapter, HTTP endpoint, review/apply implementation, credentials or database migration is added yet.
+The application layer defines [`IEnrichmentProvider`](src/TrackStash.Catalog.Application/EnrichmentProvider.cs) for server-registered, read-only metadata adapters. The first [`SonoVaultEnrichmentProvider`](src/TrackStash.Catalog.Application/SonoVaultEnrichmentProvider.cs) is implemented and registered for Recording lookups. There is no enrichment HTTP endpoint, GUI action, review/apply implementation or database migration yet.
 
 - Providers advertise which of Recording, Release, Artist and Label they implement.
 - Lookups receive a public metadata snapshot with canonical ID/version and source identifiers, not private notes, audio or filesystem paths.
@@ -248,6 +248,22 @@ The application layer defines [`IEnrichmentProvider`](src/TrackStash.Catalog.App
 - Future implementations register through ordinary .NET dependency injection. No dynamic plugin loader or additional service is required. A future coordinator must validate candidates and freeze proposals before version-checked, audited acceptance; adapters cannot apply changes themselves.
 
 SonoVault is the intended first adapter. Beatport shopping/backfill remains independent. Audio embeddings remain in the audio-worker/similarity pipeline; BPM and musical key are metadata outputs with provenance, not values inferred from an embedding vector.
+
+#### SonoVault configuration and initial limits
+
+Set `CatalogApi__SonoVaultApiKey` in the environment of the catalog process. `start-prod.sh` inherits it; do not put the key in that script, a committed configuration file, browser code or chat. In the default macOS zsh, read it without echoing it or storing its value in shell history:
+
+```sh
+read -rs 'CatalogApi__SonoVaultApiKey?SonoVault API key: '; echo
+export CatalogApi__SonoVaultApiKey
+./start-prod.sh
+```
+
+The adapter makes no requests at startup. Missing configuration fails explicitly when a lookup is requested. Existing SonoVault Recording IDs take precedence, followed by ISRC, then artist/title search (including the requested mix name). Each lookup makes one GET to the fixed official HTTPS API: no automatic retries, follow-up link requests or pagination. Search is limited to ten candidates; more results produce a warning. Responses are limited to 1 MiB with a 30-second request/body deadline; redirects are disabled in the host client.
+
+Title, ISRC, BPM, Camelot key, single-valued genre, Artist credits and the SonoVault Recording ID are proposed with SonoVault attribution. No upstream field provenance is invented. Duration units and separate mix-name semantics still need verification, so duration/mix name are not proposed; Recording lookups also do not infer label/date from an arbitrary release appearance. Multiple genres and truncated results are reported as limitations. Free-tier allowance is not tracked locally yet: do not start bulk work until quota accounting/caching is implemented.
+
+This adapter is validated with mocked HTTP responses only. Configuring a key does not yet expose enrichment in the GUI; an explicit lookup/comparison surface and a small authorized live pilot are the next steps.
 
 ## Command Surface
 

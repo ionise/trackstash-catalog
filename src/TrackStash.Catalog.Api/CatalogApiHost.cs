@@ -83,6 +83,12 @@ public static class CatalogApiHost
         builder.Services.AddHostedService(services => services.GetRequiredService<BackupJobs>());
         builder.Services.AddHostedService<CatalogReadinessCheck>();
         builder.Services.AddHttpClient(BeatportBrokerClient.HttpClientName, client => client.Timeout = TimeSpan.FromMinutes(6));
+        builder.Services.AddHttpClient(SonoVaultEnrichmentProvider.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(30))
+            .RedactLoggedHeaders(["x-api-key"])
+            .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+        builder.Services.AddScoped<IEnrichmentProvider>(services => new SonoVaultEnrichmentProvider(
+            services.GetRequiredService<IHttpClientFactory>().CreateClient(SonoVaultEnrichmentProvider.HttpClientName),
+            builder.Configuration["CatalogApi:SonoVaultApiKey"]));
         builder.Services.TryAddSingleton<IBeatportBrokerClient, BeatportBrokerClient>();
         builder.Services.TryAddScoped<IBeatportBackfillService, BeatportBackfillService>();
         builder.Services.TryAddScoped<IBeatportBrowseService, BeatportBrowseService>();
