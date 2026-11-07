@@ -236,6 +236,19 @@ The admission dialog also has **Fetch missing from Beatport**, using the same ba
 
 Browsing never writes to the catalog and never adds purchase candidates; responses are only cached by the broker. Errors use Problem Details: `409 beatport_sign_in_required` (sign in first; 409 so the GUI doesn't log you out), `503 beatport_broker_not_configured`/`beatport_broker_unavailable` (start the broker), `404 beatport_release_not_found`/`beatport_label_not_found`, and `400 validation_failed` for bad query values. Beatport is the discovery/shopping integration; playlist/cart writes and audio previews are not implemented. SonoVault is the preferred next enrichment source, subject to a read-only matching/coverage pilot and reviewed changes rather than automatic overwrites. A local wishlist remains a proposal, not a prerequisite for future Beatport playlist/cart integration: see [docs/beatport-wishlist-design.md](docs/beatport-wishlist-design.md).
 
+### Metadata Enrichment Provider Boundary
+
+The application layer defines [`IEnrichmentProvider`](src/TrackStash.Catalog.Application/EnrichmentProvider.cs) for server-registered, read-only metadata adapters. This is a contract only: no SonoVault adapter, HTTP endpoint, review/apply implementation, credentials or database migration is added yet.
+
+- Providers advertise which of Recording, Release, Artist and Label they implement.
+- Lookups receive a public metadata snapshot with canonical ID/version and source identifiers, not private notes, audio or filesystem paths.
+- Results retain provider/edition identity, match reasons and conflicts, typed proposed values and per-field source evidence. Provider IDs are not canonical catalog IDs; ISRC matches do not automatically establish remix/version identity.
+- Missing values mean no proposal, never deletion. Credits and references are additions to review, not instructions to replace curated lists. Release editions remain distinguishable.
+- A successful no-match returns an empty candidate list. Authentication, configuration, quota, network and unsupported lookup failures remain explicit errors; caller cancellation propagates.
+- Future implementations register through ordinary .NET dependency injection. No dynamic plugin loader or additional service is required. A future coordinator must validate candidates and freeze proposals before version-checked, audited acceptance; adapters cannot apply changes themselves.
+
+SonoVault is the intended first adapter. Beatport shopping/backfill remains independent. Audio embeddings remain in the audio-worker/similarity pipeline; BPM and musical key are metadata outputs with provenance, not values inferred from an embedding vector.
+
 ## Command Surface
 
 Current commands:
