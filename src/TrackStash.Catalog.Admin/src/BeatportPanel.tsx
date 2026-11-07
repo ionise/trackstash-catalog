@@ -3,7 +3,7 @@ import { Alert, Box, Button, Chip, LinearProgress, Paper, Stack, TextField, Typo
 import CloudDownload from '@mui/icons-material/CloudDownload'
 import { useLogoutIfAccessDenied } from 'react-admin'
 import { beatportClient } from './catalog'
-import type { BeatportBackfillJob, BeatportConnection } from './catalog'
+import type { BeatportBackfillJob, BeatportBackfillResult, BeatportConnection } from './catalog'
 
 const message = (failure: unknown, fallback: string) => failure instanceof Error ? failure.message : fallback
 
@@ -121,17 +121,20 @@ export function BeatportPanel({ onSourceChanged }: { onSourceChanged: () => void
 }
 
 /** Fetches one release's missing or invalid Beatport data; the summary is handed to the parent because the inspection reloads afterwards. */
-export function BeatportFetchButton({ releaseId, onFetched }: { releaseId: number; onFetched: (summary: string) => void }) {
+export function BeatportFetchButton({ releaseId, onFetched, disabled = false, onBusyChange }: {
+  releaseId: number; onFetched: (summary: string, outcome: BeatportBackfillResult) => void
+  disabled?: boolean; onBusyChange?: (busy: boolean) => void
+}) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   return <Box sx={{ my: 1 }}>
-    <Button variant="contained" size="small" startIcon={<CloudDownload />} disabled={busy} onClick={() => {
-      setBusy(true); setError('')
+    <Button variant="contained" size="small" startIcon={<CloudDownload />} disabled={busy || disabled} onClick={() => {
+      setBusy(true); onBusyChange?.(true); setError('')
       void beatportClient.backfillRelease(releaseId).then(outcome => {
         onFetched(outcome.sourceCompleteAfter
           ? `Fetched ${outcome.tracksFetched} track${outcome.tracksFetched === 1 ? '' : 's'}${outcome.releaseRefreshed ? ' and the release' : ''}; the source is now complete.`
-          : `Fetched ${outcome.tracksFetched} of ${outcome.tracksRequested} tracks${outcome.tracksNotFound ? ` (${outcome.tracksNotFound} no longer on Beatport)` : ''}. Still blocked: ${outcome.remainingBlockers.join(', ').replaceAll('_', ' ')}.`)
-      }).catch(failure => setError(message(failure, 'Beatport fetch failed.'))).finally(() => setBusy(false))
+          : `Fetched ${outcome.tracksFetched} of ${outcome.tracksRequested} tracks${outcome.tracksNotFound ? ` (${outcome.tracksNotFound} no longer on Beatport)` : ''}. Still blocked: ${outcome.remainingBlockers.join(', ').replaceAll('_', ' ')}.`, outcome)
+      }).catch(failure => setError(message(failure, 'Beatport fetch failed.'))).finally(() => { setBusy(false); onBusyChange?.(false) })
     }}>{busy ? 'Fetching from Beatport…' : 'Fetch missing from Beatport'}</Button>
     {busy && <LinearProgress sx={{ mt: 1 }} aria-label="Fetching from Beatport" />}
     {error && <Alert severity="error" sx={{ mt: 1 }}>{error}</Alert>}

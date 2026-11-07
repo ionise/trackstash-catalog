@@ -101,9 +101,12 @@ function FrozenPages({ preview, busy, drafts, onChange, onSave }: {
   </>
 }
 
-export function ReleaseImportReview({ releaseId, onApplied }: { releaseId: number; onApplied?: (catalogReleaseId: string) => void }) {
+export function ReleaseImportReview({ releaseId, onApplied, onBusyChange, disabled = false }: {
+  releaseId: number; onApplied?: (catalogReleaseId: string) => void; onBusyChange?: (busy: boolean) => void; disabled?: boolean
+}) {
   const [preview, setPreview] = useState<ImportPreview>()
-  const [busy, setBusy] = useState(false)
+  const [saving, setBusy] = useState(false)
+  const busy = saving || disabled
   const [error, setError] = useState('')
   const [reason, setReason] = useState('')
   const [confirmed, setConfirmed] = useState(false)
@@ -113,6 +116,7 @@ export function ReleaseImportReview({ releaseId, onApplied }: { releaseId: numbe
   const mounted = useRef(true)
   const logout = useLogoutIfAccessDenied()
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
+  useEffect(() => { onBusyChange?.(saving) }, [saving, onBusyChange])
   async function create(decisions?: ImportDecision[], bulk = false) {
     setBusy(true); setError(''); setConfirmed(false)
     try {
@@ -168,7 +172,7 @@ export function ReleaseImportReview({ releaseId, onApplied }: { releaseId: numbe
   return <Box component="section" aria-label="Immutable catalog import review" sx={{ mt: 3 }}>
     <Typography component="h2" variant="h6">Reviewed catalog import</Typography>
     <Button disabled={busy} onClick={() => void create()}>{preview ? 'Start a fresh preview (discard decisions)' : 'Create immutable import preview'}</Button>
-    {busy && <LinearProgress aria-label="Saving import review" />}
+    {saving && <LinearProgress aria-label="Saving import review" />}
     {error && <Alert severity="error">{error} No automatic retry. If stale, start a fresh preview and review again.</Alert>}
     {preview && <>
       <Typography>Review {preview.operationId} expires {preview.expiresUtc}. Release: {preview.title} ({preview.sourceReleaseId})</Typography>

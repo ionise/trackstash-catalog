@@ -49,14 +49,28 @@ test('saving retains other drafts, saved evidence, pagination and review reason,
   await expect(other.getByRole('textbox', { name: 'Note (optional)' })).toHaveValue('Keep this draft for later review')
 })
 
-test('bulk accept straightforward identities, confirm import, record a no-op without a note, and drop the admitted row once closed', async ({ page }) => {
+test('admit a purchased Beatport release from its Label tab with reviewed identities and reflect the saved import in both views', async ({ page }) => {
   test.setTimeout(120_000)
-  await page.goto('/admin/#/purchase-releases')
+  await page.route('**/api/v1/beatport/releases?*', route => route.fulfill({ json: {
+    items: [{
+      id: 900, name: 'Inspector complete release', type: null, artists: [], remixers: [],
+      label: { id: 42, name: 'Fixture label' }, catalogLabelIds: ['legacy-test'], catalogNumber: 'FIX001',
+      publishDate: '2020-01-01', trackCount: 26, imageUrl: null,
+      beatportUrl: 'https://www.beatport.com/release/-/900', catalogReleaseIds: [],
+      inPurchaseHistory: true, purchaseSourceComplete: true,
+    }], total: 1, page: 1, pageSize: 25,
+  } }))
+  await page.route('**/api/v1/purchase-release-candidates/900/beatport-backfill', route => route.fulfill({ json: {
+    releaseId: 900, sourceCompleteBefore: true, sourceCompleteAfter: true, releaseRefreshed: false,
+    tracksRequested: 0, tracksFetched: 0, tracksNotFound: 0, remainingBlockers: [],
+  } }))
+  await page.goto('/admin/#/labels/legacy-test/show?tab=Beatport')
   await page.getByLabel('API key').fill(key)
   await page.getByRole('button', { name: 'Connect', exact: true }).click()
-  await page.getByRole('switch', { name: 'Hide admitted releases' }).check()
-  await page.getByRole('button', { name: 'Inspect Inspector complete release (900)' }).click()
-  const review = page.getByRole('region', { name: 'Immutable catalog import review' })
+  const admit = page.getByRole('button', { name: 'Admit Inspector complete release to catalog' })
+  await admit.click()
+  const dialog = page.getByRole('dialog', { name: 'Admit to catalog: Inspector complete release' })
+  const review = dialog.getByRole('region', { name: 'Immutable catalog import review' })
   await review.getByRole('button', { name: 'Create immutable import preview' }).click()
   await expect(review.getByText('Apply blocked:')).toBeVisible()
   const apply = review.getByRole('button', { name: 'Apply reviewed catalog import', exact: true })
@@ -66,10 +80,20 @@ test('bulk accept straightforward identities, confirm import, record a no-op wit
   await expect(review.getByText('Apply blocked:')).toHaveCount(0)
   await expect(review.getByRole('textbox', { name: 'Import note (optional)' })).toHaveValue(/deliberately bulk-accepted/)
   await expect(apply).toBeDisabled()
+  await dialog.getByRole('button', { name: 'Fetch missing from Beatport' }).click()
+  await expect(dialog.getByRole('alert').filter({ hasText: 'previous preview decisions have been cleared' })).toBeVisible()
+  await expect(review.getByRole('checkbox')).toHaveCount(0)
+  await review.getByRole('button', { name: 'Create immutable import preview' }).click()
+  await expect(review.getByText('Apply blocked:')).toBeVisible()
+  await expect(review.getByRole('textbox', { name: 'Import note (optional)' })).toHaveValue('')
+  await review.getByRole('button', { name: 'Bulk accept straightforward identities', exact: true }).click()
+  await expect(review.getByText('Apply blocked:')).toHaveCount(0)
   await review.getByRole('checkbox').check()
   await apply.click()
   await expect(review.getByText(/Saved import outcome for Release/)).toBeVisible()
   await expect(review).toContainText('4 Artists, 26 Recordings, 26 placements created')
+  await expect(admit).toHaveCount(0)
+  await expect(page).toHaveURL(/#\/labels\/legacy-test\/show\?tab=Beatport$/)
   await review.getByRole('button', { name: 'Start a fresh preview (discard decisions)' }).click()
   await expect(review).toContainText('No-op.')
   await expect(review.getByRole('textbox', { name: 'Import note (optional)' })).toHaveValue('')
@@ -78,7 +102,11 @@ test('bulk accept straightforward identities, confirm import, record a no-op wit
   await expect(review.getByText(/Saved no-op outcome for Release/)).toBeVisible()
   await expect(review).toContainText('0 Artists, 0 Recordings, 0 placements created')
   await expect(review.getByText(/Saved no-op outcome for Release/)).toBeVisible()
-  await page.getByRole('button', { name: 'Inspect Inspector complete release (900)' }).click()
+  await dialog.getByRole('button', { name: 'Close admission review' }).click()
+  await expect(page.getByRole('table', { name: 'Beatport releases', exact: true }).getByRole('link', { name: 'In catalog' })).toHaveCount(1)
+  await expect(admit).toHaveCount(0)
+  await page.getByRole('menuitem', { name: 'Purchase releases', exact: true }).click()
+  await page.getByRole('switch', { name: 'Hide admitted releases' }).check()
   await expect(page.getByRole('button', { name: 'Inspect Inspector complete release (900)' })).toHaveCount(0)
   await page.getByRole('switch', { name: 'Hide admitted releases' }).uncheck()
   await page.getByRole('link', { name: 'Admitted - view catalog release for Inspector complete release' }).click()

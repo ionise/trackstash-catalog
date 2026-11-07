@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import {
-  Alert, Box, Button, Chip, IconButton, LinearProgress, MenuItem, Stack, Table, TableBody, TableCell, TableHead, TableRow,
+  Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, LinearProgress, MenuItem, Stack, Table, TableBody, TableCell, TableHead, TableRow,
   TextField, ToggleButton, ToggleButtonGroup, Tooltip, Typography,
 } from '@mui/material'
 import ExpandLess from '@mui/icons-material/ExpandLess'
@@ -11,6 +11,8 @@ import { Title, useAuthenticated, useLogoutIfAccessDenied } from 'react-admin'
 import { Link as RouterLink, useSearchParams } from 'react-router-dom'
 import { beatportClient, beatportIdentities } from './catalog'
 import { formatLength } from './beatportFormat'
+import { ReleaseImportReview } from './ReleaseImportReview'
+import { BeatportFetchButton } from './BeatportPanel'
 import type { BeatportLabelItem, BeatportLabelPage, BeatportRef, BeatportReleaseDetail, BeatportReleaseItem, BeatportReleasePage, BeatportReleaseSearch, BeatportReleaseSort } from './catalog'
 
 const sorts: { value: BeatportReleaseSort; label: string }[] = [
@@ -112,6 +114,12 @@ function Pager({ page, pageSize, total, onPage }: { page: number; pageSize: numb
 
 function ReleaseResults({ data, onLabel, onPage }: { data: BeatportReleasePage; onLabel?: (id: number) => void; onPage: (page: number) => void }) {
   const [expanded, setExpanded] = useState<number>()
+  const [admission, setAdmission] = useState<BeatportReleaseItem>()
+  const [busy, setBusy] = useState(false)
+  const [fetching, setFetching] = useState(false)
+  const [fetches, setFetches] = useState(0)
+  const [fetched, setFetched] = useState('')
+  const [admitted, setAdmitted] = useState<Record<number, string>>({})
   return <>
     <Typography>{data.total} Beatport releases</Typography>
     {!data.items.length && <Typography>No matching releases.</Typography>}
@@ -123,6 +131,8 @@ function ReleaseResults({ data, onLabel, onPage }: { data: BeatportReleasePage; 
         </TableRow></TableHead>
         <TableBody>{data.items.map(item => {
           const open = expanded === item.id
+          const catalogReleaseIds = admitted[item.id] && !item.catalogReleaseIds.includes(admitted[item.id])
+            ? [...item.catalogReleaseIds, admitted[item.id]] : item.catalogReleaseIds
           return <Fragment key={item.id}>
             <TableRow hover selected={open}>
               <TableCell padding="checkbox">
@@ -141,7 +151,13 @@ function ReleaseResults({ data, onLabel, onPage }: { data: BeatportReleasePage; 
                 <CatalogLinks ids={item.catalogLabelIds} kind="labels" text="Catalog label" />
               </Stack>}</TableCell>
               <TableCell><Typography variant="body2">{item.catalogNumber ?? ''}</Typography><Typography variant="body2" color="text.secondary">{item.publishDate ?? ''}</Typography></TableCell>
-              <TableCell><ReleaseStatus item={item} /></TableCell>
+              <TableCell><Stack spacing={1} sx={{ alignItems: 'flex-start' }}>
+                <ReleaseStatus item={{ ...item, catalogReleaseIds }} />
+                {item.inPurchaseHistory === true && !catalogReleaseIds.length && <Button size="small"
+                  aria-label={`Admit ${item.name} to catalog`} onClick={() => {
+                    setFetched(''); setFetches(0); setAdmission(item)
+                  }}>Admit to catalog</Button>}
+              </Stack></TableCell>
               <TableCell padding="checkbox"><BeatportLink url={item.beatportUrl} label={`Open ${item.name} on Beatport`} /></TableCell>
             </TableRow>
             {open && <TableRow><TableCell colSpan={7} sx={{ bgcolor: 'action.hover' }}><ReleaseTracks id={item.id} /></TableCell></TableRow>}
@@ -150,6 +166,26 @@ function ReleaseResults({ data, onLabel, onPage }: { data: BeatportReleasePage; 
       </Table>
     </Box>
     <Pager page={data.page} pageSize={data.pageSize} total={data.total} onPage={onPage} />
+    <Dialog open={!!admission} fullWidth maxWidth="lg" aria-labelledby="beatport-admission-title"
+      onClose={() => { if (!busy && !fetching) setAdmission(undefined) }}>
+      <DialogTitle id="beatport-admission-title">Admit to catalog: {admission?.name}</DialogTitle>
+      <DialogContent dividers sx={{ minWidth: 0, overflowWrap: 'anywhere' }}>
+        <Alert severity="info">This uses the same reviewed import as Purchase releases. Nothing is admitted until you review the identities and explicitly confirm the catalog operation. It does not copy or link media files.</Alert>
+        {admission?.purchaseSourceComplete !== true && <Alert severity="warning" sx={{ mt: 1 }}>
+          Purchase source completeness is not confirmed. The preview will check it and explain any blockers.
+          {' '}<RouterLink to={`/purchase-releases?q=${admission?.id}`}>Inspect or fetch missing purchase data</RouterLink>.
+        </Alert>}
+        {admission && !admitted[admission.id] && <BeatportFetchButton key={admission.id} releaseId={admission.id} disabled={busy}
+          onBusyChange={setFetching} onFetched={(summary, outcome) => {
+            setFetched(summary); setFetches(value => value + 1)
+            setAdmission(current => current && { ...current, purchaseSourceComplete: outcome.sourceCompleteAfter })
+          }} />}
+        {fetched && <Alert severity="info" sx={{ mt: 1 }}>{fetched} Create a fresh preview to review the updated source; previous preview decisions have been cleared.</Alert>}
+        {admission && <ReleaseImportReview key={`${admission.id}:${fetches}`} releaseId={admission.id} onBusyChange={setBusy} disabled={fetching}
+          onApplied={id => setAdmitted(current => ({ ...current, [admission.id]: id }))} />}
+      </DialogContent>
+      <DialogActions><Button disabled={busy || fetching} onClick={() => setAdmission(undefined)}>Close admission review</Button></DialogActions>
+    </Dialog>
   </>
 }
 
@@ -217,7 +253,7 @@ export function EntityBeatportBrowse({ kind, name, externalReferences }: {
 
   return <Stack spacing={2} sx={{ minWidth: 0, width: '100%' }}>
     <Typography component="h2" variant="h6">Beatport releases for {name || `this ${kind}`}</Typography>
-    <Alert severity="info">Browse the store catalog without leaving this {kind}. Browsing is read-only; it does not add purchases or change your collection.</Alert>
+    <Alert severity="info">Browse the store catalog without leaving this {kind}. Browsing itself changes nothing; purchased releases can be admitted through a separate reviewed catalog import.</Alert>
     <Stack direction="row" spacing={2} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
       {identities.length > 1
         ? <TextField select size="small" label="Beatport identity" value={id}
@@ -273,7 +309,7 @@ function BeatportBrowsePage() {
   return <Box sx={{ p: 2, minWidth: 0 }}>
     <Title title="Beatport" />
     <Typography variant="h4" component="h1">Beatport</Typography>
-    <Alert severity="info" sx={{ my: 2 }}>Browsing is read-only: results come through the local Beatport broker, which caches them, and nothing is added to the catalog.</Alert>
+    <Alert severity="info" sx={{ my: 2 }}>Browsing is read-only: results come through the local Beatport broker, which caches them. Use Admit to catalog on purchased releases to start a separate reviewed import.</Alert>
     <Stack direction="row" spacing={2} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
       <ToggleButtonGroup exclusive size="small" value={mode} aria-label="Search for"
         onChange={(_, value: string | null) => { if (value) update({ mode: value === 'labels' ? 'labels' : undefined, page: undefined, labelId: undefined }) }}>

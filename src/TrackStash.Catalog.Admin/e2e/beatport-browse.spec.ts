@@ -54,7 +54,10 @@ test('browse Beatport releases by name and label with ownership status, tracks a
   const owned = results.getByRole('row').filter({ hasText: 'Beatport release 10' })
   await expect(owned.getByRole('link', { name: 'In catalog' })).toHaveAttribute('href', '#/releases/release-fixture/show')
   await expect(owned.getByText('Purchased')).toBeVisible()
+  await expect(owned.getByRole('button', { name: /Admit/ })).toHaveCount(0)
+  await expect(results.getByRole('row').filter({ hasText: 'Beatport release 11' }).getByRole('button', { name: 'Admit Beatport release 11 to catalog' })).toBeVisible()
   await expect(results.getByRole('row').filter({ hasText: 'Beatport release 12' }).getByText('Not owned')).toBeVisible()
+  await expect(results.getByRole('row').filter({ hasText: 'Beatport release 12' }).getByRole('button', { name: /Admit/ })).toHaveCount(0)
   await expect(owned.getByRole('link', { name: 'Open Beatport release 10 on Beatport' })).toHaveAttribute('href', 'https://www.beatport.com/release/r/10')
 
   await owned.getByRole('button', { name: 'Show tracks for Beatport release 10' }).click()
@@ -79,6 +82,69 @@ test('browse Beatport releases by name and label with ownership status, tracks a
   await filter.getByRole('button', { name: 'Clear label' }).click()
   await expect(page.getByText('Search for a release by name, or pick a label to see its releases.')).toBeVisible()
   expect(writes).toEqual([])
+})
+
+test('Artist admission fetches missing source in place, clears stale review state and never applies automatically', async ({ page }) => {
+  const applies: string[] = []
+  page.on('request', request => { if (request.url().includes('/apply')) applies.push(request.url()) })
+  await page.route('**/api/v1/beatport/releases?*', route => route.fulfill({ json: {
+    items: [release(901, { inPurchaseHistory: true, purchaseSourceComplete: false })], total: 1, page: 1, pageSize: 25,
+  } }))
+  let finishPreview: (() => void) | undefined
+  let fetchCount = 0
+  const finishFetch: { current?: () => void } = {}
+  await page.route('**/api/v1/purchase-release-candidates/901/beatport-backfill', async route => {
+    expect(route.request().method()).toBe('POST')
+    fetchCount++
+    if (fetchCount === 1) return route.fulfill({ status: 503, json: { detail: 'Test broker unavailable' } })
+    await new Promise<void>(resolve => { finishFetch.current = resolve })
+    return route.fulfill({ json: {
+      releaseId: 901, sourceCompleteBefore: false, sourceCompleteAfter: fetchCount === 3, releaseRefreshed: true,
+      tracksRequested: 2, tracksFetched: fetchCount === 3 ? 2 : 1, tracksNotFound: fetchCount === 3 ? 0 : 1,
+      remainingBlockers: fetchCount === 3 ? [] : ['track_payload_missing'],
+    } })
+  })
+  await page.route('**/api/v1/release-import-previews', async route => {
+    await new Promise<void>(resolve => { finishPreview = resolve })
+    await route.fulfill({ status: 409, json: { detail: 'Purchase source is incomplete. Fetch missing source data first.' } })
+  })
+  await connect(page, '/artists/release-fixture-artist/show?tab=Beatport')
+  await page.getByRole('button', { name: 'Admit Beatport release 901 to catalog' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Admit to catalog: Beatport release 901' })
+  await expect(dialog.getByRole('link', { name: 'Inspect or fetch missing purchase data' })).toHaveAttribute('href', '#/purchase-releases?q=901')
+  await dialog.getByRole('button', { name: 'Create immutable import preview' }).click()
+  await expect(dialog.getByRole('button', { name: 'Close admission review' })).toBeDisabled()
+  const fetch = dialog.getByRole('button', { name: 'Fetch missing from Beatport' })
+  await expect(fetch).toBeDisabled()
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeVisible()
+  await expect.poll(() => typeof finishPreview).toBe('function')
+  finishPreview?.()
+  await expect(dialog.getByRole('alert').filter({ hasText: 'Purchase source is incomplete. Fetch missing source data first.' })).toBeVisible()
+  await fetch.click()
+  await expect(dialog.getByRole('alert').filter({ hasText: 'Test broker unavailable' })).toBeVisible()
+  await expect(dialog.getByRole('alert').filter({ hasText: 'Purchase source is incomplete. Fetch missing source data first.' })).toBeVisible()
+  await fetch.click()
+  await expect(dialog.getByRole('button', { name: 'Close admission review' })).toBeDisabled()
+  await expect(dialog.getByRole('button', { name: 'Create immutable import preview' })).toBeDisabled()
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeVisible()
+  await expect.poll(() => typeof finishFetch.current).toBe('function')
+  finishFetch.current?.()
+  await expect(dialog.getByRole('alert').filter({ hasText: 'Fetched 1 of 2 tracks (1 no longer on Beatport). Still blocked: track payload missing.' })).toBeVisible()
+  await expect(dialog.getByRole('alert').filter({ hasText: 'Purchase source is incomplete. Fetch missing source data first.' })).toHaveCount(0)
+  await expect(dialog.getByText(/Purchase source completeness is not confirmed/)).toBeVisible()
+  await fetch.click()
+  await expect.poll(() => fetchCount).toBe(3)
+  finishFetch.current?.()
+  await expect(dialog.getByRole('alert').filter({ hasText: 'the source is now complete' })).toBeVisible()
+  await expect(dialog.getByText(/Purchase source completeness is not confirmed/)).toHaveCount(0)
+  await expect(dialog.getByRole('button', { name: 'Create immutable import preview' })).toBeEnabled()
+  await expect(page).toHaveURL(/#\/artists\/release-fixture-artist\/show\?tab=Beatport$/)
+  await dialog.getByRole('button', { name: 'Close admission review' }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Admit Beatport release 901 to catalog' })).toBeVisible()
+  expect(applies).toEqual([])
 })
 
 test('label search, sign-in and broker errors are explained, and catalog labels open their embedded Beatport tab', async ({ page }) => {
