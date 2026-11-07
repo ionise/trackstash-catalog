@@ -86,7 +86,7 @@ test('create groups, edit memberships from either endpoint, mark departure and d
   await section.getByRole('combobox', { name: 'Membership status filter', exact: true }).click()
   await page.getByRole('option', { name: /^current/ }).click()
   await expect(section.getByText('current; latest known period: 2025 — unknown end', { exact: true })).toBeVisible()
-  await expect(page.getByRole('tab')).toHaveText(['Releases', 'Artists', 'Tracks', 'Details', 'Relationships'])
+  await expect(page.getByRole('tab')).toHaveText(['Releases', 'Artists', 'Tracks', 'Details', 'Relationships', 'Beatport'])
 })
 
 test('group scalar editing preserves kind and freezes stale drafts until explicit reload', async ({ page, request }) => {

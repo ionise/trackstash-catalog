@@ -20,6 +20,7 @@ import { artistLinks, linkPresentation, trackContributors } from './labelPresent
 import { CreditEvidence, TrackTitleArtists } from './TrackPresentation'
 import { TrackList } from './TrackList'
 import { useUrlTrackView } from './trackView'
+import { EntityBeatportBrowse } from './BeatportBrowse'
 
 export function ArtistCreditName({ credit, showStatus = true }: { credit: ReleaseCredit; showStatus?: boolean }) {
   return <><Link to={`/artists/${encodeURIComponent(credit.artistId)}/show`}>{credit.creditedName ?? credit.artistName ?? credit.artistId}</Link>
@@ -178,7 +179,7 @@ function Detail({ id }: { id: string }) {
   const [artist, setArtist] = useState<ArtistDetail>()
   const [error, setError] = useState('')
   const [params, setParams] = useSearchParams()
-  const sections = ['Featured', 'Tracks', 'Releases', 'Associations', 'Details']
+  const sections = ['Featured', 'Tracks', 'Releases', 'Associations', 'Details', 'Beatport']
   const selected = params.get('tab') ?? 'Featured'
   const tab = sections.includes(selected) ? selected : 'Featured'
   function pageValue(key: string) {
@@ -271,6 +272,7 @@ function Detail({ id }: { id: string }) {
         <Typography color="text.secondary">One row per release, with artwork, linked Labels, release-level Artists and recorded release dates. Ordered by release title. Credit details retain this Artist's evidence; BPM ranges await musical metadata.</Typography>
         <Appearances key={`release:${releasePage}`} artist={artist} tracks={false} page={releasePage} onPage={page => change('releasePage', String(page))} />
       </Stack>}
+      {section === 'Beatport' && tab === section && <EntityBeatportBrowse kind="artist" name={artist.name} externalReferences={artist.externalReferences} />}
       {section === 'Associations' && tab === section && <Stack spacing={3}>
         <Typography color="text.secondary">Planned catalog-credit summaries, not signing or personal relationship claims. No association counts have been calculated yet.</Typography>
         <Box><Typography component="h2" variant="h6">Labels appeared on</Typography><Typography>Planned: distinct releases, credited Recordings and placement appearances per Label.</Typography></Box>

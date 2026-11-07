@@ -2,6 +2,8 @@
 
 Status: **proposal for review.** Nothing here is built. It needs a catalog schema migration, so it waits for your go-ahead and a verified backup.
 
+The preferred workflow is now an embedded Beatport shopping/discovery tab on Label and Artist pages, eventually sending selections to a Beatport playlist or basket. Those read-only tabs are implemented; store writes and samples still need capability checks. This local wishlist is optional, not a prerequisite for that workflow. SonoVault, rather than Beatport, is the preferred future enrichment source; any enrichment should first compare candidates and preserve curated data.
+
 ## Goal
 
 While browsing Beatport inside the catalog, mark releases you intend to buy. A wished release is **pre-staged**: its Beatport data is cached and its label is matched, so that when you do buy it, the purchase can be admitted (and later linked to media files) with as little review as possible. Later the wishlist could be pushed to a Beatport playlist or cart to make buying easier.

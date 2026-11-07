@@ -9,7 +9,7 @@ import ExpandMore from '@mui/icons-material/ExpandMore'
 import OpenInNew from '@mui/icons-material/OpenInNew'
 import { Title, useAuthenticated, useLogoutIfAccessDenied } from 'react-admin'
 import { Link as RouterLink, useSearchParams } from 'react-router-dom'
-import { beatportClient } from './catalog'
+import { beatportClient, beatportIdentities } from './catalog'
 import { formatLength } from './beatportFormat'
 import type { BeatportLabelItem, BeatportLabelPage, BeatportRef, BeatportReleaseDetail, BeatportReleaseItem, BeatportReleasePage, BeatportReleaseSearch, BeatportReleaseSort } from './catalog'
 
@@ -110,12 +110,12 @@ function Pager({ page, pageSize, total, onPage }: { page: number; pageSize: numb
   </Stack>
 }
 
-function ReleaseResults({ data, onLabel, onPage }: { data: BeatportReleasePage; onLabel: (id: number) => void; onPage: (page: number) => void }) {
+function ReleaseResults({ data, onLabel, onPage }: { data: BeatportReleasePage; onLabel?: (id: number) => void; onPage: (page: number) => void }) {
   const [expanded, setExpanded] = useState<number>()
   return <>
     <Typography>{data.total} Beatport releases</Typography>
     {!data.items.length && <Typography>No matching releases.</Typography>}
-    <Box sx={{ overflowX: 'auto' }}>
+    <Box sx={{ overflowX: 'auto', width: '100%', minWidth: 0, contain: 'inline-size' }}>
       <Table size="small" aria-label="Beatport releases">
         <TableHead><TableRow>
           <TableCell padding="checkbox">Tracks</TableCell><TableCell /><TableCell>Release</TableCell><TableCell>Label</TableCell>
@@ -135,7 +135,9 @@ function ReleaseResults({ data, onLabel, onPage }: { data: BeatportReleasePage; 
                 <Typography variant="body2" color="text.secondary">{names(item.artists)}{item.type ? ` · ${item.type}` : ''}{item.trackCount ? ` · ${item.trackCount} tracks` : ''}</Typography>
               </TableCell>
               <TableCell>{item.label && <Stack spacing={0.5} sx={{ alignItems: 'flex-start' }}>
-                <Button size="small" onClick={() => onLabel(item.label!.id)} aria-label={`Browse ${item.label.name} releases`} sx={{ textTransform: 'none', p: 0, minWidth: 0 }}>{item.label.name}</Button>
+                {onLabel
+                  ? <Button size="small" onClick={() => onLabel(item.label!.id)} aria-label={`Browse ${item.label.name} releases`} sx={{ textTransform: 'none', p: 0, minWidth: 0 }}>{item.label.name}</Button>
+                  : <Typography variant="body2">{item.label.name}</Typography>}
                 <CatalogLinks ids={item.catalogLabelIds} kind="labels" text="Catalog label" />
               </Stack>}</TableCell>
               <TableCell><Typography variant="body2">{item.catalogNumber ?? ''}</Typography><Typography variant="body2" color="text.secondary">{item.publishDate ?? ''}</Typography></TableCell>
@@ -180,10 +182,62 @@ function LabelFilter({ id, onClear }: { id: number; onClear: () => void }) {
 
 function SearchBox({ initial, label, onSearch }: { initial: string; label: string; onSearch: (value: string) => void }) {
   const [text, setText] = useState(initial)
-  return <Stack component="form" direction="row" spacing={1} sx={{ alignItems: 'center' }} aria-label="Search Beatport"
+  return <Stack component="form" direction="row" spacing={1} useFlexGap sx={{ alignItems: 'center', flexWrap: 'wrap', minWidth: 0 }} aria-label="Search Beatport"
     onSubmit={(event: FormEvent) => { event.preventDefault(); onSearch(text.trim()) }}>
     <TextField label={label} value={text} onChange={event => setText(event.target.value)} slotProps={{ htmlInput: { maxLength: 200 } }} />
     <Button type="submit" variant="contained">Search</Button>
+  </Stack>
+}
+
+export function EntityBeatportBrowse({ kind, name, externalReferences }: {
+  kind: 'label' | 'artist'; name: string | null | undefined
+  externalReferences?: readonly { source: string; externalId: string; isPrimary: boolean }[]
+}) {
+  const [params, setParams] = useSearchParams()
+  const identities = beatportIdentities(externalReferences)
+  const id = identities.find(ref => String(ref.id) === params.get('bpIdentity'))?.id ?? identities[0]?.id
+  const q = params.get('bpQ')?.trim() ?? ''
+  const sort = sorts.find(option => option.value === params.get('bpSort'))?.value ?? 'newest'
+  const pageNumber = Number(params.get('bpPage') ?? 1)
+  const page = Number.isSafeInteger(pageNumber) && pageNumber >= 1 && pageNumber <= 10000 ? pageNumber : 1
+  const update = (changes: Record<string, string | number | undefined>) => setParams(current => {
+    const next = new URLSearchParams(current)
+    for (const [key, value] of Object.entries(changes)) {
+      if (value === undefined || value === '') next.delete(key)
+      else next.set(key, String(value))
+    }
+    return next
+  })
+  const { data, error, loading } = useLoad<BeatportReleaseSearch, BeatportReleasePage>(id === undefined ? undefined
+    : { [kind === 'label' ? 'labelId' : 'artistId']: id, q: q || undefined, sort, page, pageSize: 25 }, loadReleases)
+
+  if (id === undefined) return <Alert severity="info">
+    This {kind} has no usable Beatport ID recorded. Add a verified Beatport external reference before browsing its releases; a name alone does not establish identity.
+  </Alert>
+
+  return <Stack spacing={2} sx={{ minWidth: 0, width: '100%' }}>
+    <Typography component="h2" variant="h6">Beatport releases for {name || `this ${kind}`}</Typography>
+    <Alert severity="info">Browse the store catalog without leaving this {kind}. Browsing is read-only; it does not add purchases or change your collection.</Alert>
+    <Stack direction="row" spacing={2} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
+      {identities.length > 1
+        ? <TextField select size="small" label="Beatport identity" value={id}
+          onChange={event => update({ bpIdentity: event.target.value, bpPage: undefined })} sx={{ minWidth: 170 }}>
+          {identities.map(ref => <MenuItem key={ref.id} value={ref.id}>{ref.id}{ref.isPrimary ? ' (primary)' : ''}</MenuItem>)}
+        </TextField>
+        : <Typography variant="body2">Beatport {kind} ID: {id}</Typography>}
+      <Button component="a" href={`https://www.beatport.com/${kind}/-/${id}`} target="_blank" rel="noopener noreferrer"
+        endIcon={<OpenInNew fontSize="small" />}>Open {kind} on Beatport</Button>
+    </Stack>
+    <Stack direction="row" spacing={2} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
+      <SearchBox key={q} initial={q} label="Release name" onSearch={value => update({ bpQ: value, bpPage: undefined })} />
+      <TextField select size="small" label="Order" value={sort}
+        onChange={event => update({ bpSort: event.target.value === 'newest' ? undefined : event.target.value, bpPage: undefined })} sx={{ minWidth: 150 }}>
+        {sorts.map(option => <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>)}
+      </TextField>
+    </Stack>
+    {loading && <LinearProgress aria-label="Loading Beatport results" />}
+    {error !== undefined && <Alert severity="error">{problem(error, 'Beatport search failed.')}</Alert>}
+    {data && <ReleaseResults data={data} onPage={next => update({ bpPage: next })} />}
   </Stack>
 }
 

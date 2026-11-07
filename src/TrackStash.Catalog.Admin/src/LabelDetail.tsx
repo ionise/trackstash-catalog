@@ -1,5 +1,7 @@
 import { useState } from 'react'
-import { Link as RouterLink } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
+import { EntityBeatportBrowse } from './BeatportBrowse'
+import { beatportIdentities } from './catalog'
 import { LabelArtists } from './Artists'
 import type { ReactNode } from 'react'
 import {
@@ -63,8 +65,8 @@ function Favourite({ record }: { record: LabelRecord }) {
 }
 
 function Header({ record, artwork }: { record: LabelRecord; artwork: LabelArtworkState }) {
-  const beatportRefs = (record.externalReferences ?? []).filter(ref => ref.source === 'beatport' && /^[1-9][0-9]*$/.test(ref.externalId))
-  const beatportId = (beatportRefs.find(ref => ref.isPrimary) ?? beatportRefs[0])?.externalId
+  const [, setParams] = useSearchParams()
+  const hasBeatportIdentity = beatportIdentities(record.externalReferences).length > 0
   const preferred = artwork.gallery?.items.find(item => item.isPreferred)
   const country = countryPresentation(record.profile?.countryCode)
   const profile = record.profile
@@ -92,7 +94,12 @@ function Header({ record, artwork }: { record: LabelRecord; artwork: LabelArtwor
     <Stack spacing={2} sx={{ flex: 1, minWidth: 0 }}>
       <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start', justifyContent: 'space-between' }}>
         <Typography component="h1" variant="h4" sx={{ overflowWrap: 'anywhere', fontWeight: 600 }}>{record.name || 'Unnamed label'}</Typography>
-        <Stack direction="row" sx={{ flexShrink: 0 }}>{beatportId && <Button size="small" component={RouterLink} to={`/beatport?labelId=${beatportId}`}>Browse on Beatport</Button>}<EditButton /><LabelMerge /></Stack>
+        <Stack direction="row" useFlexGap sx={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          {hasBeatportIdentity && <Button size="small" onClick={() => setParams(current => {
+            const next = new URLSearchParams(current); next.set('tab', 'Beatport'); return next
+          })}>Browse on Beatport</Button>}
+          <EditButton /><LabelMerge />
+        </Stack>
       </Stack>
       <Stack direction="row" useFlexGap spacing={1} sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
         <Favourite record={record} />
@@ -121,13 +128,17 @@ function Header({ record, artwork }: { record: LabelRecord; artwork: LabelArtwor
   </Stack>
 }
 
-const sections = ['Releases', 'Artists', 'Tracks', 'Details', 'Relationships']
+const sections = ['Releases', 'Artists', 'Tracks', 'Details', 'Relationships', 'Beatport']
 
 function RelatedContent({ children }: { children: ReactNode }) {
-  const [tab, setTab] = useState(0)
+  const [params, setParams] = useSearchParams()
+  const selected = sections.indexOf(params.get('tab') ?? 'Releases')
+  const tab = selected < 0 ? 0 : selected
   const record = useRecordContext<LabelRecord>()
   return <Box component="section" aria-label="Related content" sx={{ minWidth: 0, width: '100%' }}>
-    <Tabs value={tab} onChange={(_, value: number) => setTab(value)} aria-label="Label related content"
+    <Tabs value={tab} onChange={(_, value: number) => setParams(current => {
+      const next = new URLSearchParams(current); next.set('tab', sections[value]); return next
+    })} aria-label="Label related content"
       variant="scrollable" scrollButtons="auto" allowScrollButtonsMobile
       sx={{ minWidth: 0, maxWidth: '100%', width: '100%', contain: 'inline-size' }}>
       {sections.map((name, index) => <Tab key={name} id={`label-tab-${index}`} aria-controls={`label-panel-${index}`}
@@ -135,7 +146,7 @@ function RelatedContent({ children }: { children: ReactNode }) {
     </Tabs>
     {sections.map((name, index) => <Box key={name} role="tabpanel" hidden={tab !== index}
       id={`label-panel-${index}`} aria-labelledby={`label-tab-${index}`} sx={{ py: 3, minWidth: 0 }}>
-      {name === 'Releases' ? tab === index && record && <LabelReleases key={record.id} labelId={record.id} /> : name === 'Artists' ? tab === index && record && <LabelArtists key={record.id} labelId={record.id} /> : name === 'Tracks' ? tab === index && record && <LocalTrackList key={record.id} filter={{ labelId: record.id }} context="label" label="Label tracks" /> : name === 'Details' ? children : <Stack spacing={3} sx={{ minWidth: 0 }}>
+      {name === 'Releases' ? tab === index && record && <LabelReleases key={record.id} labelId={record.id} /> : name === 'Artists' ? tab === index && record && <LabelArtists key={record.id} labelId={record.id} /> : name === 'Tracks' ? tab === index && record && <LocalTrackList key={record.id} filter={{ labelId: record.id }} context="label" label="Label tracks" /> : name === 'Beatport' ? tab === index && record && <EntityBeatportBrowse key={record.id} kind="label" name={record.name} externalReferences={record.externalReferences} /> : name === 'Details' ? children : <Stack spacing={3} sx={{ minWidth: 0 }}>
         <LabelRelationships />
         <LabelGroupSections />
       </Stack>}

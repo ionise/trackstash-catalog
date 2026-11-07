@@ -16,7 +16,7 @@ test('Artist menu, label credits, linked Release credits and paged track appeara
   await expect(list.getByRole('row')).toHaveCount(2)
   await list.getByRole('link', { name: 'Fixture Composer', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Fixture Composer', level: 1, exact: true })).toBeVisible()
-  await expect(page.getByRole('tab')).toHaveText(['Featured', 'Tracks', 'Releases', 'Associations', 'Details'])
+  await expect(page.getByRole('tab')).toHaveText(['Featured', 'Tracks', 'Releases', 'Associations', 'Details', 'Beatport'])
   await page.getByRole('tab', { name: 'Tracks', exact: true }).click()
   const tracks = page.getByRole('table', { name: 'Artist track credits', exact: true })
   await expect(tracks.getByRole('row')).toHaveCount(26)

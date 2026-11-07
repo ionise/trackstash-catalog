@@ -128,7 +128,7 @@ test.describe('narrow touch relationship review', () => {
     await expect(dialog.getByRole('alert')).toContainText('cycle')
     expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
     await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
-    await expect(page.getByRole('tab')).toHaveText(['Releases', 'Artists', 'Tracks', 'Details', 'Relationships'])
+    await expect(page.getByRole('tab')).toHaveText(['Releases', 'Artists', 'Tracks', 'Details', 'Relationships', 'Beatport'])
     const response = await request.get(`/api/v1/labels/${parent.id}/relationships`, { headers })
     expect((await response.json()).items).toHaveLength(1) // The existing incoming edge was not replaced.
   })

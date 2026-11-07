@@ -266,6 +266,14 @@ export interface BeatportLabelItem { id: number; name: string; imageUrl: string 
 export interface BeatportLabelPage { items: BeatportLabelItem[]; total: number; page: number; pageSize: number }
 export type BeatportReleaseSort = 'newest' | 'oldest' | 'name'
 export interface BeatportReleaseSearch { q?: string; labelId?: number; artistId?: number; sort?: BeatportReleaseSort; page?: number; pageSize?: number }
+
+export function beatportIdentities(references: readonly { source: string; externalId: string; isPrimary: boolean }[] = []) {
+  return references.filter(ref => ref.source === 'beatport' && /^[1-9][0-9]*$/.test(ref.externalId) && Number.isSafeInteger(Number(ref.externalId)))
+    .sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary))
+    .map(ref => ({ id: Number(ref.externalId), isPrimary: ref.isPrimary }))
+    .filter((ref, index, refs) => refs.findIndex(candidate => candidate.id === ref.id) === index)
+}
+
 export interface BeatportBackfillJob {
   id: string; status: 'queued' | 'running' | 'completed' | 'cancelled' | 'failed'; createdUtc: string
   totalReleases: number; processedReleases: number; completedReleases: number; tracksFetched: number; tracksNotFound: number

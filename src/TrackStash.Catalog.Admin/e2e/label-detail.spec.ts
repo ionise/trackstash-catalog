@@ -36,7 +36,7 @@ test('label header, local flag, links and favourite preserve the full profile an
       externalRequests.push(request.url())
   })
   await login(page, label.id)
-  await expect(page.getByRole('tab')).toHaveText(['Releases', 'Artists', 'Tracks', 'Details', 'Relationships'])
+  await expect(page.getByRole('tab')).toHaveText(['Releases', 'Artists', 'Tracks', 'Details', 'Relationships', 'Beatport'])
   await expect(page.getByRole('region', { name: 'Label relationships' })).toBeHidden()
   await expect(page.getByRole('region', { name: 'Label groups and families' })).toBeHidden()
   await page.getByRole('tab', { name: 'Relationships', exact: true }).click()
