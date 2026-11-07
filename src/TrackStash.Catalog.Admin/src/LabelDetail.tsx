@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { EntityBeatportBrowse } from './BeatportBrowse'
+import { NamedEntityEnrichment } from './RecordingEnrichment'
 import { beatportIdentities } from './catalog'
 import { LabelArtists } from './Artists'
 import type { ReactNode } from 'react'
@@ -167,6 +168,7 @@ export function LabelDetail() {
     <Divider />
     <RelatedContent key={record.id}>
     <Stack spacing={3} sx={{ minWidth: 0 }}>
+    <NamedEntityEnrichment id={record.id} resource="labels" />
     <Box component="section" aria-label="Artwork gallery">{gallery}</Box>
     <Box component="section" aria-label="Personal notes">
       <Typography variant="h6" component="h2" gutterBottom>Personal notes</Typography>

@@ -45,7 +45,8 @@ internal sealed class ApiExceptionHandler(ILogger<ApiExceptionHandler> logger) :
     {
         var (status, code, title, detail, field) = exception switch
         {
-            EnrichmentRequestException enrichment => (enrichment.Code == "recording_not_found" ? 404
+            EnrichmentApplyException apply => (apply.Status, apply.Code, "Enrichment update not completed", (string?)apply.Message, (string?)null),
+            EnrichmentRequestException enrichment => (enrichment.Code is "recording_not_found" or "artist_not_found" or "label_not_found" or "release_not_found" ? 404
                 : enrichment.Code == "enrichment_provider_unavailable" ? 503 : 400,
                 enrichment.Code, "Enrichment lookup not completed", (string?)enrichment.Message, (string?)null),
             SonoVaultLookupException lookup => (lookup.Code switch

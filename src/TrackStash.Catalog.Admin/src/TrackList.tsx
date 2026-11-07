@@ -64,7 +64,7 @@ function columns(context: TrackContext, grouped: boolean, offset: number): Colum
       </Box>}
       <Stack spacing={0.5} sx={{ minWidth: 220, flex: 1 }}>
         <TrackTitleArtists title={track.title} mixName={track.mixName} credits={trackContributors(track.credits, track.recordingCredits)}
-          to={context === 'recording' ? undefined : `/recordings/${encodeURIComponent(track.recordingId)}/show`} />
+          to={context === 'recording' ? undefined : `/recordings/${encodeURIComponent(track.recordingId)}/show${track.releaseId ? `?${new URLSearchParams({ releaseId: track.releaseId })}` : ''}`} />
         <TrackDetails track={track} grouped={grouped} />
       </Stack>
     </Stack> },
@@ -73,11 +73,14 @@ function columns(context: TrackContext, grouped: boolean, offset: number): Colum
       {track.labels.length ? <Stack>{track.labels.map(label => <Tooltip describeChild key={label.id} title={`View Label: ${label.name ?? 'Unnamed Label'}${label.isPrimary ? ' (primary label)' : ''}`}>
         <Link to={`/labels/${encodeURIComponent(label.id)}/show`}>{label.name ?? 'Unnamed Label'}</Link>
       </Tooltip>)}</Stack> : <Typography variant="body2" color="text.secondary">Not recorded</Typography>}
-      <Typography variant="body2" color="text.secondary">{[track.genre, track.subgenre].filter(Boolean).join(' / ') || 'Genre not available'}</Typography>
+      <Typography variant="body2" color="text.secondary">{[track.musicalMetadata?.genres?.join(', ') || track.genre,
+        track.musicalMetadata?.subgenres?.join(', ') || track.subgenre].filter(Boolean).join(' / ') || 'Genre not available'}</Typography>
+      {track.musicalMetadata?.preferredGenre && <Typography variant="body2">Preferred: {track.musicalMetadata.preferredGenre}</Typography>}
     </> },
     { id: 'date', header: 'Release date', cell: muted, render: track => track.publishDate ?? track.newReleaseDate ?? 'Not available' },
-    { id: 'bpm', header: 'BPM', cell: muted, render: track => track.bpm ?? '—' },
-    { id: 'key', header: 'Key', cell: muted, render: track => track.keyName ?? '—' },
+    { id: 'bpm', header: 'BPM', cell: muted, render: track => track.musicalMetadata?.bpm ?? track.bpm ?? '—' },
+    { id: 'key', header: 'Key', cell: muted, render: track => track.musicalMetadata?.keyValue
+      ? `${track.musicalMetadata.keyValue} (${track.musicalMetadata.keyNotation})` : track.keyName ?? '—' },
     { id: 'length', header: 'Length', cell: muted, render: track => formatDuration(track.durationMs) },
     { id: 'releases', header: 'Releases', cell: muted, render: track => track.releaseCount },
   ]

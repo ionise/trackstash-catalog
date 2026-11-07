@@ -8,7 +8,8 @@ public sealed record ReleaseContributorDetail(string ArtistId, string? ArtistNam
 public sealed record ReleaseReferenceDetail(string Source, string ExternalId, bool IsPrimary);
 public sealed record CatalogReleaseDetail(string Id, string? Title, string Version, string? CatalogNumber, string? Upc,
     string? PublishDate, string? NewReleaseDate, IReadOnlyList<ReleaseLabelDetail> Labels,
-    IReadOnlyList<ReleaseContributorDetail> Credits, IReadOnlyList<ReleaseReferenceDetail> ExternalReferences);
+    IReadOnlyList<ReleaseContributorDetail> Credits, IReadOnlyList<ReleaseReferenceDetail> ExternalReferences,
+    CatalogMusicalMetadata? MusicalMetadata = null);
 public sealed record ReleaseTrackDetail(string PlacementId, string RecordingId, string? Title, string? MixName,
     string? Isrc, long? DurationMs, int DisplayOrder, int? SourcePosition, string OrderSource, int? DiscNumber, int? TrackNumber,
     IReadOnlyList<ReleaseContributorDetail> Credits, IReadOnlyList<ReleaseReferenceDetail> ExternalReferences,
@@ -83,7 +84,9 @@ public sealed class ReleaseService(IStorageProvider storage) : IReleaseService
         return new(release.Id, release.Title ?? release.Name, release.Version, release.CatalogNumber, release.Upc,
             release.PublishDate, release.NewReleaseDate, labels,
             await Credits(unit, credits, [], cancellationToken).ConfigureAwait(false),
-            release.ExternalReferences.Select(r => new ReleaseReferenceDetail(r.Source, r.ExternalId, r.IsPrimary)).ToArray());
+            release.ExternalReferences.Select(r => new ReleaseReferenceDetail(r.Source, r.ExternalId, r.IsPrimary)).ToArray(),
+            await storage.Migrations.GetCurrentVersionAsync(cancellationToken).ConfigureAwait(false) >= 13 && unit.Enrichment is { } enrichment
+                ? await enrichment.GetMetadataAsync(CatalogEntityKind.Release, id, cancellationToken).ConfigureAwait(false) : null);
     }
     public async ValueTask<ReleaseTrackPage?> TracksAsync(string id, ReleaseQuery query, CancellationToken cancellationToken = default)
     {

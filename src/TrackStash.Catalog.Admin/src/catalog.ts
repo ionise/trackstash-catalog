@@ -119,12 +119,14 @@ export interface GroupedArtistAppearance {
   bpm?: number | null
   bpmMax?: number | null
   keyName?: string | null
+  musicalMetadata?: CatalogMusicalMetadata | null
 }
 export interface ReleaseDetail {
   id: string; title: string | null; version: string; catalogNumber: string | null; upc: string | null
   publishDate: string | null; newReleaseDate: string | null
   labels: { id: string; name: string | null; role: string | null; isPrimary: boolean }[]
   credits: ReleaseCredit[]; externalReferences: { source: string; externalId: string; isPrimary: boolean }[]
+  musicalMetadata?: CatalogMusicalMetadata | null
 }
 export interface ReleaseTrack {
   placementId: string; recordingId: string; title: string | null; mixName: string | null; isrc: string | null
@@ -142,10 +144,22 @@ export interface CatalogTrack {
   externalReferences: { source: string; externalId: string; isPrimary: boolean }[]
   artistCredits: { role: string; scope: string; creditedName: string | null }[]
   genre?: string | null; subgenre?: string | null; bpm?: number | null; keyName?: string | null
+  musicalMetadata?: CatalogMusicalMetadata | null
 }
 export interface RecordingDetail {
   id: string; title: string | null; mixName: string | null; isrc: string | null; durationMs: number | null; version: string
   credits: ReleaseCredit[]; externalReferences: { source: string; externalId: string; isPrimary: boolean }[]; releaseCount: number
+  musicalMetadata?: CatalogMusicalMetadata | null
+}
+export interface CatalogMusicalMetadata {
+  bpm: number | null; keyValue: string | null; keyNotation: string | null
+  genres: string[] | null; subgenres: string[] | null; preferredGenre: string | null
+}
+export interface EnrichmentApplyOutcome { reviewId: string; entityId: string; appliedAt: string; fields: string[] }
+export interface EnrichmentReview {
+  id: string; version: string; entityKind: string; entityId: string; createdAt: string; etag: string
+  candidate: EnrichmentLookup['candidates'][number]; fields: { field: string; label: string; current: unknown; proposed: unknown }[]
+  warnings: string[]; outcome: EnrichmentApplyOutcome | null
 }
 export interface ImportPreview {
   operationId: string; expiresUtc: string; sourceReleaseId: number; title: string | null
@@ -256,13 +270,28 @@ export interface EnrichmentMetadata {
   bpm: number | null; musicalKey: { value: string; notation: string } | null
   genre: string | null; labelName: string | null; catalogNumber: string | null; releaseDate: string | null
   genres?: string[] | null; subgenres?: string[] | null
+  country?: string | null; formationYear?: number | null; formationDate?: string | null
+  socialLinks?: Record<string, string> | null
+  releaseDetails?: {
+    reportedReleaseDate: string | null; selectedEditionId: string | null
+    musicBrainzReleaseIds?: string[] | null; musicBrainzReleaseGroupIds?: string[] | null
+    editions: { id: string; source: string; externalId: string; title: string | null; format: string | null
+      releaseDate: string | null; datePrecision: string | null; catalogNumber: string | null
+      barcode: string | null; labelName: string | null; trackCount: number | null }[]
+    tracks: { id: string; title: string; isrc: string | null; discNumber: number | null; trackNumber: number | null
+      credits: { name: string; role: string }[] }[]
+  } | null
   externalReferences: { source: string; externalId: string }[] | null
   credits: { name: string; role: string; reference: { source: string; externalId: string } | null }[] | null
 }
 export interface EnrichmentLookup {
   providerId: string; retrievedAt: string
   query: { catalogId: string; catalogVersion: string; name: string | null; mixName: string | null
-    isrc: string | null; durationMs: number | null; artistNames: string[] }
+    isrc: string | null; durationMs: number | null; artistNames: string[]
+    labelNames?: string[] | null; labelName?: string | null; catalogNumber?: string | null
+    catalogPublishDate?: string | null; lookupCandidateId?: string | null; lookupEditionId?: string | null
+    catalogMusicalMetadata?: CatalogMusicalMetadata | null
+    externalReferences?: { source: string; externalId: string }[] }
   candidates: { providerId: string; candidateId: string; editionId: string | null; revision: string | null
     match: { basis: string; explanation: string; conflicts: string[] }; metadata: EnrichmentMetadata
     evidence: { field: string; source: string; sourceRecordId: string | null; sourceUrl: string | null; retrievedAt: string; attribution: string | null }[] }[]
@@ -311,7 +340,7 @@ export function createCatalogClient(fetcher: typeof fetch = fetch) {
       const problem: Problem = await response.json()
       const message = response.status === 404 && (resource === 'backup-sources' || resource === 'backups' && (path === '' || path.startsWith('?')))
         ? 'The running catalog API does not provide backup support. Restart the API with the updated backend, then refresh backups.'
-        : response.status === 412 && problem.code !== 'merge_state_changed' && problem.code !== 'relationship_state_changed' && problem.code !== 'group_state_changed'
+        : response.status === 412 && problem.code !== 'merge_state_changed' && problem.code !== 'relationship_state_changed' && problem.code !== 'group_state_changed' && problem.code !== 'enrichment_state_changed'
         ? resource === 'artists'
           ? 'This Artist changed since you opened it. Your edit was not saved. Reload the profile or artwork before editing again.'
           : resource === 'releases'
@@ -471,10 +500,14 @@ export function createCatalogClient(fetcher: typeof fetch = fetch) {
     ...artworkFor('releases'),
     candidates: async (id: string, signal?: AbortSignal): Promise<ArtworkCandidates> =>
       (await request(`/${encodeURIComponent(id)}/artwork-candidates`, { signal }, 'releases')).json(),
-    attach: async (id: string, etag: string, candidate: ArtworkCandidate, usageRights: string, confirmed: boolean) =>
+    preview: async (id: string, candidate: ArtworkCandidate, signal?: AbortSignal): Promise<Blob> =>
+      (await request(`/${encodeURIComponent(id)}/artwork-candidates/preview?${new URLSearchParams({
+        provider: candidate.provider, candidateId: candidate.candidateId, revision: candidate.revision,
+      })}`, { signal }, 'releases')).blob(),
+    attach: async (id: string, etag: string, candidate: ArtworkCandidate, usageRights: string, confirmed: boolean, isPreferred = true) =>
       gallery(await request(`/${encodeURIComponent(id)}/artwork-candidates/attach`, {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'If-Match': etag },
-        body: JSON.stringify({ provider: candidate.provider, candidateId: candidate.candidateId, revision: candidate.revision, usageRights, confirmed }),
+        body: JSON.stringify({ provider: candidate.provider, candidateId: candidate.candidateId, revision: candidate.revision, usageRights, confirmed, isPreferred }),
       }, 'releases')),
   }
   async function relationships(response: Response): Promise<LabelRelationships> {
@@ -603,11 +636,36 @@ export function createCatalogClient(fetcher: typeof fetch = fetch) {
     tracks: async (id: string, page: number, signal?: AbortSignal): Promise<GroupPage<ReleaseTrack>> =>
       (await request(`/${encodeURIComponent(id)}/tracks?page=${page}&pageSize=25`, { signal }, 'releases')).json(),
   }
+  const enrichmentClient = {
+    prepare: async (resource: 'recordings' | 'releases', id: string, candidateId: string, editionId: string | null,
+      catalogVersion: string, signal?: AbortSignal, provider: 'sonovault' | 'beatport' = 'sonovault'): Promise<EnrichmentReview> => {
+      const response = await request(`/${encodeURIComponent(id)}/enrichment/${provider}/reviews`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ candidateId, editionId, catalogVersion }), signal,
+      }, resource)
+      const etag = response.headers.get('ETag')
+      if (!etag) throw new Error('Enrichment review is missing its ETag; applying is unavailable.')
+      return { ...await response.json(), etag }
+    },
+    apply: async (review: EnrichmentReview, fields: string[], preferredGenre: string | null, reason: string,
+      confirmed: boolean, signal?: AbortSignal): Promise<EnrichmentApplyOutcome> =>
+      (await request(`/${encodeURIComponent(review.id)}/apply`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'If-Match': review.etag },
+        body: JSON.stringify({ fields, preferredGenre, reason, confirmed }), signal,
+      }, 'enrichment-reviews')).json(),
+    lookup: async (resource: 'recordings' | 'artists' | 'labels' | 'releases', id: string, signal?: AbortSignal, provider: 'sonovault' | 'beatport' = 'sonovault'): Promise<EnrichmentLookup> =>
+      (await request(`/${encodeURIComponent(id)}/enrichment/${provider}`, { method: 'POST', signal }, resource)).json(),
+    releaseCandidate: async (id: string, candidateId: string, editionId?: string, signal?: AbortSignal, provider: 'sonovault' | 'beatport' = 'sonovault'): Promise<EnrichmentLookup> => {
+      const query = editionId === undefined ? '' : `?${new URLSearchParams({ editionId })}`
+      return (await request(`/${encodeURIComponent(id)}/enrichment/${provider}/candidates/${encodeURIComponent(candidateId)}${query}`,
+        { method: 'POST', signal }, 'releases')).json()
+    },
+  }
   const trackClient = {
     list: async (query: URLSearchParams, signal?: AbortSignal): Promise<GroupPage<CatalogTrack>> =>
       (await request(`?${query}`, { signal }, 'tracks')).json(),
     enrichment: async (id: string, signal?: AbortSignal): Promise<EnrichmentLookup> =>
-      (await request(`/${encodeURIComponent(id)}/enrichment/sonovault`, { method: 'POST', signal }, 'recordings')).json(),
+      enrichmentClient.lookup('recordings', id, signal),
     recording: async (id: string, signal?: AbortSignal): Promise<RecordingDetail> =>
       (await request(`/${encodeURIComponent(id)}`, { signal }, 'recordings')).json(),
   }
@@ -635,7 +693,7 @@ export function createCatalogClient(fetcher: typeof fetch = fetch) {
     credits: async (id: string, tracks: boolean, page: number, signal?: AbortSignal): Promise<GroupPage<ArtistAppearance>> =>
       (await request(`/${encodeURIComponent(id)}/${tracks ? 'tracks' : 'releases'}?page=${page}&pageSize=25`, { signal }, 'artists')).json(),
   }
-  return { dataProvider, authProvider, mergeClient, artworkClient, releaseArtworkClient, artistArtworkClient, backupsClient, relationshipsClient, groupClient, beatportClient, purchaseReleaseClient, releaseImportClient, releaseClient, artistClient, trackClient }
+  return { dataProvider, authProvider, mergeClient, artworkClient, releaseArtworkClient, artistArtworkClient, backupsClient, relationshipsClient, groupClient, beatportClient, purchaseReleaseClient, releaseImportClient, releaseClient, artistClient, trackClient, enrichmentClient }
 }
 
-export const { dataProvider, authProvider, mergeClient, artworkClient, releaseArtworkClient, artistArtworkClient, backupsClient, relationshipsClient, groupClient, beatportClient, purchaseReleaseClient, releaseImportClient, releaseClient, artistClient, trackClient } = createCatalogClient()
+export const { dataProvider, authProvider, mergeClient, artworkClient, releaseArtworkClient, artistArtworkClient, backupsClient, relationshipsClient, groupClient, beatportClient, purchaseReleaseClient, releaseImportClient, releaseClient, artistClient, trackClient, enrichmentClient } = createCatalogClient()

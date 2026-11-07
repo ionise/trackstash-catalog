@@ -20,7 +20,7 @@ public sealed record ReleaseReferenceResponse(string Source, string ExternalId, 
 /// <summary>Canonical release metadata, label links and release-level credits.</summary>
 public sealed record ReleaseResponse(string Id, string? Title, string Version, string? CatalogNumber, string? Upc, string? PublishDate,
     string? NewReleaseDate, IReadOnlyList<ReleaseLabelResponse> Labels, IReadOnlyList<ReleaseCreditResponse> Credits,
-    IReadOnlyList<ReleaseReferenceResponse> ExternalReferences);
+    IReadOnlyList<ReleaseReferenceResponse> ExternalReferences, CatalogMusicalMetadata? MusicalMetadata = null);
 /// <summary>A stable release placement of a Recording, including listing credits and separate display/source/official numbering.</summary>
 public sealed record ReleaseTrackResponse(string PlacementId, string RecordingId, string? Title, string? MixName,
     string? Isrc, long? DurationMs, int DisplayOrder, int? SourcePosition, string OrderSource, int? DiscNumber, int? TrackNumber,
@@ -74,7 +74,7 @@ internal static class ReleaseEndpoints
         Headers(context); context.Response.Headers.ETag = LabelRequests.ETag(result.Version);
         return TypedResults.Ok(new ReleaseResponse(result.Id, result.Title, result.Version, result.CatalogNumber, result.Upc, result.PublishDate,
             result.NewReleaseDate, result.Labels.Select(l => new ReleaseLabelResponse(l.Id, l.Name, l.Role, l.IsPrimary)).ToArray(),
-            result.Credits.Select(Credit).ToArray(), result.ExternalReferences.Select(Reference).ToArray()));
+            result.Credits.Select(Credit).ToArray(), result.ExternalReferences.Select(Reference).ToArray(), result.MusicalMetadata));
     }
     private static async Task<IResult> Tracks(string id, HttpContext context, IReleaseService service, CancellationToken ct)
     {

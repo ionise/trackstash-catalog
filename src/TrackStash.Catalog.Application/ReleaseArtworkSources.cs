@@ -22,7 +22,9 @@ public interface IReleaseArtworkSourceService
 {
     ValueTask<ReleaseArtworkCandidatePage> FindAsync(string releaseId, CancellationToken ct = default);
     ValueTask<ArtworkWriteResult> AttachAsync(string releaseId, string version, string provider, string candidateId,
-        string revision, string usageRights, bool confirmed, CancellationToken ct = default);
+        string revision, string usageRights, bool confirmed, CancellationToken ct = default, bool isPreferred = true);
+    ValueTask<ReleaseArtworkCandidateContent> PreviewAsync(string releaseId, string provider, string candidateId,
+        string revision, CancellationToken ct = default);
 }
 
 public sealed class ReleaseArtworkSourceService(IReleaseService releases, IArtworkService artwork,
@@ -70,7 +72,7 @@ public sealed class ReleaseArtworkSourceService(IReleaseService releases, IArtwo
         return new(_providers.Select(p => p.Name).ToArray(), items);
     }
     public async ValueTask<ArtworkWriteResult> AttachAsync(string releaseId, string version, string provider, string candidateId,
-        string revision, string usageRights, bool confirmed, CancellationToken ct = default)
+        string revision, string usageRights, bool confirmed, CancellationToken ct = default, bool isPreferred = true)
     {
         if (!confirmed || string.IsNullOrWhiteSpace(usageRights) || usageRights.Length > 2000 ||
             string.IsNullOrWhiteSpace(candidateId) || candidateId.Length > 200 || string.IsNullOrWhiteSpace(revision) || revision.Length > 200 ||
@@ -92,7 +94,24 @@ public sealed class ReleaseArtworkSourceService(IReleaseService releases, IArtwo
         catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
         { throw new ReleaseArtworkUnavailableException("Artwork provider download timed out. No artwork was attached.", ex); }
         return await artwork.UploadReleaseAsync(releaseId, version, new(content.Bytes, content.Filename, candidate.SourceUrl,
-            candidate.Attribution, usageRights, "cover", candidate.Title, true,
+            candidate.Attribution, usageRights, "cover", candidate.Title, isPreferred,
             Source: new(candidate.Provider, candidate.CandidateId, candidate.Revision)), ct).ConfigureAwait(false);
+    }
+
+    public async ValueTask<ReleaseArtworkCandidateContent> PreviewAsync(string releaseId, string provider, string candidateId,
+        string revision, CancellationToken ct = default)
+    {
+        ValidateProviders();
+        if (await artwork.GetReleaseAsync(releaseId, ct).ConfigureAwait(false) is null) throw new ReleaseArtworkNotFoundException();
+        var adapter = _providers.SingleOrDefault(p => p.Name == provider)
+            ?? throw new ReleaseArtworkUnavailableException("Artwork provider is not configured.");
+        var query = await Query(releaseId, ct).ConfigureAwait(false);
+        var candidate = (await Candidates(adapter, query, ct).ConfigureAwait(false))
+            .SingleOrDefault(c => c.CandidateId == candidateId && c.Revision == revision)
+            ?? throw new ReleaseArtworkUnavailableException("Artwork candidate changed. Look up candidates again.");
+        try { return await adapter.ReadAsync(query, candidate, ct).ConfigureAwait(false); }
+        catch (HttpRequestException ex) { throw new ReleaseArtworkUnavailableException("Artwork preview download failed.", ex); }
+        catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
+        { throw new ReleaseArtworkUnavailableException("Artwork preview download timed out.", ex); }
     }
 }

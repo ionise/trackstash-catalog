@@ -65,6 +65,21 @@ internal static class ArtworkEndpoints
         app.MapGet("/api/v1/releases/{id}/artwork-candidates", CandidatesAsync).WithTags("Artwork").WithName("FindReleaseArtworkCandidates")
             .WithSummary("Explicitly query configured artwork adapters; none are enabled by default")
             .Produces<ReleaseArtworkCandidatesResponse>().ProducesProblem(404).ProducesProblem(409);
+        app.MapGet("/api/v1/releases/{id}/artwork-candidates/preview",
+            async (string id, string provider, string candidateId, string revision, HttpContext context,
+             IReleaseArtworkSourceService sources, IArtworkImageProcessor images, CancellationToken ct) =>
+            {
+             if (provider.Length > 100 || candidateId.Length > 200 || revision.Length > 200)
+                 throw new ArgumentException("Artwork candidate identifiers exceed supported limits.");
+             var content = await sources.PreviewAsync(id, provider, candidateId, revision, ct);
+             var processed = await images.ProcessAsync(content.Bytes, ct);
+             context.Response.Headers.CacheControl = "no-store";
+             context.Response.Headers.XContentTypeOptions = "nosniff";
+             context.Response.Headers.ContentSecurityPolicy = "default-src 'none'; sandbox";
+             return TypedResults.Bytes(processed.Thumbnail, "image/jpeg");
+            }).WithTags("Artwork").WithName("PreviewReleaseArtworkCandidate")
+            .WithSummary("Explicitly download and validate a thumbnail of a release-scoped artwork candidate")
+            .Produces(200, contentType: "image/jpeg").ProducesProblem(400).ProducesProblem(404).ProducesProblem(409);
         app.MapPost("/api/v1/releases/{id}/artwork-candidates/attach", AttachAsync).WithTags("Artwork").WithName("AttachReleaseArtworkCandidate")
             .WithSummary("Explicitly materialize a provider candidate as managed artwork after rights confirmation")
             .Accepts<AttachReleaseArtworkRequest>("application/json").Produces<ReleaseArtworkResponse>(201)
@@ -271,10 +286,13 @@ internal static class ArtworkEndpoints
     private static async Task<IResult> AttachAsync(string id, HttpContext context, IReleaseArtworkSourceService service, CancellationToken ct)
     {
         var version = LabelRequests.ExpectedVersion(context.Request);
-        var fields = await LabelRequests.FieldsAsync(context.Request, "application/json", ct, ["provider", "candidateId", "revision", "usageRights", "confirmed"]);
+        var fields = await LabelRequests.FieldsAsync(context.Request, "application/json", ct, ["provider", "candidateId", "revision", "usageRights", "confirmed", "isPreferred"]);
+        if (fields.TryGetValue("isPreferred", out var selection) && selection.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+            throw new ArgumentException("isPreferred must be a boolean.");
         var result = await service.AttachAsync(id, version, LabelRequests.RequiredString(fields, "provider"),
             LabelRequests.RequiredString(fields, "candidateId"), LabelRequests.RequiredString(fields, "revision"),
-            LabelRequests.RequiredString(fields, "usageRights"), fields.TryGetValue("confirmed", out var value) && value.ValueKind == JsonValueKind.True, ct);
+            LabelRequests.RequiredString(fields, "usageRights"), fields.TryGetValue("confirmed", out var value) && value.ValueKind == JsonValueKind.True, ct,
+            !fields.TryGetValue("isPreferred", out var preferred) || preferred.ValueKind == JsonValueKind.True);
         return WriteResult(context, result, true, true);
     }
     private static async Task<IResult> ReplaceReleaseAsync(string id, HttpContext context, IArtworkService service, CancellationToken ct)

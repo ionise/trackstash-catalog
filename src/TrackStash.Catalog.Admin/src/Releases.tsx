@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, ButtonBase, Chip, Divider, IconButton, SvgIcon, Tooltip, LinearProgress, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material'
+import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, ButtonBase, Chip, Divider, IconButton, SvgIcon, Tooltip, LinearProgress, Stack, Tab, Tabs, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material'
+import type { ReactNode } from 'react'
 import AlbumIcon from '@mui/icons-material/Album'
 import CameraAltIcon from '@mui/icons-material/CameraAlt'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
@@ -12,6 +13,8 @@ import { ArtistCreditName } from './Artists'
 import { siBeatport } from 'simple-icons'
 import { releaseLinks, linkPresentation } from './labelPresentation'
 import { LocalTrackList } from './TrackList'
+import { NamedEntityEnrichment } from './RecordingEnrichment'
+import { MusicalMetadata } from './MusicalMetadata'
 
 function Pager({ page, total, onPage }: { page: number; total: number; onPage: (page: number) => void }) {
   return <Stack direction="row" spacing={2} useFlexGap sx={{ alignItems: 'center', my: 2, flexWrap: 'wrap' }}>
@@ -98,7 +101,29 @@ function Credits({ items }: { items: ReleaseCredit[] }) {
     {credit.identityStatus === 'unresolved_compound' && ' [unresolved compound]'}
   </li>)}</ul> : <Typography color="text.secondary">No credits recorded in this scope.</Typography>
 }
+function ReleaseTabs({ id, children, revision }: { id: string; children: ReactNode; revision: number }) {
+  const [params, setParams] = useSearchParams()
+  const tab = params.get('tab') === 'Details' ? 'Details' : 'Tracks'
+  const [visited, setVisited] = useState([tab])
+  if (!visited.includes(tab)) setVisited([...visited, tab])
+  return <Box sx={{ minWidth: 0, width: '100%' }}>
+    <Tabs value={tab} onChange={(_, value: string) => setParams(current => {
+      const next = new URLSearchParams(current); next.set('tab', value); return next
+    })} aria-label="Release content" variant="scrollable" scrollButtons="auto"
+      sx={{ minWidth: 0, maxWidth: '100%' }}>
+      {['Tracks', 'Details'].map(name => <Tab key={name} value={name} label={name}
+        id={`release-tab-${name}`} aria-controls={`release-panel-${name}`} />)}
+    </Tabs>
+    {['Tracks', 'Details'].map(name => <Box key={name} role="tabpanel" hidden={tab !== name}
+      id={`release-panel-${name}`} aria-labelledby={`release-tab-${name}`} sx={{ py: 3, minWidth: 0 }}>
+      {(tab === name || visited.includes(name)) && (name === 'Tracks'
+        ? <LocalTrackList key={`${id}:${revision}`} filter={{ releaseId: id }} context="release" label="Catalog release tracks" />
+        : children)}
+    </Box>)}
+  </Box>
+}
 function Detail({ id }: { id: string }) {
+  const [revision, setRevision] = useState(0)
   const [data, setData] = useState<ReleaseDetail>()
   const [error, setError] = useState('')
   const logout = useLogoutIfAccessDenied()
@@ -108,7 +133,7 @@ function Detail({ id }: { id: string }) {
       if (!controller.signal.aborted) { setError(failure instanceof Error ? failure.message : 'Release could not be loaded.'); void logout(failure) }
     })
     return () => controller.abort()
-  }, [id, logout])
+  }, [id, logout, revision])
   if (error) return <Alert severity="error">{error}</Alert>
   if (!data) return <LinearProgress aria-label="Loading catalog release" />
   return <ArtworkPanel key={data.id} id={data.id} name={data.title} version={data.version} release>{(artwork, gallery) => {
@@ -136,7 +161,7 @@ function Detail({ id }: { id: string }) {
         </ButtonBase></span></Tooltip>
         {artwork.error && <Alert severity="warning">{artwork.error}</Alert>}
       </Box>
-      <Stack spacing={2} sx={{ minWidth: 0, maxWidth: '100%' }}>
+      <Stack spacing={2} sx={{ minWidth: 0, maxWidth: '100%', width: { xs: '100%', sm: 'auto' } }}>
         <Chip label="Release" variant="outlined" size="small" sx={{ alignSelf: 'flex-start' }} />
         <Typography component="h1" variant="h3" sx={{ fontWeight: 600, overflowWrap: 'anywhere' }}>{data.title ?? 'Untitled release'}</Typography>
         <Stack direction="row" spacing={1}>{releaseLinks(data).map(link => <Tooltip key={link.url} title={`Open ${linkPresentation(link).label} in a new tab`}>
@@ -148,13 +173,22 @@ function Detail({ id }: { id: string }) {
           <Link key={label.id} to={`/labels/${encodeURIComponent(label.id)}/show`}>{label.name ?? label.id}{label.isPrimary ? ' (primary label)' : ''}</Link>)}</Stack>
         <Typography>Catalog number: {data.catalogNumber ?? 'Unknown'}; UPC: {data.upc ?? 'Unknown'}</Typography>
         <Typography>Publish date: {data.publishDate ?? 'Unknown'}; new release date: {data.newReleaseDate ?? 'Unknown'}</Typography>
+        <MusicalMetadata metadata={data.musicalMetadata} />
         <Box><Typography component="h2" variant="h6">Release credits</Typography><Credits items={data.credits} /></Box>
       </Stack>
     </Stack>
     <Divider />
-    <Typography component="h2" variant="h6">Tracks</Typography>
-    <LocalTrackList key={id} filter={{ releaseId: id }} context="release" label="Catalog release tracks" />
+    <ReleaseTabs key={data.id} id={data.id} revision={revision}>
+    <Stack spacing={3} sx={{ minWidth: 0 }}>
     {gallery}
+    {!!releaseLinks(data).length && <Stack component="section" aria-label="Provider links" spacing={1}>
+      <Typography component="h2" variant="h6">Provider links</Typography>
+      {releaseLinks(data).map(link => <Button key={link.url} component="a" href={link.url}
+        target="_blank" rel="noopener noreferrer" sx={{ alignSelf: 'flex-start' }}>
+        Open {linkPresentation(link).label}
+      </Button>)}
+    </Stack>}
+    <NamedEntityEnrichment id={data.id} resource="releases" onApplied={() => setRevision(value => value + 1)} />
     <Accordion><AccordionSummary expandIcon={<ExpandMoreIcon />}><Typography>Details and provider identities</Typography></AccordionSummary>
       <AccordionDetails>
         <Typography sx={{ overflowWrap: 'anywhere' }}>Catalog ID: {data.id}</Typography>
@@ -162,13 +196,15 @@ function Detail({ id }: { id: string }) {
         <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>Catalog metadata only. Track placements do not establish purchases, media availability or NAS backup coverage.</Typography>
       </AccordionDetails>
     </Accordion>
+    </Stack>
+    </ReleaseTabs>
   </Stack>
   }}</ArtworkPanel>
 }
 export function ReleaseShow() {
   const { id } = useParams()
   const { isPending } = useAuthenticated()
-  return <Box sx={{ p: 3, minWidth: 0, width: '100%' }}><Link to="/releases">All releases</Link>
+  return <Box sx={{ p: 3, minWidth: 0, width: '100%', contain: 'inline-size' }}><Link to="/releases">All releases</Link>
     {!isPending && id && <Detail key={id} id={id} />}
   </Box>
 }

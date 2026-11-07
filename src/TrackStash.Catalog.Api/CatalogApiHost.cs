@@ -74,8 +74,17 @@ public static class CatalogApiHost
         builder.Services.TryAddScoped<IReleaseService, ReleaseService>();
         builder.Services.TryAddScoped<ITrackService, TrackService>();
         builder.Services.TryAddScoped<IRecordingEnrichmentService, RecordingEnrichmentService>();
+        builder.Services.TryAddScoped<INamedEntityEnrichmentService, NamedEntityEnrichmentService>();
+        builder.Services.TryAddScoped<IEnrichmentApplyService, EnrichmentApplyService>();
         builder.Services.TryAddScoped<IArtistService, ArtistService>();
         builder.Services.TryAddScoped<IReleaseArtworkSourceService, ReleaseArtworkSourceService>();
+        builder.Services.AddHttpClient(BeatportArtworkProvider.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(30))
+            .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+        if (!string.IsNullOrWhiteSpace(builder.Configuration["CatalogApi:BeatportBrokerUrl"]))
+            builder.Services.AddScoped<IReleaseArtworkProvider>(services => new BeatportArtworkProvider(
+                services.GetRequiredService<IBeatportBrokerClient>(),
+                services.GetRequiredService<IHttpClientFactory>().CreateClient(BeatportArtworkProvider.HttpClientName)));
+        builder.Services.AddScoped<IEnrichmentProvider, BeatportEnrichmentProvider>();
         builder.Services.AddSingleton<ICatalogBackupService>(services => new CatalogBackupService(
             new SqliteCatalogSnapshotSource(builder.Configuration["CatalogApi:DatabasePath"]!),
             services.GetRequiredService<IArtworkContentStore>(), builder.Configuration["CatalogApi:BackupRoot"]));

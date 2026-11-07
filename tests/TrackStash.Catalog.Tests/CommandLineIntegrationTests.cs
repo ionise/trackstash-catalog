@@ -322,7 +322,7 @@ public sealed class CommandLineIntegrationTests
         var psi = new ProcessStartInfo
         {
             FileName = "dotnet",
-            Arguments = $"run --no-build -v q --project \"{projectPath}\" -- {arguments}",
+            Arguments = $"run --no-build -c {BuildConfiguration} -v q --project \"{projectPath}\" -- {arguments}",
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
@@ -378,6 +378,11 @@ public sealed class CommandLineIntegrationTests
     }
 
     private static string TempDb() => Path.Combine(Path.GetTempPath(), $"catalog-cli-{Guid.NewGuid():N}.db");
+#if DEBUG
+    private const string BuildConfiguration = "Debug";
+#else
+    private const string BuildConfiguration = "Release";
+#endif
 
     private static void DeleteIfExists(string path)
     {

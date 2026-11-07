@@ -67,7 +67,7 @@ public sealed partial class LabelApiTests
         await Assert.ThrowsAsync<SqliteException>(() => ImportSql("DELETE FROM release_artwork_revision"));
         var backup = new CatalogBackupService(new SqliteCatalogSnapshotSource(_path), new ManagedArtworkStore(_path + ".artwork"), _path + ".backups");
         var saved = await backup.CreateAsync(); var archive = Path.Combine(_path + ".backups", saved.Backup.Filename);
-        Assert.Equal(12, (await backup.VerifyAsync(archive)).SchemaVersion);
+        Assert.Equal(13, (await backup.VerifyAsync(archive)).SchemaVersion);
         var root = _path + ".release-restored";
         try
         {

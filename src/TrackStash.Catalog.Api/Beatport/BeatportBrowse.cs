@@ -37,7 +37,7 @@ public sealed record BeatportReleaseSearch(string? Query, long? LabelId, long? A
 public interface IBeatportBrowseService
 {
     Task<BeatportReleasePage> SearchReleasesAsync(BeatportReleaseSearch search, CancellationToken ct);
-    Task<BeatportReleaseDetail> GetReleaseAsync(long id, CancellationToken ct);
+    Task<BeatportReleaseDetail> GetReleaseAsync(long id, CancellationToken ct, bool requireEnrichmentEvidence = false);
     Task<BeatportLabelPage> SearchLabelsAsync(string query, int page, int pageSize, CancellationToken ct);
     Task<BeatportLabelItem> GetLabelAsync(long id, CancellationToken ct);
 }
@@ -68,10 +68,18 @@ public sealed class BeatportBrowseService(IBeatportBrokerClient broker, IStorage
         return new(items, Count(list, items.Count), search.Page, search.PageSize);
     }
 
-    public async Task<BeatportReleaseDetail> GetReleaseAsync(long id, CancellationToken ct)
+    public async Task<BeatportReleaseDetail> GetReleaseAsync(long id, CancellationToken ct, bool requireEnrichmentEvidence = false)
     {
         var release = await broker.GetCatalogAsync($"/v4/catalog/releases/{id}/", [], ct)
             ?? throw new ApiRequestException(404, "beatport_release_not_found", "Beatport has no release with that ID.");
+        if (requireEnrichmentEvidence)
+        {
+            if (Long(release, "id") != id || string.IsNullOrWhiteSpace(Text(release, "name")))
+                throw new ApiRequestException(502, "beatport_invalid_response", "Beatport returned an invalid Release identity or title.");
+            foreach (var field in new[] { "catalog_number", "publish_date" })
+                if (release.TryGetProperty(field, out var value) && value.ValueKind is not (JsonValueKind.String or JsonValueKind.Null))
+                    throw new ApiRequestException(502, "beatport_invalid_response", "Beatport returned invalid Release metadata.");
+        }
         var item = (await AnnotateAsync([release], ct))[0];
         var tracks = await broker.GetCatalogAsync("/v4/catalog/tracks/", [new("release_id", id.ToString(CultureInfo.InvariantCulture)), new("per_page", "100")], ct);
         var trackItems = tracks is { } t ? Results(t).Select(Track).OfType<BeatportTrackItem>()

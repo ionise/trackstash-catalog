@@ -21,6 +21,7 @@ import { CreditEvidence, TrackTitleArtists } from './TrackPresentation'
 import { TrackList } from './TrackList'
 import { useUrlTrackView } from './trackView'
 import { EntityBeatportBrowse } from './BeatportBrowse'
+import { NamedEntityEnrichment } from './RecordingEnrichment'
 
 export function ArtistCreditName({ credit, showStatus = true }: { credit: ReleaseCredit; showStatus?: boolean }) {
   return <><Link to={`/artists/${encodeURIComponent(credit.artistId)}/show`}>{credit.creditedName ?? credit.artistName ?? credit.artistId}</Link>
@@ -160,12 +161,15 @@ function Appearances({ artist, tracks, page, onPage }: { artist: ArtistDetail; t
         <TableCell>{credit.labels.length ? <Stack>{credit.labels.map(label => <Tooltip describeChild key={label.id} title={`View Label: ${label.name ?? 'Unnamed Label'}${label.isPrimary ? ' (primary label)' : ''}`}>
           <Link to={`/labels/${encodeURIComponent(label.id)}/show`}>{label.name ?? 'Unnamed Label'}</Link>
         </Tooltip>)}</Stack> : <Typography variant="body2" color="text.secondary">Not recorded</Typography>}
-          {tracks && <Typography variant="body2" color="text.secondary">{[credit.genre, credit.subgenre].filter(Boolean).join(' / ') || 'Genre not available'}</Typography>}
+          {tracks && <Typography variant="body2" color="text.secondary">{[credit.musicalMetadata?.genres?.join(', ') || credit.genre,
+            credit.musicalMetadata?.subgenres?.join(', ') || credit.subgenre].filter(Boolean).join(' / ') || 'Genre not available'}</Typography>}
+          {tracks && credit.musicalMetadata?.preferredGenre && <Typography variant="body2">Preferred: {credit.musicalMetadata.preferredGenre}</Typography>}
         </TableCell>
         <TableCell sx={{ whiteSpace: 'nowrap', color: 'text.secondary' }}>{credit.publishDate ?? credit.newReleaseDate ?? 'Not available'}</TableCell>
-        <TableCell sx={{ whiteSpace: 'nowrap', color: 'text.secondary' }}>{credit.bpm == null ? '—'
-          : credit.bpmMax != null && credit.bpmMax !== credit.bpm ? `${credit.bpm}–${credit.bpmMax}` : credit.bpm}</TableCell>
-        {tracks && <TableCell sx={{ whiteSpace: 'nowrap', color: 'text.secondary' }}>{credit.keyName ?? '—'}</TableCell>}
+        <TableCell sx={{ whiteSpace: 'nowrap', color: 'text.secondary' }}>{credit.musicalMetadata?.bpm ?? (credit.bpm == null ? '—'
+          : credit.bpmMax != null && credit.bpmMax !== credit.bpm ? `${credit.bpm}–${credit.bpmMax}` : credit.bpm)}</TableCell>
+        {tracks && <TableCell sx={{ whiteSpace: 'nowrap', color: 'text.secondary' }}>{credit.musicalMetadata?.keyValue
+          ? `${credit.musicalMetadata.keyValue} (${credit.musicalMetadata.keyNotation})` : credit.keyName ?? '—'}</TableCell>}
       </TableRow>})}</TableBody>
     </Table></Box>
     <Pager page={page} total={data.total} onPage={onPage} />
@@ -280,6 +284,7 @@ function Detail({ id }: { id: string }) {
           <Box key={title} sx={{ flex: 1 }}><Typography component="h2" variant="h6">{title}</Typography><Typography>Not implemented yet. Requires supporting same-track credit evidence.</Typography></Box>)}</Stack>
       </Stack>}
       {section === 'Details' && tab === section && <Stack spacing={3}>
+        <NamedEntityEnrichment id={artist.id} resource="artists" />
         <Typography component="h2" variant="h6">Personal notes and review</Typography>
         <Typography sx={{ whiteSpace: 'pre-wrap' }}>{profile.snapshot ? profile.snapshot.profile.notes ?? 'No notes recorded.' : 'Notes unavailable.'}</Typography>
         <Typography>Review: {profile.snapshot?.profile.reviewStatus.replaceAll('_', ' ') ?? 'Unavailable'}</Typography>

@@ -15,6 +15,98 @@ public sealed class SonoVaultEnrichmentProviderTests
         EnrichmentEntityKind.Recording, "recording-1", "version-1", "Example", null, ["Act"],
         isrc, null, null, null, null, []);
 
+    private const string ReleaseResponse = """
+        {"id":8,"title":"Example","artist":{"id":42,"name":"Act"},"label":{"id":3,"name":"Known Label"},
+         "release_date":"2020-01-01","musicbrainz_release_ids":["edition-mbid"],"musicbrainz_release_group_ids":["group-mbid"],
+         "edition":null,"editions":[{"id":12,"source":"discogs","external_id":"99","title":"Example deluxe",
+           "format":"digital","release_date":"2024-01-01","date_precision":"year","catalog_no":"ABC1","barcode":"123",
+           "label":{"id":3,"name":"Known Label"},"track_count":2}],
+         "tracks":[{"id":7,"title":"Example (Remix)","isrc":"GBTEST000001","disc_number":1,"track_number":2,
+           "artists":[{"id":42,"name":"Act","is_primary":true}]}]}
+        """;
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, false)]
+    [InlineData(true, true)]
+    public async Task Release_search_uses_title_and_optional_artist_then_ranks_known_conflicts_without_dropping_candidates(bool hasArtist, bool wrongArtist)
+    {
+        var wrong = wrongArtist ? ReleaseResponse.Replace("\"name\":\"Act\"", "\"name\":\"Other Act\"")
+            : ReleaseResponse.Replace("\"Known Label\"", "\"Other Label\"");
+        var handler = new Handler(_ => new(HttpStatusCode.OK)
+        {
+            Content = Json($$"""{"results":[{{wrong}},{{ReleaseResponse.Replace("\"id\":8", "\"id\":9")}}],"next_cursor":null}""")
+        });
+        using var http = new HttpClient(handler);
+        var provider = new SonoVaultEnrichmentProvider(http, "test-key");
+        var result = await provider.FindAsync(Query() with
+        { EntityKind = EnrichmentEntityKind.Release, Name = "Example", ArtistNames = hasArtist ? ["Act"] : [], LabelNames = ["Known Label"] });
+        Assert.Contains(EnrichmentEntityKind.Release, provider.Descriptor.SupportedEntityKinds);
+        Assert.Equal("/v1/releases/search", handler.Uri!.AbsolutePath);
+        Assert.Contains("title=Example&limit=10", handler.Uri.Query);
+        Assert.Equal(hasArtist, handler.Uri.Query.Contains("&artist=Act"));
+        Assert.DoesNotContain("label", handler.Uri.Query);
+        Assert.Equal(2, result.Candidates.Count);
+        Assert.Equal("9", result.Candidates[0].CandidateId);
+        Assert.Empty(result.Candidates[0].Match.Conflicts);
+        Assert.Contains(result.Candidates[1].Match.Conflicts, c => c.Contains(wrongArtist ? "primary Artist differs" : "Label differs"));
+        Assert.Equal(1, handler.Count);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("12")]
+    public async Task Release_details_preserve_editions_dates_and_tracklist_without_accepting_group_ids(string? editionId)
+    {
+        var json = editionId is null ? ReleaseResponse : ReleaseResponse.Replace("\"edition\":null", "\"edition\":12");
+        var handler = new Handler(_ => new(HttpStatusCode.OK) { Content = Json(json) });
+        using var http = new HttpClient(handler);
+        var query = Query() with { EntityKind = EnrichmentEntityKind.Release, LookupCandidateId = "8", LookupEditionId = editionId,
+            LabelNames = ["Known Label"], CatalogNumber = "ABC1" };
+        var candidate = Assert.Single((await new SonoVaultEnrichmentProvider(http, "test-key").FindAsync(query)).Candidates);
+        Assert.Equal("/v1/releases/8" + (editionId is null ? "" : "?edition=12"), handler.Uri!.PathAndQuery);
+        Assert.Equal(editionId, candidate.EditionId);
+        Assert.Null(candidate.Metadata.ReleaseDate);
+        Assert.Equal(editionId is null ? null : "ABC1", candidate.Metadata.CatalogNumber);
+        var details = candidate.Metadata.ReleaseDetails!;
+        Assert.Equal("2020-01-01", details.ReportedReleaseDate);
+        Assert.Equal("year", Assert.Single(details.Editions).DatePrecision);
+        Assert.Equal(["edition-mbid"], details.MusicBrainzReleaseIds);
+        Assert.Equal(["group-mbid"], details.MusicBrainzReleaseGroupIds);
+        Assert.Single(candidate.Metadata.ExternalReferences!);
+        Assert.Equal("Example (Remix)", Assert.Single(details.Tracks).Title);
+        Assert.Equal(2, details.Tracks[0].TrackNumber);
+        Assert.All(candidate.Evidence, e => Assert.Equal("sonovault", e.Source));
+        Assert.Equal(1, handler.Count);
+    }
+
+    [Theory]
+    [InlineData("8", null)]
+    [InlineData("8", "12")]
+    public async Task Release_candidate_and_edition_mismatch_fail_explicitly(string candidateId, string? editionId)
+    {
+        var json = editionId is null ? ReleaseResponse.Replace("\"id\":8", "\"id\":9") : ReleaseResponse;
+        var handler = new Handler(_ => new(HttpStatusCode.OK) { Content = Json(json) });
+        using var http = new HttpClient(handler);
+        var failure = await Assert.ThrowsAsync<SonoVaultLookupException>(() =>
+            new SonoVaultEnrichmentProvider(http, "test-key").FindAsync(Query() with
+            { EntityKind = EnrichmentEntityKind.Release, LookupCandidateId = candidateId, LookupEditionId = editionId }).AsTask());
+        Assert.Equal("invalid_response", failure.Code);
+    }
+
+    [Theory]
+    [InlineData("bad", null)]
+    [InlineData("8", "0")]
+    [InlineData(null, "12")]
+    public async Task Invalid_release_selection_does_not_use_quota(string? candidateId, string? editionId)
+    {
+        var handler = new Handler(_ => throw new InvalidOperationException("Must not send"));
+        using var http = new HttpClient(handler);
+        await Assert.ThrowsAsync<ArgumentException>(() => new SonoVaultEnrichmentProvider(http, "test-key").FindAsync(Query() with
+        { EntityKind = EnrichmentEntityKind.Release, LookupCandidateId = candidateId, LookupEditionId = editionId }).AsTask());
+        Assert.Equal(0, handler.Count);
+    }
+
     [Fact]
     public async Task Isrc_lookup_maps_typed_evidence_without_inventing_release_or_analysis_provenance()
     {
@@ -83,6 +175,85 @@ public sealed class SonoVaultEnrichmentProviderTests
     }
 
     [Theory]
+    [InlineData(EnrichmentEntityKind.Artist, "artists")]
+    [InlineData(EnrichmentEntityKind.Label, "labels")]
+    public async Task Named_entity_search_is_bounded_preserves_candidates_and_uses_name(EnrichmentEntityKind kind, string resource)
+    {
+        var handler = new Handler(_ => new(HttpStatusCode.OK)
+        {
+            Content = Json("""{"results":[{"id":8,"name":"A & B"},{"id":9,"name":"Different"}],"next_cursor":"more"}""")
+        });
+        using var http = new HttpClient(handler);
+        var provider = new SonoVaultEnrichmentProvider(http, "test-key");
+        var result = await provider.FindAsync(Query() with { EntityKind = kind, Name = "A & B" });
+        Assert.Contains(kind, provider.Descriptor.SupportedEntityKinds);
+        Assert.Equal($"/v1/{resource}/search?name=A%20%26%20B&limit=10", handler.Uri!.PathAndQuery);
+        Assert.Equal(2, result.Candidates.Count);
+        Assert.All(result.Candidates, c => Assert.Equal(kind, c.EntityKind));
+        Assert.Empty(result.Candidates[0].Match.Conflicts);
+        Assert.NotEmpty(result.Candidates[1].Match.Conflicts);
+        Assert.Contains(result.Warnings, w => w.Contains("first page"));
+        Assert.DoesNotContain(result.Warnings, w => w.Contains("Mix names"));
+        Assert.Equal(1, handler.Count);
+    }
+
+    [Theory]
+    [InlineData(EnrichmentEntityKind.Artist, "artists")]
+    [InlineData(EnrichmentEntityKind.Label, "labels")]
+    public async Task Named_entity_id_takes_precedence_and_artist_metadata_has_conservative_evidence(EnrichmentEntityKind kind, string resource)
+    {
+        var handler = new Handler(_ => new(HttpStatusCode.OK)
+        {
+            Content = Json("""
+                {"id":8,"name":"Act","country":"United Kingdom","formation_year":1980,"formation_date":"1980-02-03",
+                 "social_links":{"instagram":"act"},"musicbrainz_id":"mbid","wikidata_id":"Q123"}
+                """)
+        });
+        using var http = new HttpClient(handler);
+        var result = await new SonoVaultEnrichmentProvider(http, "test-key").FindAsync(Query() with
+        {
+            EntityKind = kind, Name = "Act", ExternalReferences = [new("sonovault", "8"), new("musicbrainz", "other")]
+        });
+        var candidate = Assert.Single(result.Candidates);
+        Assert.Equal($"/v1/{resource}/8", handler.Uri!.AbsolutePath);
+        Assert.Equal(EnrichmentMatchBasis.ExternalReference, candidate.Match.Basis);
+        Assert.All(candidate.Evidence, e => Assert.Equal("sonovault", e.Source));
+        if (kind == EnrichmentEntityKind.Artist)
+        {
+            Assert.Equal("United Kingdom", candidate.Metadata.Country);
+            Assert.Equal(1980, candidate.Metadata.FormationYear);
+            Assert.Equal(new DateOnly(1980, 2, 3), candidate.Metadata.FormationDate);
+            Assert.Equal("act", candidate.Metadata.SocialLinks!["instagram"]);
+            Assert.Equal(3, candidate.Metadata.ExternalReferences!.Count);
+            Assert.Contains(candidate.Match.Conflicts, c => c.Contains("musicbrainz"));
+            Assert.Contains(candidate.Evidence, e => e.Field == EnrichmentField.SocialLinks);
+        }
+        else
+        {
+            Assert.Null(candidate.Metadata.Country);
+            Assert.Null(candidate.Metadata.FormationYear);
+            Assert.Null(candidate.Metadata.SocialLinks);
+            Assert.Single(candidate.Metadata.ExternalReferences!);
+        }
+    }
+
+    [Theory]
+    [InlineData("""{"id":0,"name":"Act"}""")]
+    [InlineData("""{"id":8,"name":""}""")]
+    [InlineData("""{"id":8,"name":"Act","formation_date":"1980"}""")]
+    [InlineData("""{"id":8,"name":"Act","formation_year":0}""")]
+    [InlineData("""{"id":8,"name":"Act","social_links":{"instagram":42}}""")]
+    public async Task Invalid_artist_metadata_is_an_explicit_provider_failure(string json)
+    {
+        var handler = new Handler(_ => new(HttpStatusCode.OK) { Content = Json(json) });
+        using var http = new HttpClient(handler);
+        var failure = await Assert.ThrowsAsync<SonoVaultLookupException>(() =>
+            new SonoVaultEnrichmentProvider(http, "test-key").FindAsync(Query() with
+            { EntityKind = EnrichmentEntityKind.Artist, ExternalReferences = [new("sonovault", "8")] }).AsTask());
+        Assert.Equal("invalid_response", failure.Code);
+    }
+
+    [Theory]
     [InlineData("Flat Surfaces (Kohra Remix)", "Flat Surfaces", "Kohra Remix", true)]
     [InlineData("Flat Surfaces (kohra remix)", "Flat Surfaces", "Kohra Remix", true)]
     [InlineData("Flat Surfaces (Live) (Kohra Remix)", "Flat Surfaces (Live)", "Kohra Remix", true)]
@@ -148,7 +319,7 @@ public sealed class SonoVaultEnrichmentProviderTests
         using var http = new HttpClient(handler);
         await Assert.ThrowsAsync<SonoVaultLookupException>(() => new SonoVaultEnrichmentProvider(http, null).FindAsync(Query()).AsTask());
         var provider = new SonoVaultEnrichmentProvider(http, "test-key");
-        await Assert.ThrowsAsync<NotSupportedException>(() => provider.FindAsync(Query() with { EntityKind = EnrichmentEntityKind.Release }).AsTask());
+        await Assert.ThrowsAsync<NotSupportedException>(() => provider.FindAsync(Query() with { EntityKind = (EnrichmentEntityKind)99 }).AsTask());
         using var cancelled = new CancellationTokenSource();
         cancelled.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => provider.FindAsync(Query(), cancelled.Token).AsTask());

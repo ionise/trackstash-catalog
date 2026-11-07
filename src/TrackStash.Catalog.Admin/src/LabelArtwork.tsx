@@ -6,7 +6,34 @@ import {
 } from '@mui/material'
 import { useLogoutIfAccessDenied, useRecordContext, useRefresh } from 'react-admin'
 import { artworkClient, releaseArtworkClient, artistArtworkClient } from './catalog'
-import type { ArtworkCandidates, ArtworkGallery, ArtworkItem, LabelRecord } from './catalog'
+import type { ArtworkCandidate, ArtworkCandidates, ArtworkGallery, ArtworkItem, LabelRecord } from './catalog'
+
+function CandidatePreview({ id, candidate }: { id: string; candidate: ArtworkCandidate }) {
+  const [requested, setRequested] = useState(false)
+  const [url, setUrl] = useState('')
+  const [error, setError] = useState('')
+  const logout = useLogoutIfAccessDenied()
+  useEffect(() => {
+    if (!requested) return
+    const abort = new AbortController()
+    let objectUrl: string | undefined
+    void releaseArtworkClient.preview(id, candidate, abort.signal).then(blob => {
+      if (abort.signal.aborted) return
+      objectUrl = URL.createObjectURL(blob); setUrl(objectUrl)
+    }).catch(failure => {
+      if (abort.signal.aborted) return
+      setError(failure instanceof Error ? failure.message : 'Artwork preview failed.')
+      void logout(failure)
+    })
+    return () => { abort.abort(); if (objectUrl) URL.revokeObjectURL(objectUrl) }
+  }, [id, candidate, requested, logout])
+  return <Stack spacing={1}>
+    {!requested && <Button sx={{ alignSelf: 'flex-start' }} onClick={() => setRequested(true)}>Preview artwork</Button>}
+    {error && <Alert severity="error">{error}</Alert>}
+    {requested && !url && !error && <Typography>Loading artwork preview...</Typography>}
+    {url && <Box component="img" src={url} alt={`${candidate.provider} artwork candidate`} sx={{ width: 200, height: 200, objectFit: 'contain', maxWidth: '100%' }} />}
+  </Stack>
+}
 
 export function ArtworkImage({ assetId, caption, size = 160 }: { assetId: string; caption: string; size?: number }) {
   return <AssetImage key={assetId} assetId={assetId} caption={caption} size={size} />
@@ -74,6 +101,7 @@ export function ArtworkPanel({ id, name, version, children, release = false, art
   const [candidates, setCandidates] = useState<ArtworkCandidates>()
   const [candidateRights, setCandidateRights] = useState('')
   const [candidateConfirmed, setCandidateConfirmed] = useState(false)
+  const [candidatePreferred, setCandidatePreferred] = useState(false)
   const uploadSection = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (open) return
@@ -208,25 +236,28 @@ export function ArtworkPanel({ id, name, version, children, release = false, art
           </Box>
           {release && <Box component="section" aria-label="External artwork candidates">
             <Typography component="h3" variant="h6">External artwork candidates</Typography>
-            <Typography>No third-party image is loaded automatically. A configured adapter supplies release-scoped candidates; explicit attachment stores a local copy with your rights statement.</Typography>
+            <Typography>No third-party image is loaded automatically. Beatport artwork requires one linked Beatport Release ID. Preview explicitly downloads a validated thumbnail; attachment stores a managed copy with your rights statement. Embedded Library artwork awaits linked-media integration.</Typography>
             <Button disabled={busy || dirty} onClick={() => void execute(async () => {
               setCandidates(await releaseArtworkClient.candidates(id)); setCandidateConfirmed(false)
             })}>Look up artwork candidates</Button>
             {candidates && !candidates.providers.length && <Alert severity="info">No external artwork providers are configured. Beatport, MusicBrainz/Cover Art Archive and Discogs adapters can be connected separately.</Alert>}
-            {candidates && candidates.providers.length > 0 && !candidates.items.length && <Typography>No artwork candidates returned by configured providers.</Typography>}
+            {candidates && candidates.providers.length > 0 && !candidates.items.length && <Typography>No artwork candidates returned. Beatport needs one linked Release identity with available artwork; metadata search does not accept that link automatically.</Typography>}
             {!!candidates?.items.length && <>
               <TextField label="Candidate usage rights" value={candidateRights} onChange={e => { setCandidateRights(e.target.value); setCandidateConfirmed(false) }}
                 slotProps={{ htmlInput: { maxLength: 2000 } }} />
               <FormControlLabel control={<Checkbox checked={candidateConfirmed} disabled={busy} onChange={e => setCandidateConfirmed(e.target.checked)} />}
                 label="I confirm the release match and usage rights and request a managed copy" />
-              {candidates.items.map(candidate => <Box key={`${candidate.provider}:${candidate.candidateId}`} sx={{ my: 2 }}>
+              <FormControlLabel control={<Checkbox checked={candidatePreferred} disabled={busy} onChange={e => setCandidatePreferred(e.target.checked)} />}
+                label="Prefer the attached candidate (otherwise preserve the current preferred cover)" />
+              {candidates.items.map(candidate => <Box key={`${candidate.provider}:${candidate.candidateId}:${candidate.revision}`} sx={{ my: 2 }}>
                 <Typography>{candidate.title} ({candidate.provider})</Typography>
                 <Typography sx={{ overflowWrap: 'anywhere' }}>Source: {candidate.sourceUrl}; attribution: {candidate.attribution ?? 'not supplied'}</Typography>
+                <CandidatePreview id={id} candidate={candidate} />
                 <Button disabled={busy || dirty || !gallery || !candidateRights.trim() || !candidateConfirmed}
                   onClick={() => void execute(async () => {
-                    accept(await releaseArtworkClient.attach(id, gallery!.etag, candidate, candidateRights, candidateConfirmed))
+                    accept(await releaseArtworkClient.attach(id, gallery!.etag, candidate, candidateRights, candidateConfirmed, candidatePreferred))
                     setCandidateConfirmed(false); setCandidateRights('')
-                  })}>Attach as preferred cover</Button>
+                  })}>Attach candidate</Button>
               </Box>)}
             </>}
           </Box>}

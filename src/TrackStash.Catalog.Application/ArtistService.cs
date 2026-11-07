@@ -7,7 +7,7 @@ public sealed record CatalogArtistDetail(string Id, string? Name, string? SortNa
 public sealed class ArtistBrowseUnavailableException : Exception;
 public sealed class ArtistProfileUnavailableException : Exception;
 public sealed record ArtistAppearanceDetail(ArtistAppearanceListing Appearance, string? PublishDate,
-    string? NewReleaseDate, IReadOnlyList<ReleaseContributorDetail> Contributors);
+    string? NewReleaseDate, IReadOnlyList<ReleaseContributorDetail> Contributors, CatalogMusicalMetadata? MusicalMetadata = null);
 public sealed record ArtistAppearanceDetailPage(IReadOnlyList<ArtistAppearanceDetail> Items, int Total, int Page, int PageSize);
 
 public interface IArtistService
@@ -25,6 +25,7 @@ public sealed class ArtistService(IStorageProvider storage) : IArtistService
     public async ValueTask<ArtistAppearanceDetailPage?> AppearancesAsync(ArtistCreditQuery query, CancellationToken ct = default)
     {
         new ReleaseQuery(query.Page, query.PageSize).Validate(); await Ready(ct).ConfigureAwait(false);
+        var hasMusicalMetadata = await storage.Migrations.GetCurrentVersionAsync(ct).ConfigureAwait(false) >= 13;
         await using var unit = await storage.BeginUnitOfWorkAsync(ct).ConfigureAwait(false);
         if (await unit.Artists.GetByIdAsync(query.ArtistId, ct).ConfigureAwait(false) is null) return null;
         var page = await unit.Artists.AppearancesAsync(query, ct).ConfigureAwait(false);
@@ -71,7 +72,9 @@ public sealed class ArtistService(IStorageProvider storage) : IArtistService
             else if (release is not null)
                 credits.AddRange(await foundations.GetCreditsAsync(CatalogEntityKind.Release, release.Id, ct).ConfigureAwait(false));
             items.Add(new(item, release?.PublishDate, release?.NewReleaseDate,
-                await ReleaseService.Credits(unit, credits.DistinctBy(c => (c.ArtistId, c.Role, c.CreditedName)).ToArray(), artists, ct).ConfigureAwait(false)));
+                await ReleaseService.Credits(unit, credits.DistinctBy(c => (c.ArtistId, c.Role, c.CreditedName)).ToArray(), artists, ct).ConfigureAwait(false),
+                hasMusicalMetadata && unit.Enrichment is { } enrichment && query.Tracks && item.RecordingId is { } recordingId
+                    ? await enrichment.GetMetadataAsync(CatalogEntityKind.Recording, recordingId, ct).ConfigureAwait(false) : null));
         }
         return new(items, page.Total, page.Page, page.PageSize);
     }

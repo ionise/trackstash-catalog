@@ -34,7 +34,7 @@ public sealed record ArtistAppearanceLabelResponse(string Id, string? Name, bool
 public sealed record ArtistAppearanceResponse(string? ReleaseId, string? ReleaseTitle, string? RecordingId,
     string? PlacementId, string? TrackTitle, string? MixName, string? CoverAssetId,
     IReadOnlyList<ArtistAppearanceLabelResponse> Labels, IReadOnlyList<ArtistAppearanceCreditResponse> Credits,
-    string? PublishDate, string? NewReleaseDate, IReadOnlyList<ReleaseCreditResponse> Contributors);
+    string? PublishDate, string? NewReleaseDate, IReadOnlyList<ReleaseCreditResponse> Contributors, CatalogMusicalMetadata? MusicalMetadata = null);
 /// <summary>A server-paged list counting appearances rather than individual credit scopes.</summary>
 public sealed record ArtistAppearancesResponse(IReadOnlyList<ArtistAppearanceResponse> Items, int Total, int Page, int PageSize);
 
@@ -122,7 +122,7 @@ internal static class ArtistEndpoints
             item.Labels.Select(l => new ArtistAppearanceLabelResponse(l.Id, l.Name, l.IsPrimary)).ToArray(),
             item.Credits.Select(c => new ArtistAppearanceCreditResponse(c.Role, c.Scope, c.CreditedName)).ToArray(),
             detail.PublishDate, detail.NewReleaseDate, detail.Contributors.Select(c => new ReleaseCreditResponse(
-                c.ArtistId, c.ArtistName, c.CreditedName, c.Role, c.Position, c.IdentityStatus)).ToArray());
+                c.ArtistId, c.ArtistName, c.CreditedName, c.Role, c.Position, c.IdentityStatus)).ToArray(), detail.MusicalMetadata);
         }).ToArray(),
             result.Total, result.Page, result.PageSize));
     }

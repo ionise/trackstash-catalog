@@ -1,6 +1,172 @@
 @baseUrl = http://localhost:5187
 @catalogApiKey = replace-with-catalog-api-key-not-sonovault-key
 @recordingId = replace-with-canonical-recording-id
+@artistId = replace-with-canonical-artist-id
+@labelId = replace-with-canonical-label-id
+@releaseId = replace-with-canonical-release-id
+@sonoVaultReleaseId = 8
+@sonoVaultEditionId = 12
+@reviewId = replace-with-review-id
+@catalogVersion = replace-with-lookup-query-catalogVersion
+@reviewETag = "replace-with-original-review-ETag"
+@beatportTrackId = 7
+@beatportReleaseId = 10
+
+### Freeze the chosen Recording candidate: one explicit provider request, schema 13, no canonical writes
+POST {{baseUrl}}/api/v1/recordings/{{recordingId}}/enrichment/sonovault/reviews
+Authorization: Bearer {{catalogApiKey}}
+Content-Type: application/json
+
+{
+  "candidateId": "7",
+  "catalogVersion": "{{catalogVersion}}"
+}
+
+### Freeze an explicitly selected Release edition; omit editionId to review title/identity only
+POST {{baseUrl}}/api/v1/releases/{{releaseId}}/enrichment/sonovault/reviews
+Authorization: Bearer {{catalogApiKey}}
+Content-Type: application/json
+
+{
+  "candidateId": "{{sonoVaultReleaseId}}",
+  "editionId": "{{sonoVaultEditionId}}",
+  "catalogVersion": "{{catalogVersion}}"
+}
+
+### Read frozen evidence and original outcome; no provider request
+GET {{baseUrl}}/api/v1/enrichment-reviews/{{reviewId}}
+Authorization: Bearer {{catalogApiKey}}
+
+### Select Recording classification fields only, preserve title/credits/identities
+POST {{baseUrl}}/api/v1/enrichment-reviews/{{reviewId}}/apply
+Authorization: Bearer {{catalogApiKey}}
+Content-Type: application/json
+If-Match: {{reviewETag}}
+
+{
+  "fields": ["Genre", "Subgenre", "PreferredGenre"],
+  "preferredGenre": "Progressive House",
+  "reason": "Reviewed the matching recording/version and source classifications",
+  "confirmed": true
+}
+
+### Missing review returns 404
+GET {{baseUrl}}/api/v1/enrichment-reviews/not-an-existing-review
+Authorization: Bearer {{catalogApiKey}}
+
+### Alternative Beatport metadata lookup through the configured caching broker (read-only)
+POST {{baseUrl}}/api/v1/releases/{{releaseId}}/enrichment/beatport
+Authorization: Bearer {{catalogApiKey}}
+
+### Beatport Recording lookup: accepted track ID, otherwise ISRC, otherwise title/Artist/mix
+POST {{baseUrl}}/api/v1/recordings/{{recordingId}}/enrichment/beatport
+Authorization: Bearer {{catalogApiKey}}
+
+### Freeze a Beatport Recording candidate: one broker call, no canonical writes
+POST {{baseUrl}}/api/v1/recordings/{{recordingId}}/enrichment/beatport/reviews
+Authorization: Bearer {{catalogApiKey}}
+Content-Type: application/json
+
+{
+  "candidateId": "{{beatportTrackId}}",
+  "catalogVersion": "{{catalogVersion}}"
+}
+
+### Freeze a Beatport Release: two broker calls, no edition selector
+POST {{baseUrl}}/api/v1/releases/{{releaseId}}/enrichment/beatport/reviews
+Authorization: Bearer {{catalogApiKey}}
+Content-Type: application/json
+
+{
+  "candidateId": "{{beatportReleaseId}}",
+  "catalogVersion": "{{catalogVersion}}"
+}
+
+### Apply a frozen Beatport Release title/catalog/date and separately accept its identity; no artwork download
+POST {{baseUrl}}/api/v1/enrichment-reviews/{{reviewId}}/apply
+Authorization: Bearer {{catalogApiKey}}
+Content-Type: application/json
+If-Match: {{reviewETag}}
+
+{
+  "fields": ["Name", "CatalogNumber", "ReleaseDate", "BeatportIdentity"],
+  "reason": "Reviewed the Beatport Release identity and selected metadata",
+  "confirmed": true
+}
+
+### Invalid Beatport edition selector returns 400 without a broker call
+POST {{baseUrl}}/api/v1/releases/{{releaseId}}/enrichment/beatport/reviews
+Authorization: Bearer {{catalogApiKey}}
+Content-Type: application/json
+
+{
+  "candidateId": "{{beatportReleaseId}}",
+  "editionId": "12",
+  "catalogVersion": "{{catalogVersion}}"
+}
+
+### Artwork candidates for an already-linked Beatport Release (metadata only)
+GET {{baseUrl}}/api/v1/releases/{{releaseId}}/artwork-candidates
+Authorization: Bearer {{catalogApiKey}}
+
+### Explicit artwork preview; copy candidate ID and revision from the preceding response
+GET {{baseUrl}}/api/v1/releases/{{releaseId}}/artwork-candidates/preview?provider=beatport&candidateId=replace-with-candidate-id&revision=replace-with-revision
+Authorization: Bearer {{catalogApiKey}}
+
+### Attach reviewed artwork while preserving the preferred cover; use the current artwork ETag
+POST {{baseUrl}}/api/v1/releases/{{releaseId}}/artwork-candidates/attach
+Authorization: Bearer {{catalogApiKey}}
+Content-Type: application/json
+If-Match: "replace-with-current-gallery-version"
+
+{
+  "provider": "beatport",
+  "candidateId": "replace-with-candidate-id",
+  "revision": "replace-with-revision",
+  "usageRights": "Record permission/licence or uncertainty explicitly",
+  "confirmed": true,
+  "isPreferred": false
+}
+
+### Explicit Beatport candidate details; no identity is accepted
+POST {{baseUrl}}/api/v1/releases/{{releaseId}}/enrichment/beatport/candidates/10
+Authorization: Bearer {{catalogApiKey}}
+
+### Explicit Release lookup; known primary Artists narrow search and Labels help compare candidates
+POST {{baseUrl}}/api/v1/releases/{{releaseId}}/enrichment/sonovault
+Authorization: Bearer {{catalogApiKey}}
+
+### Explicit provider candidate details, not accepted catalog identity
+POST {{baseUrl}}/api/v1/releases/{{releaseId}}/enrichment/sonovault/candidates/{{sonoVaultReleaseId}}
+Authorization: Bearer {{catalogApiKey}}
+
+### Explicit edition inspection; dates retain their precision and track numbering is edition-specific
+POST {{baseUrl}}/api/v1/releases/{{releaseId}}/enrichment/sonovault/candidates/{{sonoVaultReleaseId}}?editionId={{sonoVaultEditionId}}
+Authorization: Bearer {{catalogApiKey}}
+
+### Invalid provider candidate ID returns 400 without consuming quota
+POST {{baseUrl}}/api/v1/releases/{{releaseId}}/enrichment/sonovault/candidates/not-a-numeric-id
+Authorization: Bearer {{catalogApiKey}}
+
+### Missing catalog Release returns 404 without consuming quota
+POST {{baseUrl}}/api/v1/releases/not-an-existing-release/enrichment/sonovault
+Authorization: Bearer {{catalogApiKey}}
+
+### Explicit Artist lookup: existing SonoVault identity or catalog name, no private profile data
+POST {{baseUrl}}/api/v1/artists/{{artistId}}/enrichment/sonovault
+Authorization: Bearer {{catalogApiKey}}
+
+### Explicit Label lookup: name and identity proposals only
+POST {{baseUrl}}/api/v1/labels/{{labelId}}/enrichment/sonovault
+Authorization: Bearer {{catalogApiKey}}
+
+### Missing Artist / Label returns 404 without consuming provider quota
+POST {{baseUrl}}/api/v1/artists/not-an-existing-artist/enrichment/sonovault
+Authorization: Bearer {{catalogApiKey}}
+
+###
+POST {{baseUrl}}/api/v1/labels/not-an-existing-label/enrichment/sonovault
+Authorization: Bearer {{catalogApiKey}}
 
 ### Explicit read-only lookup; the server supplies the SonoVault key
 POST {{baseUrl}}/api/v1/recordings/{{recordingId}}/enrichment/sonovault

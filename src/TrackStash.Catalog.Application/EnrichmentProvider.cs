@@ -28,7 +28,12 @@ public sealed record EnrichmentQuery(
     string? LabelName,
     DateOnly? ReleaseDate,
     long? DurationMs,
-    IReadOnlyList<EnrichmentReference> ExternalReferences);
+    IReadOnlyList<EnrichmentReference> ExternalReferences,
+    IReadOnlyList<string>? LabelNames = null,
+    string? LookupCandidateId = null,
+    string? LookupEditionId = null,
+    string? CatalogPublishDate = null,
+    TrackStash.Core.Storage.CatalogMusicalMetadata? CatalogMusicalMetadata = null);
 
 /// <summary>How a provider found a candidate; none of these values certifies canonical identity.</summary>
 public enum EnrichmentMatchBasis { ExternalReference, Isrc, MetadataSearch }
@@ -42,6 +47,23 @@ public sealed record EnrichmentCredit(string Name, string Role, EnrichmentRefere
 
 /// <summary>A musical key in an explicit notation, avoiding implicit conversion between key systems.</summary>
 public sealed record EnrichmentMusicalKey(string Value, string Notation);
+
+/// <summary>A provider edition to inspect, not an accepted canonical release or source link.</summary>
+public sealed record EnrichmentReleaseEdition(
+    string Id, string Source, string ExternalId, string? Title, string? Format,
+    string? ReleaseDate, string? DatePrecision, string? CatalogNumber, string? Barcode,
+    string? LabelName, int? TrackCount);
+
+/// <summary>Provider tracklist identity and numbering, without ownership or canonical Recording assertions.</summary>
+public sealed record EnrichmentReleaseTrack(
+    string Id, string Title, string? Isrc, int? DiscNumber, int? TrackNumber,
+    IReadOnlyList<EnrichmentCredit> Credits);
+
+/// <summary>Release-group date and edition/tracklist evidence; an unselected tracklist may use consensus numbering.</summary>
+public sealed record EnrichmentReleaseDetails(
+    string? ReportedReleaseDate, string? SelectedEditionId,
+    IReadOnlyList<EnrichmentReleaseEdition> Editions, IReadOnlyList<EnrichmentReleaseTrack> Tracks,
+    IReadOnlyList<string>? MusicBrainzReleaseIds = null, IReadOnlyList<string>? MusicBrainzReleaseGroupIds = null);
 
 /// <summary>Optional proposed metadata; null means unavailable, never a request to clear a catalog value.</summary>
 /// <remarks>
@@ -63,13 +85,19 @@ public sealed record EnrichmentMetadata(
     IReadOnlyList<EnrichmentReference>? ExternalReferences = null,
     IReadOnlyList<EnrichmentCredit>? Credits = null,
     IReadOnlyList<string>? Genres = null,
-    IReadOnlyList<string>? Subgenres = null);
+    IReadOnlyList<string>? Subgenres = null,
+    string? Country = null,
+    int? FormationYear = null,
+    DateOnly? FormationDate = null,
+    IReadOnlyDictionary<string, string>? SocialLinks = null,
+    EnrichmentReleaseDetails? ReleaseDetails = null);
 
 /// <summary>Proposed fields for which an adapter can expose source evidence.</summary>
 public enum EnrichmentField
 {
     Name, MixName, Isrc, CatalogNumber, ReleaseDate, DurationMs, Bpm,
-    MusicalKey, Genre, LabelName, ExternalReferences, Credits, Subgenre
+    MusicalKey, Genre, LabelName, ExternalReferences, Credits, Subgenre,
+    Country, FormationYear, FormationDate, SocialLinks, ReleaseDetails
 }
 
 /// <summary>Evidence for one proposed field, separating the API provider from an attributed upstream source.</summary>

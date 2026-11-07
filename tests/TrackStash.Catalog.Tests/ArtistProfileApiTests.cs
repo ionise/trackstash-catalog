@@ -86,7 +86,7 @@ public sealed partial class LabelApiTests
         Assert.DoesNotContain("PRIVATE_SENTINEL", await _client.GetStringAsync($"/api/v1/artists/{id}"));
         var backup = new CatalogBackupService(new SqliteCatalogSnapshotSource(_path), new ManagedArtworkStore(_path + ".artwork"), _path + ".backups");
         var archive = Path.Combine(_path + ".backups", (await backup.CreateAsync()).Backup.Filename);
-        Assert.Equal(12, (await backup.VerifyAsync(archive)).SchemaVersion);
+        Assert.Equal(13, (await backup.VerifyAsync(archive)).SchemaVersion);
         var destination = _path + ".artist-restore";
         try
         {
@@ -110,7 +110,7 @@ public sealed partial class LabelApiTests
         await ProblemAsync(await _client.GetAsync("/api/v1/artists/missing/profile"), 404, "artist_not_found");
         using var anonymous = _app.GetTestClient();
         await ProblemAsync(await anonymous.GetAsync($"/api/v1/artists/{id}/artwork"), 401, "unauthorized");
-        await ImportSql("DELETE FROM schema_migration WHERE version=12");
+        await ImportSql("DELETE FROM schema_migration WHERE version>=12");
         Assert.Equal(HttpStatusCode.OK, (await _client.GetAsync($"/api/v1/artists/{id}")).StatusCode);
         await ProblemAsync(await _client.GetAsync($"/api/v1/artists/{id}/profile"), 409, "artist_profile_schema_required");
         await ProblemAsync(await _client.GetAsync($"/api/v1/artists/{id}/artwork"), 409, "artist_profile_schema_required");

@@ -5,10 +5,12 @@ namespace TrackStash.Catalog.Application;
 /// <summary>A track row with everything a track list can show: release context, labels, cover, credits and references.</summary>
 public sealed record TrackDetail(TrackListing Track, string? CoverAssetId, IReadOnlyList<ReleaseLabelDetail> Labels,
     IReadOnlyList<ReleaseContributorDetail> Credits, IReadOnlyList<ReleaseContributorDetail> RecordingCredits,
-    IReadOnlyList<ReleaseReferenceDetail> ExternalReferences, IReadOnlyList<ArtistAppearanceCredit> ArtistCredits);
+    IReadOnlyList<ReleaseReferenceDetail> ExternalReferences, IReadOnlyList<ArtistAppearanceCredit> ArtistCredits,
+    CatalogMusicalMetadata? MusicalMetadata = null);
 public sealed record TrackDetailPage(IReadOnlyList<TrackDetail> Items, int Total, int Page, int PageSize);
 public sealed record CatalogRecordingDetail(string Id, string? Title, string? MixName, string? Isrc, long? DurationMs, string Version,
-    IReadOnlyList<ReleaseContributorDetail> Credits, IReadOnlyList<ReleaseReferenceDetail> ExternalReferences, int ReleaseCount);
+    IReadOnlyList<ReleaseContributorDetail> Credits, IReadOnlyList<ReleaseReferenceDetail> ExternalReferences, int ReleaseCount,
+    CatalogMusicalMetadata? MusicalMetadata = null);
 public sealed class TrackBrowseUnavailableException : Exception;
 /// <summary>A track list filter names an entity that does not exist.</summary>
 public sealed class TrackFilterNotFoundException(string kind) : Exception($"Catalog {kind} was not found.")
@@ -86,14 +88,15 @@ public sealed class TrackService(IStorageProvider storage) : ITrackService
             items.Add(new(track, release.Cover, release.Labels,
                 await ReleaseService.Credits(unit, placementCredits, artists, ct).ConfigureAwait(false),
                 await ReleaseService.Credits(unit, recordingCredits, artists, ct).ConfigureAwait(false),
-                references, evidence));
+                references, evidence, schema >= 13 && unit.Enrichment is { } enrichment
+                    ? await enrichment.GetMetadataAsync(CatalogEntityKind.Recording, recording.Id, ct).ConfigureAwait(false) : null));
         }
         return new(items, page.Total, page.Page, page.PageSize);
     }
 
     public async ValueTask<CatalogRecordingDetail?> GetRecordingAsync(string id, CancellationToken ct = default)
     {
-        await Ready(ct).ConfigureAwait(false);
+        var schema = await Ready(ct).ConfigureAwait(false);
         await using var unit = await storage.BeginUnitOfWorkAsync(ct).ConfigureAwait(false);
         var recording = await unit.Recordings.GetByIdAsync(id, ct).ConfigureAwait(false);
         if (recording is null) return null;
@@ -104,6 +107,7 @@ public sealed class TrackService(IStorageProvider storage) : ITrackService
         return new(recording.Id, recording.Title ?? recording.Name, recording.MixName, recording.Isrc, metadata?.DurationMs ?? recording.DurationMs,
             metadata?.Version ?? recording.Version, await ReleaseService.Credits(unit, credits, [], ct).ConfigureAwait(false),
             recording.ExternalReferences.Select(r => new ReleaseReferenceDetail(r.Source, r.ExternalId, r.IsPrimary)).ToArray(),
-            appearances.Items.SingleOrDefault()?.ReleaseCount ?? 0);
+            appearances.Items.SingleOrDefault()?.ReleaseCount ?? 0, schema >= 13 && unit.Enrichment is { } enrichment
+                ? await enrichment.GetMetadataAsync(CatalogEntityKind.Recording, id, ct).ConfigureAwait(false) : null);
     }
 }
