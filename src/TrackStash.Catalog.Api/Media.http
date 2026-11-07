@@ -1,0 +1,46 @@
+@baseUrl = http://localhost:5187/api/v1
+@apiKey = replace-with-your-local-api-key
+@mediaId = 1
+@recordingId = replace-with-canonical-recording-id
+@reviewId = replace-with-created-review-id
+@reviewETag = "replace-with-original-response-etag"
+
+### Historical inventory only; no filesystem scan or audio reads
+GET {{baseUrl}}/media?library=JetDrive&page=1
+Authorization: Bearer {{apiKey}}
+
+### Embedded metadata candidates; no automatic acceptance
+GET {{baseUrl}}/media/{{mediaId}}/candidates
+Authorization: Bearer {{apiKey}}
+
+### Explicit byte verification may hydrate Dropbox files; freezes review only
+POST {{baseUrl}}/media/{{mediaId}}/link-reviews
+Authorization: Bearer {{apiKey}}
+Content-Type: application/json
+
+{
+  "recordingId": "{{recordingId}}"
+}
+
+### Original review and saved outcome
+GET {{baseUrl}}/media-link-reviews/{{reviewId}}
+Authorization: Bearer {{apiKey}}
+
+### Explicit linking, no copies/retagging/purchase assertions
+POST {{baseUrl}}/media-link-reviews/{{reviewId}}/apply
+Authorization: Bearer {{apiKey}}
+Content-Type: application/json
+If-Match: {{reviewETag}}
+
+{
+  "reason": "Verified this audio file is the same Recording and mix/version",
+  "confirmed": true
+}
+
+### Persisted copies, not a fresh availability/backup check
+GET {{baseUrl}}/recordings/{{recordingId}}/media
+Authorization: Bearer {{apiKey}}
+
+### Missing resource produces 404
+GET {{baseUrl}}/media/9223372036854775807/candidates
+Authorization: Bearer {{apiKey}}

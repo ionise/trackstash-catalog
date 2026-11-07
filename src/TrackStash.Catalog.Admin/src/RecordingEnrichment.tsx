@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { Alert, Box, Button, Checkbox, FormControlLabel, LinearProgress, MenuItem, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material'
 import { useLogoutIfAccessDenied } from 'react-admin'
 import { enrichmentClient } from './catalog'
-import type { EnrichmentLookup, EnrichmentReview } from './catalog'
+import type { EnrichmentBatchReview, EnrichmentBatchSelection, EnrichmentLookup, EnrichmentReview } from './catalog'
+import { EnrichmentTrackReview } from './EnrichmentTrackReview'
 
 export function RecordingEnrichment({ id, onApplied }: { id: string; onApplied?: () => void }) {
   return <EntityEnrichment key={id} id={id} resource="recordings" onApplied={onApplied} />
@@ -20,6 +21,7 @@ function EntityEnrichment({ id, resource, onApplied }: { id: string; resource: '
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [review, setReview] = useState<EnrichmentReview>()
+  const [batch, setBatch] = useState<EnrichmentBatchReview>()
   const pending = useRef<AbortController | undefined>(undefined)
   const logout = useLogoutIfAccessDenied()
   useEffect(() => () => pending.current?.abort(), [id])
@@ -30,6 +32,7 @@ function EntityEnrichment({ id, resource, onApplied }: { id: string; resource: '
     pending.current = controller
     setBusy(true); setError('')
     setReview(undefined)
+    setBatch(undefined)
     if (candidateId === undefined) setResult(undefined)
     try {
       const data = candidateId === undefined
@@ -49,12 +52,38 @@ function EntityEnrichment({ id, resource, onApplied }: { id: string; resource: '
   async function prepare(candidateId: string, editionId: string | null) {
     if (pending.current || !result || (resource !== 'recordings' && resource !== 'releases')) return
     const controller = new AbortController()
-    pending.current = controller; setBusy(true); setError(''); setReview(undefined)
+    pending.current = controller; setBusy(true); setError(''); setReview(undefined); setBatch(undefined)
     try {
       const data = await enrichmentClient.prepare(resource, id, candidateId, editionId, result.query.catalogVersion, controller.signal, provider)
       if (!controller.signal.aborted) setReview(data)
     } catch (failure) {
       if (!controller.signal.aborted) { setError(failure instanceof Error ? failure.message : 'Review preparation failed.'); void logout(failure) }
+    } finally {
+      if (!controller.signal.aborted) { pending.current = undefined; setBusy(false) }
+    }
+  }
+  async function prepareBatch(candidateId: string) {
+    if (pending.current || !result || resource !== 'releases') return
+    const controller = new AbortController()
+    pending.current = controller; setBusy(true); setError(''); setReview(undefined); setBatch(undefined)
+    try {
+      const data = await enrichmentClient.prepareBatch(id, candidateId, result.query.catalogVersion, controller.signal)
+      if (!controller.signal.aborted) setBatch(data)
+    } catch (failure) {
+      if (!controller.signal.aborted) { setError(failure instanceof Error ? failure.message : 'Track review preparation failed.'); void logout(failure) }
+    } finally {
+      if (!controller.signal.aborted) { pending.current = undefined; setBusy(false) }
+    }
+  }
+  async function applyBatch(selections: EnrichmentBatchSelection[], reason: string, confirmed: boolean) {
+    if (pending.current || !batch) return
+    const controller = new AbortController()
+    pending.current = controller; setBusy(true); setError('')
+    try {
+      const outcome = await enrichmentClient.applyBatch(batch, selections, reason, confirmed, controller.signal)
+      if (!controller.signal.aborted) { setBatch({ ...batch, outcome }); onApplied?.() }
+    } catch (failure) {
+      if (!controller.signal.aborted) { setError(failure instanceof Error ? failure.message : 'Track batch apply failed.'); void logout(failure) }
     } finally {
       if (!controller.signal.aborted) { pending.current = undefined; setBusy(false) }
     }
@@ -77,7 +106,7 @@ function EntityEnrichment({ id, resource, onApplied }: { id: string; resource: '
     <Typography component="h2" variant="h6">Metadata enrichment</Typography>
     {(resource === 'releases' || resource === 'recordings') && <TextField select label="Enrichment provider" value={provider} disabled={busy} onChange={event => {
       if (event.target.value !== 'beatport' && event.target.value !== 'sonovault') return
-      setProvider(event.target.value); setResult(undefined); setError(''); setReview(undefined)
+      setProvider(event.target.value); setResult(undefined); setError(''); setReview(undefined); setBatch(undefined)
     }} sx={{ maxWidth: 300 }}>
       <MenuItem value="sonovault">SonoVault</MenuItem><MenuItem value="beatport">Beatport</MenuItem>
     </TextField>}
@@ -135,6 +164,10 @@ function EntityEnrichment({ id, resource, onApplied }: { id: string; resource: '
             disabled={busy} onClick={() => void prepare(candidate.candidateId, candidate.editionId)} sx={{ alignSelf: 'flex-start' }}>
             Prepare review for candidate {candidate.candidateId}{candidate.editionId ? ` edition ${candidate.editionId}` : ''}
           </Button>}
+          {resource === 'releases' && provider === 'beatport' && <Button variant="outlined" disabled={busy}
+            sx={{ alignSelf: 'flex-start' }} onClick={() => void prepareBatch(candidate.candidateId)}>
+            Review matched tracks for candidate {candidate.candidateId}
+          </Button>}
           <Box sx={{ minWidth: 0, width: '100%', overflowX: 'auto', contain: 'inline-size' }}>
             <Table size="small" aria-label={`Enrichment comparison ${candidate.candidateId}`}>
               <TableHead><TableRow><TableCell>Field</TableCell><TableCell>Catalog snapshot</TableCell><TableCell>{providerName} proposal</TableCell><TableCell>Evidence</TableCell></TableRow></TableHead>
@@ -184,6 +217,7 @@ function EntityEnrichment({ id, resource, onApplied }: { id: string; resource: '
       })}
     </>}
     {review && <ReviewFields key={review.id} review={review} busy={busy} onApply={apply} />}
+    {batch && <EnrichmentTrackReview key={batch.id} review={batch} busy={busy} onApply={applyBatch} />}
   </Stack>
 }
 

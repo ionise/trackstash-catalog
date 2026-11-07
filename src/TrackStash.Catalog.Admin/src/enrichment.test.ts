@@ -108,3 +108,23 @@ it.each(['recordings', 'releases'] as const)('prepares a Beatport %s review with
   expect(fetcher.mock.calls.every(call => call[1]?.signal === controller.signal)).toBe(true)
   expect(new Headers(fetcher.mock.calls[2][1]?.headers).get('If-Match')).toBe('"frozen-beatport"')
 })
+
+it('track batch transport sends identity/version and selected intent only with the original ETag', async () => {
+  const fetcher = vi.fn<typeof fetch>().mockImplementation(async () => Response.json({ id: 'batch /1' },
+    { headers: { ETag: '"original-batch"' } }))
+  const { authProvider, enrichmentClient } = createCatalogClient(fetcher)
+  await authProvider.login({ apiKey: 'test-catalog-key' })
+  fetcher.mockClear()
+  const controller = new AbortController()
+  const review = await enrichmentClient.prepareBatch('release /1', '10', 'original-release', controller.signal)
+  const selections = [{ reviewId: 'child-1', fields: ['Bpm'], preferredGenre: null }]
+  await enrichmentClient.applyBatch(review, selections, 'Reviewed matches', true, controller.signal)
+  expect(fetcher.mock.calls.map(call => call[0])).toEqual([
+    '/api/v1/releases/release%20%2F1/enrichment/beatport/track-reviews',
+    '/api/v1/enrichment-track-reviews/batch%20%2F1/apply',
+  ])
+  expect(JSON.parse(String(fetcher.mock.calls[0][1]?.body))).toEqual({ candidateId: '10', catalogVersion: 'original-release' })
+  expect(JSON.parse(String(fetcher.mock.calls[1][1]?.body))).toEqual({ selections, reason: 'Reviewed matches', confirmed: true })
+  expect(new Headers(fetcher.mock.calls[1][1]?.headers).get('If-Match')).toBe('"original-batch"')
+  expect(fetcher.mock.calls.every(call => call[1]?.signal === controller.signal)).toBe(true)
+})

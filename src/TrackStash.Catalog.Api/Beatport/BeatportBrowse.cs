@@ -20,7 +20,8 @@ public sealed record BeatportReleasePage(IReadOnlyList<BeatportReleaseItem> Item
 
 /// <summary>A Beatport track as listed on a release.</summary>
 public sealed record BeatportTrackItem(long Id, int? Number, string Name, string? MixName, IReadOnlyList<BeatportRef> Artists,
-    IReadOnlyList<BeatportRef> Remixers, string? Isrc, int? LengthMs, int? Bpm, string? Key, string? Genre, string BeatportUrl);
+    IReadOnlyList<BeatportRef> Remixers, string? Isrc, int? LengthMs, int? Bpm, string? Key, string? Genre, string BeatportUrl,
+    EnrichmentCandidate? RecordingCandidate = null);
 
 /// <summary>A Beatport release with its tracks.</summary>
 public sealed record BeatportReleaseDetail(BeatportReleaseItem Release, IReadOnlyList<BeatportTrackItem> Tracks, int TrackTotal);
@@ -82,7 +83,19 @@ public sealed class BeatportBrowseService(IBeatportBrokerClient broker, IStorage
         }
         var item = (await AnnotateAsync([release], ct))[0];
         var tracks = await broker.GetCatalogAsync("/v4/catalog/tracks/", [new("release_id", id.ToString(CultureInfo.InvariantCulture)), new("per_page", "100")], ct);
-        var trackItems = tracks is { } t ? Results(t).Select(Track).OfType<BeatportTrackItem>()
+        if (requireEnrichmentEvidence && (tracks is not { ValueKind: JsonValueKind.Object } trackPage ||
+            !trackPage.TryGetProperty("results", out var trackResults) || trackResults.ValueKind != JsonValueKind.Array ||
+            trackResults.GetArrayLength() > 100 || !trackPage.TryGetProperty("count", out var total) ||
+            total.ValueKind != JsonValueKind.Number || !total.TryGetInt32(out var trackCount) || trackCount < trackResults.GetArrayLength()))
+            throw new ApiRequestException(502, "beatport_invalid_response", "Beatport returned invalid Release tracklist evidence.");
+        var trackItems = tracks is { } t ? Results(t).Select(track =>
+            {
+                var item = Track(track);
+                if (!requireEnrichmentEvidence) return item;
+                var query = new EnrichmentQuery(EnrichmentEntityKind.Recording, "", "", null, null, [], null, null, null, null, null, []);
+                var evidence = BeatportEnrichmentProvider.MapRecording(track, query, EnrichmentMatchBasis.ExternalReference, DateTimeOffset.UtcNow);
+                return item! with { RecordingCandidate = evidence };
+            }).OfType<BeatportTrackItem>()
             .OrderBy(track => track.Number ?? int.MaxValue).ThenBy(track => track.Id).ToList() : [];
         return new(item, trackItems, tracks is { } all ? Count(all, trackItems.Count) : 0);
     }

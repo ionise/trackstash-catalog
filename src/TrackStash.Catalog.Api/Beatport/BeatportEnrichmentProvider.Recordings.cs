@@ -90,7 +90,7 @@ public sealed partial class BeatportEnrichmentProvider
             yield return new(TrackText(value, "name") ?? throw InvalidTrack(), role,
                 new("beatport", TrackId(value).ToString(CultureInfo.InvariantCulture)));
     }
-    private static EnrichmentCandidate MapRecording(JsonElement track, EnrichmentQuery query,
+    internal static EnrichmentCandidate MapRecording(JsonElement track, EnrichmentQuery query,
         EnrichmentMatchBasis basis, DateTimeOffset retrieved)
     {
         var id = TrackId(track).ToString(CultureInfo.InvariantCulture);

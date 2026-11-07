@@ -11,6 +11,44 @@
 @reviewETag = "replace-with-original-review-ETag"
 @beatportTrackId = 7
 @beatportReleaseId = 10
+@trackBatchId = replace-with-track-batch-review-id
+@trackBatchETag = "replace-with-original-track-batch-ETag"
+@trackChildReviewId = replace-with-confident-child-review-id
+
+### Fetch selected Beatport Release and tracks, match existing Release Recordings and freeze the batch
+POST {{baseUrl}}/api/v1/releases/{{releaseId}}/enrichment/beatport/track-reviews
+Authorization: Bearer {{catalogApiKey}}
+Content-Type: application/json
+
+{
+  "candidateId": "{{beatportReleaseId}}",
+  "catalogVersion": "{{catalogVersion}}"
+}
+
+### Retrieve frozen matches, field evidence and any saved batch outcome
+GET {{baseUrl}}/api/v1/enrichment-track-reviews/{{trackBatchId}}
+Authorization: Bearer {{catalogApiKey}}
+
+### Apply selected fields for confident matched Recordings together; no provider calls or ownership assertions
+POST {{baseUrl}}/api/v1/enrichment-track-reviews/{{trackBatchId}}/apply
+Authorization: Bearer {{catalogApiKey}}
+Content-Type: application/json
+If-Match: {{trackBatchETag}}
+
+{
+  "selections": [
+    {
+      "reviewId": "{{trackChildReviewId}}",
+      "fields": ["Bpm", "MusicalKey"]
+    }
+  ],
+  "reason": "Reviewed the provider Release version and exact Recording matches",
+  "confirmed": true
+}
+
+### Missing batch returns 404
+GET {{baseUrl}}/api/v1/enrichment-track-reviews/not-an-existing-batch
+Authorization: Bearer {{catalogApiKey}}
 
 ### Freeze the chosen Recording candidate: one explicit provider request, schema 13, no canonical writes
 POST {{baseUrl}}/api/v1/recordings/{{recordingId}}/enrichment/sonovault/reviews

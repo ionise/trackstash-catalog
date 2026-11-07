@@ -297,6 +297,30 @@ export interface EnrichmentLookup {
     evidence: { field: string; source: string; sourceRecordId: string | null; sourceUrl: string | null; retrievedAt: string; attribution: string | null }[] }[]
   warnings: string[]
 }
+export interface EnrichmentBatchSelection { reviewId: string; fields: string[]; preferredGenre: string | null }
+export interface EnrichmentBatchOutcome {
+  reviewId: string; releaseId: string; appliedAt: string; recordings: EnrichmentApplyOutcome[]
+}
+export interface EnrichmentBatchReview {
+  id: string; version: string; etag: string; releaseId: string; createdAt: string
+  candidate: EnrichmentLookup['candidates'][number]; warnings: string[]
+  tracks: { candidateId: string; title: string; status: string; reasons: string[]; recordingIds: string[]
+    review: Omit<EnrichmentReview, 'etag'> | null }[]
+  outcome: EnrichmentBatchOutcome | null
+}
+export interface MediaInventoryItem {
+  id: number; library: string; relativePath: string; title: string | null; mix: string | null; artist: string | null
+  album: string | null; isrc: string | null; durationSeconds: number | null; contentHash: string | null
+  sizeBytes: number; scannedUtc: string; path: string
+}
+export interface MediaRecordingCandidate {
+  recordingId: string; title: string | null; mix: string | null; status: string; evidence: string[]; blockers: string[]
+}
+export interface MediaLinkOutcome { reviewId: string; mediaId: string; recordingId: string; appliedAt: string }
+export interface MediaLinkReview {
+  id: string; version: string; etag: string; media: MediaInventoryItem; candidate: MediaRecordingCandidate
+  createdAt: string; verifiedSha256: string; sidecarTitle: string | null; sidecarMix: string | null; outcome: MediaLinkOutcome | null
+}
 export interface BeatportReleaseItem {
   id: number; name: string; type: string | null; artists: BeatportRef[]; remixers: BeatportRef[]; label: BeatportRef | null
   catalogLabelIds: string[]; catalogNumber: string | null; publishDate: string | null; trackCount: number | null; imageUrl: string | null
@@ -637,6 +661,20 @@ export function createCatalogClient(fetcher: typeof fetch = fetch) {
       (await request(`/${encodeURIComponent(id)}/tracks?page=${page}&pageSize=25`, { signal }, 'releases')).json(),
   }
   const enrichmentClient = {
+    prepareBatch: async (id: string, candidateId: string, catalogVersion: string, signal?: AbortSignal): Promise<EnrichmentBatchReview> => {
+      const response = await request(`/${encodeURIComponent(id)}/enrichment/beatport/track-reviews`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ candidateId, catalogVersion }), signal,
+      }, 'releases')
+      const etag = response.headers.get('ETag')
+      if (!etag) throw new Error('Track batch review is missing its ETag; applying is unavailable.')
+      return { ...await response.json(), etag }
+    },
+    applyBatch: async (review: EnrichmentBatchReview, selections: EnrichmentBatchSelection[], reason: string,
+      confirmed: boolean, signal?: AbortSignal): Promise<EnrichmentBatchOutcome> =>
+      (await request(`/${encodeURIComponent(review.id)}/apply`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'If-Match': review.etag },
+        body: JSON.stringify({ selections, reason, confirmed }), signal,
+      }, 'enrichment-track-reviews')).json(),
     prepare: async (resource: 'recordings' | 'releases', id: string, candidateId: string, editionId: string | null,
       catalogVersion: string, signal?: AbortSignal, provider: 'sonovault' | 'beatport' = 'sonovault'): Promise<EnrichmentReview> => {
       const response = await request(`/${encodeURIComponent(id)}/enrichment/${provider}/reviews`, {
@@ -693,7 +731,25 @@ export function createCatalogClient(fetcher: typeof fetch = fetch) {
     credits: async (id: string, tracks: boolean, page: number, signal?: AbortSignal): Promise<GroupPage<ArtistAppearance>> =>
       (await request(`/${encodeURIComponent(id)}/${tracks ? 'tracks' : 'releases'}?page=${page}&pageSize=25`, { signal }, 'artists')).json(),
   }
-  return { dataProvider, authProvider, mergeClient, artworkClient, releaseArtworkClient, artistArtworkClient, backupsClient, relationshipsClient, groupClient, beatportClient, purchaseReleaseClient, releaseImportClient, releaseClient, artistClient, trackClient, enrichmentClient }
+  const mediaClient = {
+    list: async (query: URLSearchParams, signal?: AbortSignal): Promise<{ items: MediaInventoryItem[]; total: number; page: number; pageSize: number; libraries: string[]; warnings: string[] }> =>
+      (await request(`?${query}`, { signal }, 'media')).json(),
+    candidates: async (id: number, signal?: AbortSignal): Promise<{ media: MediaInventoryItem; candidates: MediaRecordingCandidate[]; linkedRecordingId: string | null }> =>
+      (await request(`/${id}/candidates`, { signal }, 'media')).json(),
+    prepare: async (id: number, recordingId: string, signal?: AbortSignal): Promise<MediaLinkReview> => {
+      const response = await request(`/${id}/link-reviews`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ recordingId }), signal }, 'media')
+      const etag = response.headers.get('ETag')
+      if (!etag) throw new Error('Media review is missing its ETag; linking is unavailable.')
+      return { ...await response.json(), etag }
+    },
+    apply: async (review: MediaLinkReview, reason: string, confirmed: boolean, signal?: AbortSignal): Promise<MediaLinkOutcome> =>
+      (await request(`/${encodeURIComponent(review.id)}/apply`, { method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'If-Match': review.etag }, body: JSON.stringify({ reason, confirmed }), signal }, 'media-link-reviews')).json(),
+    linked: async (id: string, signal?: AbortSignal): Promise<{ id: string; path: string; sha256: string | null; linkedAt: string | null }[]> =>
+      (await request(`/${encodeURIComponent(id)}/media`, { signal }, 'recordings')).json(),
+  }
+  return { dataProvider, authProvider, mergeClient, artworkClient, releaseArtworkClient, artistArtworkClient, backupsClient, relationshipsClient, groupClient, beatportClient, purchaseReleaseClient, releaseImportClient, releaseClient, artistClient, trackClient, enrichmentClient, mediaClient }
 }
 
-export const { dataProvider, authProvider, mergeClient, artworkClient, releaseArtworkClient, artistArtworkClient, backupsClient, relationshipsClient, groupClient, beatportClient, purchaseReleaseClient, releaseImportClient, releaseClient, artistClient, trackClient, enrichmentClient } = createCatalogClient()
+export const { dataProvider, authProvider, mergeClient, artworkClient, releaseArtworkClient, artistArtworkClient, backupsClient, relationshipsClient, groupClient, beatportClient, purchaseReleaseClient, releaseImportClient, releaseClient, artistClient, trackClient, enrichmentClient, mediaClient } = createCatalogClient()

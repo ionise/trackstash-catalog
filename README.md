@@ -6,6 +6,28 @@ Canonical catalog and lifecycle operations module for TrackStash.
 
 Catalog + artwork and separately configured scanner inventory ZIP backup, verification and safe separate-directory restore are available through the shared native service, CLI and **System → Backup** admin GUI. Set `CatalogApi__ScannerDatabasePath` (or `TRACKSTASH_SCAN_DATABASE_PATH`) to enable scanner backups; CLI uses `--kind scanner`. Neither type copies audio/media files. See [database backups](docs/catalog-backups.md) for configuration, newest-10 retention per database/type, authenticated download and restore instructions.
 
+## Reviewed filesystem media links
+
+**Media** browses the existing scanner inventory and proposes links to existing canonical Recordings from embedded ISRC, title, explicit mix/version, primary Artist and duration evidence. It is not a new filesystem scan, a filename-based import or a workflow for admitting new Recordings. A valid ISRC with incomplete corroboration remains **Needs manual version review**, never an automatic link. Contradictory title/mix/Artist/ISRC/duration evidence blocks acceptance. Duration must agree within 2 seconds when both values are known; missing mix never implies Original Mix.
+
+Configure absolute server-approved library roots alongside the existing scanner database:
+
+```bash
+export CatalogApi__ScannerDatabasePath="/absolute/path/to/scanner.db"
+export CatalogApi__MediaLibraries__JetDrive="/Volumes/JetDrive/Library"
+export CatalogApi__MediaLibraries__Dropbox="$HOME/Library/CloudStorage/Dropbox-CloudOptionDJteam/David Alderman/Library"
+export CatalogApi__MediaLibraries__NAS="/Volumes/music"
+```
+
+The workspace production launcher supplies these library defaults. **NAS** includes historical `FromJetDrive` archive paths as well as `Backup`; location alone does not establish current backup completeness. Only configured roots are accessible, not paths supplied by the browser. Unmounted files remain historical inventory items. Refresh using the existing scanner when inventory is stale; browsing never walks the volumes or reads audio.
+
+1. Open **Media**, filter/search, and choose **Review media**.
+2. Inspect tagged Recording candidates and blockers. **Verify file and prepare link** hashes the actual file with SHA-256, checks stored size/hash and validates any adjacent hidden `.trackstash-release.json` schema-4 sidecar. This explicit operation may download cloud-only Dropbox files. Symlinked files/root ancestors and conflicting or malformed sidecars are rejected. Sidecar local-file IDs are scanner-scoped evidence, not canonical Recording IDs.
+3. Inspect frozen evidence, supply a reason and check the identity/version confirmation before accepting. Acceptance rechecks file/scanner/sidecar and Catalog snapshots with the original review ETag and atomically writes the media association and permanent before/after audit. Unapplied reviews expire after 24 hours; identical retries return the saved outcome. Changed evidence requires a new review.
+4. Open the Recording to see accepted media copies. Multiple copies may share a Recording, but identical verified bytes cannot be newly linked to different Recordings. Existing registrations/links are never replaced.
+
+Requires existing Catalog schema 13 for reviewed writes; no new migration or automatic live migration is added. Reads and reviews are authenticated and not cached. Inventory is bounded to 100,000 scanner rows, 25 files/page and 25 title-search candidates; Recording copy lists support at most 100 accepted links. This initial workflow does **not** move/copy audio, retag it, assert acquisition/ownership, update sidecars, add artwork or enable playback. Links describe verified review-time identity, not a continuous presence/backup check. See [API design](docs/api-design.md#reviewed-media-links-schema-13) and [request examples](src/TrackStash.Catalog.Api/Media.http).
+
 `trackstash-catalog` owns the day-2 catalog workflows that happen after storage has been initialized.
 It builds on shared contracts and services from `trackstash-core` and leaves first-run setup to `trackstash-bootstrap`.
 
@@ -294,6 +316,14 @@ Schema 13 is supplied by `trackstash-core`, including typed musical-metadata sto
 #### Release provider choice and Beatport artwork
 
 Release **Details** offers a metadata-provider selector for **SonoVault** or **Beatport**. Switching providers clears the transient comparison/review but does not make a request. Beatport uses the existing caching/sign-in broker, not a new credential store: a name search uses one broker call, while linked-ID/candidate details use two calls (Release and the first 100 tracks). Known title, primary Artist, Label and catalog-number conflicts rank returned candidates without discarding them. Lookups remain read-only; selective apply is available separately for either provider. Beatport Release dates are shown as provider release dates, not SonoVault group dates.
+
+**Review matched tracks for candidate** offers a separate Beatport Release-to-Recording batch on schema 13. It fetches the Release and first 100 tracks once through the broker, retaining each track's own title/mix, ISRC, BPM, musical key, genre/subgenre and evidence. No track-detail fan-out or automatic retries occur. Catalog Releases with more than 100 placements are rejected before fetching; incomplete provider tracklists are explicitly warned about.
+
+Matches are restricted to Recordings already placed on the selected catalog Release. An accepted Beatport Recording ID takes precedence; otherwise confidence requires a valid exact ISRC, exact trimmed/case-insensitive title and nonblank mix/version, and complete primary Artist-name agreement. Conflicting known identities, ISRCs, title/mix or available primary Artist evidence block confidence, including when a provider ID is accepted. Title-only possibilities, duplicate source tracks and non-unique mappings stay ambiguous; unmatched catalog/provider tracks are also displayed. Numbering alone is never an identity match, and missing mix evidence is not guessed to mean Original Mix. Provider tracklists still do not create Recordings or rewrite placements.
+
+Only unique confident matches offer field checkboxes. Missing values/lists default selected, but existing values, preferred classification and **Accept Beatport identity** require explicit selection. Review the provider Release/version, selected fields and reason before confirming **Apply selected track metadata**. All selected Recording writes and individual/batch audits succeed in one transaction or none do. Release context, selected Recording snapshots and primary Artist agreement are rechecked; frozen proposals are used without any provider calls. Drafts expire at 24 hours; identical retries return the original outcome even after expiry. Batch child reviews cannot be applied individually.
+
+The batch and per-Recording frozen evidence/history reuse schema-13 review storage and are included in coordinated catalog backups. No additional migration is required. Changing a Recording updates its metadata across every Release appearance, while unselected fields, credits, Label links, placements, source payloads, artwork, purchases and media remain untouched. SonoVault batch matching and catalog-only admission of Beatport Label releases are follow-up work; catalog admission will not imply a Beatport purchase or owned media.
 
 When the Beatport broker is configured, the Release artwork manager offers Beatport candidates for a single already-linked Beatport Release ID. A name-search result is not automatically accepted as an artwork identity. **Look up artwork candidates** retrieves metadata only; **Preview artwork** explicitly downloads and validates a thumbnail through Catalog, without storing an asset. **Attach candidate** requires release-match/usage-rights confirmation and the original gallery ETag. It creates a managed copy with source identity/revision and permanent history. Candidate revisions describe the provider metadata and image URL, not a guarantee that upstream bytes at the same URL never change; downloaded bytes have their own immutable managed asset hash. Artwork transfers are restricted to HTTPS `geo-media.beatport.com`, no redirects or credentials, with 10 MiB and 30-second bounds plus existing image/pixel limits. Attachment preserves the current preferred cover by default; explicitly select **Prefer the attached candidate** to change it. Upload and gallery preference editing remain available independently. Source/rights are evidence, not automatic licence verification.
 

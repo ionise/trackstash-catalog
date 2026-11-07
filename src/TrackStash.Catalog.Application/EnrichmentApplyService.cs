@@ -25,6 +25,10 @@ public sealed record EnrichmentApplyOutcome(string ReviewId, string EntityId, Da
 
 public interface IEnrichmentApplyService
 {
+    ValueTask<EnrichmentBatchReview> PrepareBatchAsync(string releaseId, string candidateId, string catalogVersion, CancellationToken ct = default);
+    ValueTask<EnrichmentBatchReview> GetBatchAsync(string reviewId, CancellationToken ct = default);
+    ValueTask<EnrichmentBatchOutcome> ApplyBatchAsync(string reviewId, string version, IReadOnlyList<EnrichmentBatchSelection> selections,
+        string reason, bool confirmed, CancellationToken ct = default);
     ValueTask<EnrichmentReview> PrepareAsync(EnrichmentEntityKind kind, string id, string candidateId,
         string? editionId, string catalogVersion, CancellationToken ct = default, string providerId = "sonovault");
     ValueTask<EnrichmentReview> GetAsync(string reviewId, CancellationToken ct = default);
@@ -32,7 +36,7 @@ public interface IEnrichmentApplyService
         string? preferredGenre, string reason, bool confirmed, CancellationToken ct = default);
 }
 
-public sealed class EnrichmentApplyService(IStorageProvider storage, IRecordingEnrichmentService recordings,
+public sealed partial class EnrichmentApplyService(IStorageProvider storage, IRecordingEnrichmentService recordings,
     INamedEntityEnrichmentService named, TimeProvider clock) : IEnrichmentApplyService
 {
     private sealed record Snapshot(Recording? Recording, Release? Release, CatalogMusicalMetadata Musical,
@@ -41,7 +45,7 @@ public sealed class EnrichmentApplyService(IStorageProvider storage, IRecordingE
         public string Version => Recording?.Version ?? Release!.Version;
         public CanonicalEntity Entity => (CanonicalEntity?)Recording ?? Release!;
     }
-    private sealed record Payload(Snapshot Snapshot, EnrichmentReview Review);
+    private sealed record Payload(Snapshot Snapshot, EnrichmentReview Review, string? BatchId = null);
     private static string Json<T>(T value) => JsonSerializer.Serialize(value);
     private static string Hash<T>(T value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Json(value)))).ToLowerInvariant();
     private static bool SameProviderId(string left, string right) =>
@@ -171,6 +175,11 @@ public sealed class EnrichmentApplyService(IStorageProvider storage, IRecordingE
     {
         var stored = await Repo(unit).GetReviewAsync(id, ct).ConfigureAwait(false)
             ?? throw new EnrichmentApplyException(404, "enrichment_review_not_found", "Enrichment review was not found.");
+        using var document = JsonDocument.Parse(stored.PayloadJson);
+        if (document.RootElement.TryGetProperty("Type", out var type))
+            throw type.GetString() == "MediaLink"
+                ? new EnrichmentApplyException(409, "media_review_required", "Use the media-link review endpoint for this file-to-Recording review.")
+                : new EnrichmentApplyException(409, "enrichment_batch_required", "Use the batch review endpoint for this Release-to-Recording review.");
         return JsonSerializer.Deserialize<Payload>(stored.PayloadJson)
             ?? throw new InvalidDataException("Stored enrichment review is invalid.");
     }
@@ -188,13 +197,23 @@ public sealed class EnrichmentApplyService(IStorageProvider storage, IRecordingE
     public async ValueTask<EnrichmentApplyOutcome> ApplyAsync(string reviewId, string version, IReadOnlyList<string> fields,
         string? preferredGenre, string reason, bool confirmed, CancellationToken ct = default)
     {
+        await Ready(ct).ConfigureAwait(false);
+        await using var unit = await storage.BeginUnitOfWorkAsync(ct).ConfigureAwait(false);
+        var outcome = await ApplyInUnit(unit, reviewId, version, fields, preferredGenre, reason, confirmed, ct).ConfigureAwait(false);
+        await unit.CommitAsync(ct).ConfigureAwait(false);
+        return outcome;
+    }
+    private async ValueTask<EnrichmentApplyOutcome> ApplyInUnit(IUnitOfWork unit, string reviewId, string version,
+        IReadOnlyList<string> fields, string? preferredGenre, string reason, bool confirmed, CancellationToken ct,
+        string? batchId = null)
+    {
         if (!confirmed || string.IsNullOrWhiteSpace(reason) || reason.Trim().Length > 2000 || fields.Count is 0 or > 20 ||
             fields.Any(string.IsNullOrWhiteSpace) || fields.Distinct(StringComparer.Ordinal).Count() != fields.Count ||
             preferredGenre is not null && !fields.Contains("PreferredGenre"))
             throw new EnrichmentApplyException(400, "enrichment_invalid_apply", "Select fields, give a review reason and explicitly confirm; a preferred classification needs its checkbox.");
-        await Ready(ct).ConfigureAwait(false);
-        await using var unit = await storage.BeginUnitOfWorkAsync(ct).ConfigureAwait(false);
         var payload = await Load(unit, reviewId, ct).ConfigureAwait(false);
+        if (payload.BatchId != batchId)
+            throw new EnrichmentApplyException(409, "enrichment_batch_required", "This Recording review must be applied through its original batch.");
         var review = payload.Review;
         if (version != review.Version) throw Stale();
         if (fields.Any(f => !review.Fields.Any(row => row.Field == f)))
@@ -273,7 +292,6 @@ public sealed class EnrichmentApplyService(IStorageProvider storage, IRecordingE
         var audit = new EnrichmentApplyAudit(reviewId, Json(selected), reason.Trim(), Json(before),
             Json(new AppliedSnapshot(after, intent)), clock.GetUtcNow());
         await Repo(unit).SaveAuditAsync(audit, ct).ConfigureAwait(false);
-        await unit.CommitAsync(ct).ConfigureAwait(false);
         return Outcome(audit, review.EntityId);
     }
     private sealed record AppliedSnapshot(Snapshot Snapshot, string Intent);

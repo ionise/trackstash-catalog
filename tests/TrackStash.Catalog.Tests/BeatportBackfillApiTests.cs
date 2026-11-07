@@ -78,11 +78,12 @@ public sealed partial class LabelApiTests
         }
     }
 
-    private async Task<(WebApplication App, HttpClient Client, FakeBroker Broker)> StartWithBrokerAsync(bool configured = true)
+    private async Task<(WebApplication App, HttpClient Client, FakeBroker Broker)> StartWithBrokerAsync(bool configured = true, TimeProvider? clock = null)
     {
         var broker = new FakeBroker(PurchaseSourcePath);
         var app = Build(b =>
         {
+            if (clock is not null) b.Services.AddSingleton(clock);
             var settings = new Dictionary<string, string?> { ["CatalogApi:PurchaseSourceDatabasePath"] = PurchaseSourcePath };
             if (configured)
             {

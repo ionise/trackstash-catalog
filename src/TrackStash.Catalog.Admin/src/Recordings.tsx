@@ -14,6 +14,7 @@ import { LocalTrackList, TrackList } from './TrackList'
 import { formatDuration, trackQuery, useUrlTrackView } from './trackView'
 import { RecordingEnrichment } from './RecordingEnrichment'
 import { MusicalMetadata } from './MusicalMetadata'
+import { RecordingMedia } from './Media'
 
 export function TrackListPage() {
   const { isPending } = useAuthenticated()
@@ -101,6 +102,7 @@ function Detail({ id }: { id: string }) {
       </Stack>
     </Stack>
     <Divider />
+    <RecordingMedia key={`media:${id}:${revision}`} id={id} />
     <RecordingEnrichment key={id} id={id} onApplied={() => setRevision(value => value + 1)} />
     <Typography component="h2" variant="h6">Releases of this Recording</Typography>
     <LocalTrackList key={revision} filter={{ recordingId: id }} context="recording" label="Recording releases" />
@@ -108,7 +110,7 @@ function Detail({ id }: { id: string }) {
       <AccordionDetails>
         <Typography sx={{ overflowWrap: 'anywhere' }}>Catalog ID: {data.id}</Typography>
         {data.externalReferences.map(r => <Typography key={`${r.source}:${r.externalId}`}>{r.source}: {r.externalId}{r.isPrimary ? ' (primary)' : ''}</Typography>)}
-        <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>A Recording is one piece of audio (title, mix and ISRC). Each release it appears on is a separate track listing; media files are not linked yet.</Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>A Recording is one piece of audio (title, mix and ISRC). Each release it appears on is a separate track listing; explicitly accepted media copies are listed above.</Typography>
       </AccordionDetails>
     </Accordion>
   </Stack>

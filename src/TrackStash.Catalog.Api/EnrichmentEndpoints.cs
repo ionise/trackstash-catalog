@@ -8,11 +8,72 @@ namespace TrackStash.Catalog.Api;
 public sealed record CreateEnrichmentReviewRequest(string CandidateId, string? EditionId, string CatalogVersion);
 /// <summary>Explicit field selections, optional preferred classification and confirmation of a frozen review.</summary>
 public sealed record ApplyEnrichmentReviewRequest(IReadOnlyList<string> Fields, string? PreferredGenre, string Reason, bool Confirmed);
+/// <summary>Explicit per-Recording field intent for atomic batch apply.</summary>
+public sealed record ApplyEnrichmentBatchRequest(IReadOnlyList<EnrichmentBatchSelection> Selections, string Reason, bool Confirmed);
+/// <summary>Fetch a selected Beatport Release for track matching against the original catalog snapshot.</summary>
+public sealed record CreateEnrichmentBatchRequest(string CandidateId, string CatalogVersion);
 
 internal static class EnrichmentEndpoints
 {
     private static void MapReviews(WebApplication app)
     {
+        app.MapPost("/api/v1/releases/{id}/enrichment/beatport/track-reviews",
+            async (string id, HttpContext context, IEnrichmentApplyService service, CancellationToken ct) =>
+            {
+                var fields = await LabelRequests.FieldsAsync(context.Request, "application/json", ct, ["candidateId", "catalogVersion"]);
+                if (!fields.TryGetValue("candidateId", out var candidate) || candidate.ValueKind != JsonValueKind.String ||
+                    !fields.TryGetValue("catalogVersion", out var version) || version.ValueKind != JsonValueKind.String)
+                    throw new ApiRequestException(400, "validation_failed", "candidateId and original catalogVersion are required.");
+                var review = await service.PrepareBatchAsync(id, candidate.GetString()!, version.GetString()!, ct);
+                context.Response.Headers.CacheControl = "no-store";
+                context.Response.Headers.ETag = LabelRequests.ETag(review.Version);
+                return TypedResults.Created($"/api/v1/enrichment-track-reviews/{review.Id}", review);
+            }).WithName("CreateBeatportTrackReview").WithTags("Enrichment")
+            .WithSummary("Fetch Beatport Release and track evidence and freeze conservative Recording matches")
+            .WithDescription("Two broker calls, at most 100 tracks. No canonical writes. Ambiguous/unmatched tracks are not writable. Requires original Release catalogVersion and schema 13.")
+            .Accepts<CreateEnrichmentBatchRequest>("application/json").Produces<EnrichmentBatchReview>(201)
+            .ProducesProblem(400).ProducesProblem(404).ProducesProblem(409).ProducesProblem(412)
+            .ProducesProblem(429).ProducesProblem(502).ProducesProblem(503).ProducesProblem(504);
+        app.MapGet("/api/v1/enrichment-track-reviews/{id}",
+            async (string id, HttpContext context, IEnrichmentApplyService service, CancellationToken ct) =>
+            {
+                var review = await service.GetBatchAsync(id, ct);
+                context.Response.Headers.CacheControl = "no-store";
+                context.Response.Headers.ETag = LabelRequests.ETag(review.Version);
+                return TypedResults.Ok(review);
+            }).WithName("GetEnrichmentTrackReview").WithTags("Enrichment")
+            .WithSummary("Read frozen track matches, field evidence and atomic batch outcome")
+            .Produces<EnrichmentBatchReview>().ProducesProblem(400).ProducesProblem(404).ProducesProblem(409);
+        app.MapPost("/api/v1/enrichment-track-reviews/{id}/apply",
+            async (string id, HttpContext context, IEnrichmentApplyService service, CancellationToken ct) =>
+            {
+                var version = LabelRequests.ExpectedVersion(context.Request);
+                var fields = await LabelRequests.FieldsAsync(context.Request, "application/json", ct, ["selections", "reason", "confirmed"]);
+                if (!fields.TryGetValue("selections", out var selections) || selections.ValueKind != JsonValueKind.Array ||
+                    selections.GetArrayLength() is 0 or > 100 || !fields.TryGetValue("reason", out var reason) || reason.ValueKind != JsonValueKind.String ||
+                    !fields.TryGetValue("confirmed", out var confirmed) || confirmed.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                    throw new ApiRequestException(400, "validation_failed", "Bounded selections, reason and boolean confirmation are required.");
+                var intent = new List<EnrichmentBatchSelection>();
+                foreach (var selection in selections.EnumerateArray())
+                {
+                    if (selection.ValueKind != JsonValueKind.Object ||
+                        selection.EnumerateObject().Any(p => p.Name is not ("reviewId" or "fields" or "preferredGenre")) ||
+                        selection.EnumerateObject().GroupBy(p => p.Name).Any(g => g.Count() > 1) ||
+                        !selection.TryGetProperty("reviewId", out var reviewId) || reviewId.ValueKind != JsonValueKind.String ||
+                        !selection.TryGetProperty("fields", out var chosen) || chosen.ValueKind != JsonValueKind.Array ||
+                        chosen.GetArrayLength() is 0 or > 20 || chosen.EnumerateArray().Any(f => f.ValueKind != JsonValueKind.String))
+                        throw new ApiRequestException(400, "validation_failed", "Each selection requires a reviewId and bounded field names only.");
+                    var preferred = selection.TryGetProperty("preferredGenre", out var genre) ? LabelRequests.NullableString(genre, "preferredGenre") : null;
+                    intent.Add(new(reviewId.GetString()!, chosen.EnumerateArray().Select(f => f.GetString()!).ToArray(), preferred));
+                }
+                var result = await service.ApplyBatchAsync(id, version, intent, reason.GetString()!, confirmed.GetBoolean(), ct);
+                context.Response.Headers.CacheControl = "no-store";
+                return TypedResults.Ok(result);
+            }).WithName("ApplyEnrichmentTrackReview").WithTags("Enrichment")
+            .WithSummary("Apply selected matched Recordings atomically using frozen evidence and original If-Match")
+            .WithDescription("No provider calls. All selected Recording changes and audits succeed together or roll back. Release context and selected Recording snapshots are rechecked; identical retries return the saved outcome.")
+            .Accepts<ApplyEnrichmentBatchRequest>("application/json").Produces<EnrichmentBatchOutcome>()
+            .ProducesProblem(400).ProducesProblem(404).ProducesProblem(409).ProducesProblem(410).ProducesProblem(412).ProducesProblem(428);
         foreach (var (resource, kind) in new[] { ("recordings", EnrichmentEntityKind.Recording), ("releases", EnrichmentEntityKind.Release) })
         foreach (var provider in new[] { "sonovault", "beatport" })
         {

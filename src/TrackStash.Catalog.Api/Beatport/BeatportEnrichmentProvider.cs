@@ -56,7 +56,8 @@ public sealed partial class BeatportEnrichmentProvider(IBeatportBrowseService br
             var tracks = detail?.Tracks.Select(t => new EnrichmentReleaseTrack(t.Id.ToString(CultureInfo.InvariantCulture),
                 t.Name + (string.IsNullOrWhiteSpace(t.MixName) ? "" : $" ({t.MixName})"), t.Isrc, null, t.Number,
                 t.Artists.Select(a => new EnrichmentCredit(a.Name, "primary", new("beatport", a.Id.ToString(CultureInfo.InvariantCulture))))
-                    .Concat(t.Remixers.Select(a => new EnrichmentCredit(a.Name, "remixer", new("beatport", a.Id.ToString(CultureInfo.InvariantCulture))))).ToArray())).ToArray() ?? [];
+                    .Concat(t.Remixers.Select(a => new EnrichmentCredit(a.Name, "remixer", new("beatport", a.Id.ToString(CultureInfo.InvariantCulture))))).ToArray(),
+                t.RecordingCandidate)).ToArray() ?? [];
             var metadata = new EnrichmentMetadata(Name: release.Name, LabelName: release.Label?.Name,
                 CatalogNumber: release.CatalogNumber, Credits: credits, ExternalReferences: [new("beatport", id)],
                 ReleaseDate: DateOnly.TryParseExact(release.PublishDate, "yyyy-MM-dd", CultureInfo.InvariantCulture,

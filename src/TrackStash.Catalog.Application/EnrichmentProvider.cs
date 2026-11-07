@@ -57,7 +57,7 @@ public sealed record EnrichmentReleaseEdition(
 /// <summary>Provider tracklist identity and numbering, without ownership or canonical Recording assertions.</summary>
 public sealed record EnrichmentReleaseTrack(
     string Id, string Title, string? Isrc, int? DiscNumber, int? TrackNumber,
-    IReadOnlyList<EnrichmentCredit> Credits);
+    IReadOnlyList<EnrichmentCredit> Credits, EnrichmentCandidate? RecordingCandidate = null);
 
 /// <summary>Release-group date and edition/tracklist evidence; an unselected tracklist may use consensus numbering.</summary>
 public sealed record EnrichmentReleaseDetails(
