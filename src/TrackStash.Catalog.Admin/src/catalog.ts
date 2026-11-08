@@ -311,7 +311,26 @@ export interface EnrichmentBatchReview {
 export interface MediaInventoryItem {
   id: number; library: string; relativePath: string; title: string | null; mix: string | null; artist: string | null
   album: string | null; isrc: string | null; durationSeconds: number | null; contentHash: string | null
-  sizeBytes: number; scannedUtc: string; path: string
+  sizeBytes: number; scannedUtc: string; path: string; label?: string | null; release?: string | null; fingerprintKey?: string | null
+}
+export interface MediaGroup {
+  key: string; name: string; label: string | null; release: string | null; fileCount: number
+  libraries: string[]; canAssociateRelease: boolean
+  associatedReleaseId?: string | null; associatedReleaseTitle?: string | null
+}
+export function mediaLibraryName(value: string, names: Record<string, string> = {}) {
+  return names[value] ?? value
+}
+export interface MediaLibrarySetting { id: string; name: string; root: string; enabled: boolean }
+export interface MediaLibrarySettings { libraries: MediaLibrarySetting[]; version: string; etag: string }
+export interface MediaReleaseAssociation {
+  reviewId: string; groupKey: string; releaseId: string; releaseTitle: string; label: string | null
+  mediaReleaseTitle: string; fileCount: number; libraries: string[]; appliedAt: string
+}
+export interface MediaReleaseReview {
+  id: string; version: string; etag: string; groupKey: string; label: string | null; releaseTitle: string
+  releaseId: string; catalogTitle: string; files: MediaInventoryItem[]; evidence: string[]; createdAt: string
+  outcome: MediaReleaseAssociation | null
 }
 export interface MediaRecordingCandidate {
   recordingId: string; title: string | null; mix: string | null; status: string; evidence: string[]; blockers: string[]
@@ -320,6 +339,23 @@ export interface MediaLinkOutcome { reviewId: string; mediaId: string; recording
 export interface MediaLinkReview {
   id: string; version: string; etag: string; media: MediaInventoryItem; candidate: MediaRecordingCandidate
   createdAt: string; verifiedSha256: string; sidecarTitle: string | null; sidecarMix: string | null; outcome: MediaLinkOutcome | null
+}
+export interface MediaTrackSelection { mediaId: number; recordingId: string }
+export interface MediaReconciliationFile {
+  media: MediaInventoryItem; candidates: MediaRecordingCandidate[]; suggestedRecordingId: string | null
+  linkedRecordingId: string | null; alreadyRegistered: boolean
+}
+export interface MediaReconciliationPlan {
+  groupKey: string; releaseId: string; catalogTitle: string; version: string; etag: string; evidence: string[]
+  tracks: { recordingId: string; title: string | null; mix: string | null; artists: string[] }[]
+  files: MediaReconciliationFile[]; releaseAlreadyAssociated: boolean
+}
+export interface MediaReconciliationOutcome {
+  reviewId: string; releaseId: string; links: MediaLinkOutcome[]; association: MediaReleaseAssociation; appliedAt: string
+}
+export interface MediaReconciliationReview {
+  id: string; version: string; etag: string; plan: Omit<MediaReconciliationPlan, 'etag'>; selections: MediaTrackSelection[]
+  verifiedMediaIds: number[]; createdAt: string; outcome: MediaReconciliationOutcome | null
 }
 export interface BeatportReleaseItem {
   id: number; name: string; type: string | null; artists: BeatportRef[]; remixers: BeatportRef[]; label: BeatportRef | null
@@ -365,7 +401,9 @@ export function createCatalogClient(fetcher: typeof fetch = fetch) {
       const message = response.status === 404 && (resource === 'backup-sources' || resource === 'backups' && (path === '' || path.startsWith('?')))
         ? 'The running catalog API does not provide backup support. Restart the API with the updated backend, then refresh backups.'
         : response.status === 412 && problem.code !== 'merge_state_changed' && problem.code !== 'relationship_state_changed' && problem.code !== 'group_state_changed' && problem.code !== 'enrichment_state_changed'
-        ? resource === 'artists'
+        ? resource === 'media-libraries'
+          ? 'Library settings changed; your edits were not saved. Reload saved settings before saving again.'
+          : resource === 'artists'
           ? 'This Artist changed since you opened it. Your edit was not saved. Reload the profile or artwork before editing again.'
           : resource === 'releases'
           ? 'This release changed since you opened it. Your edit was not saved. Reload the artwork before editing again.'
@@ -732,7 +770,7 @@ export function createCatalogClient(fetcher: typeof fetch = fetch) {
       (await request(`/${encodeURIComponent(id)}/${tracks ? 'tracks' : 'releases'}?page=${page}&pageSize=25`, { signal }, 'artists')).json(),
   }
   const mediaClient = {
-    list: async (query: URLSearchParams, signal?: AbortSignal): Promise<{ items: MediaInventoryItem[]; total: number; page: number; pageSize: number; libraries: string[]; warnings: string[] }> =>
+    list: async (query: URLSearchParams, signal?: AbortSignal): Promise<{ items: MediaInventoryItem[]; total: number; page: number; pageSize: number; libraries: string[]; warnings: string[]; groups?: MediaGroup[]; groupTotal?: number; libraryNames?: Record<string, string> }> =>
       (await request(`?${query}`, { signal }, 'media')).json(),
     candidates: async (id: number, signal?: AbortSignal): Promise<{ media: MediaInventoryItem; candidates: MediaRecordingCandidate[]; linkedRecordingId: string | null }> =>
       (await request(`/${id}/candidates`, { signal }, 'media')).json(),
@@ -748,6 +786,55 @@ export function createCatalogClient(fetcher: typeof fetch = fetch) {
         headers: { 'Content-Type': 'application/json', 'If-Match': review.etag }, body: JSON.stringify({ reason, confirmed }), signal }, 'media-link-reviews')).json(),
     linked: async (id: string, signal?: AbortSignal): Promise<{ id: string; path: string; sha256: string | null; linkedAt: string | null }[]> =>
       (await request(`/${encodeURIComponent(id)}/media`, { signal }, 'recordings')).json(),
+    releaseSearch: async (q: string, page: number, signal?: AbortSignal): Promise<GroupPage<CatalogRelease>> =>
+      (await request(`?${new URLSearchParams({ q, page: String(page) })}`, { signal }, 'releases')).json(),
+    prepareRelease: async (groupKey: string, releaseId: string, signal?: AbortSignal): Promise<MediaReleaseReview> => {
+      const response = await request('', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ groupKey, releaseId }), signal }, 'media-release-reviews')
+      const etag = response.headers.get('ETag')
+      if (!etag) throw new Error('Media Release review is missing its ETag.')
+      return { ...await response.json(), etag }
+    },
+    applyRelease: async (review: MediaReleaseReview, reason: string, confirmed: boolean, signal?: AbortSignal): Promise<MediaReleaseAssociation> =>
+      (await request(`/${encodeURIComponent(review.id)}/apply`, { method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'If-Match': review.etag }, body: JSON.stringify({ reason, confirmed }), signal }, 'media-release-reviews')).json(),
+    releaseGroups: async (id: string, signal?: AbortSignal): Promise<MediaReleaseAssociation[]> =>
+      (await request(`/${encodeURIComponent(id)}/media-groups`, { signal }, 'releases')).json(),
+    reconcile: async (groupKey: string, releaseId: string, signal?: AbortSignal): Promise<MediaReconciliationPlan> => {
+      const response = await request(`?${new URLSearchParams({ groupKey, releaseId })}`, { signal }, 'media-reconciliation')
+      const etag = response.headers.get('ETag')
+      if (!etag) throw new Error('Release track proposals are missing their ETag.')
+      return { ...await response.json(), etag }
+    },
+    prepareReconciliation: async (plan: MediaReconciliationPlan, selections: MediaTrackSelection[], signal?: AbortSignal): Promise<MediaReconciliationReview> => {
+      const response = await request('', { method: 'POST', headers: { 'Content-Type': 'application/json', 'If-Match': plan.etag },
+        body: JSON.stringify({ groupKey: plan.groupKey, releaseId: plan.releaseId, selections }), signal }, 'media-reconciliation-reviews')
+      const etag = response.headers.get('ETag')
+      if (!etag) throw new Error('Verified reconciliation is missing its ETag; no links have been accepted.')
+      return { ...await response.json(), etag }
+    },
+    reconciliationReview: async (id: string, signal?: AbortSignal): Promise<MediaReconciliationReview> => {
+      const response = await request(`/${encodeURIComponent(id)}`, { signal }, 'media-reconciliation-reviews')
+      const etag = response.headers.get('ETag')
+      if (!etag) throw new Error('Reconciliation review is missing its ETag.')
+      return { ...await response.json(), etag }
+    },
+    applyReconciliation: async (review: MediaReconciliationReview, reason: string, confirmed: boolean, signal?: AbortSignal): Promise<MediaReconciliationOutcome> =>
+      (await request(`/${encodeURIComponent(review.id)}/apply`, { method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'If-Match': review.etag }, body: JSON.stringify({ reason, confirmed }), signal }, 'media-reconciliation-reviews')).json(),
+    libraries: async (signal?: AbortSignal): Promise<MediaLibrarySettings> => {
+      const response = await request('', { signal }, 'media-libraries')
+      const etag = response.headers.get('ETag')
+      if (!etag) throw new Error('Library settings are missing their ETag.')
+      return { ...await response.json(), etag }
+    },
+    saveLibraries: async (settings: MediaLibrarySettings, libraries: MediaLibrarySetting[], confirmed: boolean, signal?: AbortSignal): Promise<MediaLibrarySettings> => {
+      const response = await request('', { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'If-Match': settings.etag },
+        body: JSON.stringify({ libraries, confirmed }), signal }, 'media-libraries')
+      const etag = response.headers.get('ETag')
+      if (!etag) throw new Error('Saved library settings are missing their ETag; reload to check the saved state.')
+      return { ...await response.json(), etag }
+    },
   }
   return { dataProvider, authProvider, mergeClient, artworkClient, releaseArtworkClient, artistArtworkClient, backupsClient, relationshipsClient, groupClient, beatportClient, purchaseReleaseClient, releaseImportClient, releaseClient, artistClient, trackClient, enrichmentClient, mediaClient }
 }

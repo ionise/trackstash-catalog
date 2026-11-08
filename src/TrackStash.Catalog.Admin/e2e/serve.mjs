@@ -1,5 +1,6 @@
 import { execFileSync, spawn } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
@@ -7,6 +8,7 @@ const root = resolve('../../..')
 const temporary = mkdtempSync(join(tmpdir(), 'trackstash-admin-e2e-'))
 const database = join(temporary, 'catalog.db')
 const scannerDatabase = join(temporary, 'scanner.db')
+const mediaRoot = join(realpathSync(temporary), 'Library')
 let api
 function cleanup() {
   rmSync(temporary, { recursive: true, force: true })
@@ -16,13 +18,29 @@ try {
   const scannerSchema = scannerScript.split('$schema = @"')[1]?.split('"@')[0]
   if (!scannerSchema) throw new Error('Scanner schema fixture was not found.')
   execFileSync('sqlite3', [scannerDatabase, scannerSchema])
+  mkdirSync(mediaRoot)
   execFileSync('sqlite3', [scannerDatabase, `
     INSERT INTO media_file (media_file_id, content_hash, path, format, size_bytes, last_modified_utc, scanned_utc)
-      VALUES (1, 'test-inventory-hash', '/unmounted-test-library/track.flac', 'flac', 123, '2026-11-05', '2026-11-05');
+      VALUES (1, 'test-inventory-hash', '${mediaRoot}/track.flac', 'flac', 123, '2026-11-05', '2026-11-05');
     INSERT INTO metadata (media_file_id, artist, title, album) VALUES (1, 'Scanner artist', 'Scanner title', 'Scanner album');
     INSERT INTO acoustic_fingerprint (media_file_id, algorithm, algorithm_version, fingerprint_raw, generation_status, generated_from_path, generated_utc)
       VALUES (1, 'chromaprint', '1', 'test-fingerprint', 'complete', '/unmounted-test-library/track.flac', '2026-11-05');
   `])
+  for (const id of [100, 101, 102]) {
+    const path = join(mediaRoot, `reconcile-${id}.flac`)
+    const bytes = Buffer.from([1, 2, 3, id])
+    writeFileSync(path, bytes)
+    const hash = createHash('sha256').update(bytes).digest('hex')
+    execFileSync('sqlite3', [scannerDatabase, `
+      INSERT INTO media_file(media_file_id,content_hash,path,format,size_bytes,duration_seconds,last_modified_utc,scanned_utc)
+        VALUES(${id},${id === 102 ? `'${hash}'` : 'NULL'},'${path}','flac',4,${id === 100 ? 123.456 : 'NULL'},'2026-11-08','2026-11-08');
+      INSERT INTO metadata(media_file_id,artist,title,subtitle,album,release,label)
+        VALUES(${id},'Fixture Composer','Catalog Track 2',${id === 100 ? "'Original Mix'" : id === 102 ? "'Radio Edit'" : 'NULL'},
+          'Fixture Catalog Release','Fixture Catalog Release','Release Fixture Label');
+      INSERT INTO acoustic_fingerprint(media_file_id,algorithm,algorithm_version,fingerprint_raw,generation_status,generated_from_path,generated_utc)
+        VALUES(${id},'chromaprint','1','reconciliation-same-audio','complete','${path}','2026-11-08');
+    `])
+  }
   const sourceArtists = [{ id: 4907, name: 'Kasey Taylor' }, { id: 635680, name: 'Amega' }]
   const sourceRemixers = [{ id: 69845, name: 'GMJ' }, { id: 118649, name: 'Matter' }]
   const sourceLabel = { id: 42, name: 'Fixture label' }
@@ -85,6 +103,8 @@ try {
     env: { ...process.env, CatalogApi__DatabasePath: database, CatalogApi__Port: '5199', CatalogApi__ArtworkRoot: join(temporary, 'artwork-data'),
       CatalogApi__BackupRoot: join(temporary, 'backups'),
       CatalogApi__ScannerDatabasePath: scannerDatabase,
+      CatalogApi__MediaLibrarySettingsPath: join(temporary, 'media-libraries.json'),
+      CatalogApi__MediaLibraries__JetDrive: mediaRoot,
       CatalogApi__ApiKey: 'test-only-browser-key-not-a-production-secret',
       CatalogApi__AllowedOrigins__0: 'http://localhost:5173' },
   })

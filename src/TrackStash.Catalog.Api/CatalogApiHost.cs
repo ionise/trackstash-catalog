@@ -77,6 +77,7 @@ public static class CatalogApiHost
         builder.Services.TryAddScoped<INamedEntityEnrichmentService, NamedEntityEnrichmentService>();
         builder.Services.TryAddScoped<IEnrichmentApplyService, EnrichmentApplyService>();
         builder.Services.TryAddScoped<IMediaService, MediaService>();
+        builder.Services.TryAddSingleton<IMediaLibrarySettings, MediaLibrarySettings>();
         builder.Services.TryAddScoped<IArtistService, ArtistService>();
         builder.Services.TryAddScoped<IReleaseArtworkSourceService, ReleaseArtworkSourceService>();
         builder.Services.AddHttpClient(BeatportArtworkProvider.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(30))
@@ -194,6 +195,7 @@ public static class CatalogApiHost
         app.MapTracks();
         app.MapEnrichment();
         app.MapMedia();
+        app.MapMediaLibrarySettings();
         app.MapArtists();
         app.MapBackups();
         app.MapBeatport();

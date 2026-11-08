@@ -61,6 +61,7 @@ public sealed partial class LabelApiTests
         var app = Build(builder => {
             builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?> {
                 ["CatalogApi:ScannerDatabasePath"] = Path.Combine(root, "scanner.db"),
+                ["CatalogApi:MediaLibrarySettingsPath"] = Path.Combine(root, "libraries.json"),
                 ["CatalogApi:MediaLibraries:Test"] = Path.Combine(root, "Library")
             });
             if (clock is not null) builder.Services.AddSingleton<TimeProvider>(clock);
@@ -129,6 +130,35 @@ public sealed partial class LabelApiTests
         await ProblemAsync(await AcceptMedia(fixture, review, tag, reason: "Changed reason"), 409, "enrichment_already_applied");
         var saved = await fixture.Client.GetFromJsonAsync<MediaLinkReview>("/api/v1/media-link-reviews/" + review.Id);
         Assert.NotNull(saved!.Outcome);
+    }
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task Media_MissingScannerHashIsCalculatedFrozenAndRecheckedWithoutScannerWrites(string? missing)
+    {
+        await using var fixture = await StartMedia();
+        await ScannerSql(fixture, missing is null ? "UPDATE media_file SET content_hash=NULL" : $"UPDATE media_file SET content_hash='{missing}'");
+        var scannerBefore = await fixture.Client.GetStringAsync("/api/v1/media");
+        var (review, tag) = await PrepareMedia(fixture);
+        Assert.Equal(Convert.ToHexString(SHA256.HashData(new byte[] { 1, 2, 3, 4 })).ToLowerInvariant(), review.VerifiedSha256);
+        Assert.Equal(missing, review.Media.ContentHash);
+        Assert.Equal(scannerBefore, await fixture.Client.GetStringAsync("/api/v1/media"));
+        await File.WriteAllBytesAsync(fixture.File, [4, 3, 2, 1]);
+        await ProblemAsync(await AcceptMedia(fixture, review, tag), 409, "media_changed");
+        Assert.Equal(0, await ImportCount("media_file"));
+        await File.WriteAllBytesAsync(fixture.File, [1, 2, 3, 4]);
+        Assert.Equal(HttpStatusCode.OK, (await AcceptMedia(fixture, review, tag)).StatusCode);
+        Assert.Equal(scannerBefore, await fixture.Client.GetStringAsync("/api/v1/media"));
+    }
+    [Fact]
+    public async Task Media_InvalidNonemptyScannerHashIsNotTreatedAsMissing()
+    {
+        await using var fixture = await StartMedia();
+        await ScannerSql(fixture, "UPDATE media_file SET content_hash='invalid-hash'");
+        await ProblemAsync(await fixture.Client.PostAsJsonAsync("/api/v1/media/1/link-reviews", new { recordingId = "t-shared" }),
+            409, "media_hash_invalid");
+        Assert.Equal(0, await ImportCount("enrichment_review"));
     }
     [Theory]
     [InlineData("bytes")]

@@ -8,6 +8,7 @@ import { Title, useAuthenticated, useLogoutIfAccessDenied } from 'react-admin'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { releaseClient } from './catalog'
 import type { CatalogRelease, GroupPage, ReleaseCredit, ReleaseDetail } from './catalog'
+import { ReleaseMediaGroups } from './MediaReleaseLink'
 import { ArtworkImage, ArtworkPanel } from './LabelArtwork'
 import { ArtistCreditName } from './Artists'
 import { siBeatport } from 'simple-icons'
@@ -181,6 +182,7 @@ function Detail({ id }: { id: string }) {
     <ReleaseTabs key={data.id} id={data.id} revision={revision}>
     <Stack spacing={3} sx={{ minWidth: 0 }}>
     {gallery}
+    <ReleaseMediaGroups key={`media:${data.id}:${revision}`} id={data.id} />
     {!!releaseLinks(data).length && <Stack component="section" aria-label="Provider links" spacing={1}>
       <Typography component="h2" variant="h6">Provider links</Typography>
       {releaseLinks(data).map(link => <Button key={link.url} component="a" href={link.url}

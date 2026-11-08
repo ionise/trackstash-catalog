@@ -5,8 +5,114 @@
 @reviewId = replace-with-created-review-id
 @reviewETag = "replace-with-original-response-etag"
 
+### 1. Preview the whole group's existing Catalog tracks (no audio reads)
+@mediaGroupKey = replace-with-group-key-from-media-release-groups
+@catalogReleaseId = replace-with-catalog-release-id
+GET {{baseUrl}}/media-reconciliation?groupKey={{mediaGroupKey}}&releaseId={{catalogReleaseId}}
+Authorization: Bearer {{apiKey}}
+
+### 2. Verify explicit selections with original preview ETag; supporting copies may also be read
+### Missing scanner hashes are calculated/frozen per file without scanner writes
+@proposalETag = "replace-with-original-proposal-etag"
+POST {{baseUrl}}/media-reconciliation-reviews
+Authorization: Bearer {{apiKey}}
+Content-Type: application/json
+If-Match: {{proposalETag}}
+
+{
+  "groupKey": "{{mediaGroupKey}}",
+  "releaseId": "{{catalogReleaseId}}",
+  "selections": [{ "mediaId": 1, "recordingId": "replace-with-existing-release-recording-id" }]
+}
+
+### 3. Inspect frozen review and recover outcome after an uncertain save
+@reconciliationId = replace-with-review-id
+GET {{baseUrl}}/media-reconciliation-reviews/{{reconciliationId}}
+Authorization: Bearer {{apiKey}}
+
+### 4. One confirmation atomically applies selected links and whole-group Release association
+@reconciliationETag = "replace-with-original-review-etag"
+POST {{baseUrl}}/media-reconciliation-reviews/{{reconciliationId}}/apply
+Authorization: Bearer {{apiKey}}
+Content-Type: application/json
+If-Match: {{reconciliationETag}}
+
+{
+  "reason": "Reviewed the full group's Release and selected Recording versions",
+  "confirmed": true
+}
+
+### Configurable library names and approved roots (no fixed roles)
+GET {{baseUrl}}/media-libraries
+Authorization: Bearer {{apiKey}}
+
+@librarySettingsETag = "replace-with-original-settings-etag"
+
+### Explicitly update names/add roots; preserve every existing ID from GET
+### Example only: include all your actual existing entries, or use enabled:false
+PATCH {{baseUrl}}/media-libraries
+Authorization: Bearer {{apiKey}}
+Content-Type: application/json
+If-Match: {{librarySettingsETag}}
+
+{
+  "libraries": [
+    { "id": "JetDrive", "name": "My collection", "root": "/Volumes/JetDrive/Library", "enabled": true },
+    { "id": "Dropbox", "name": "DJ selections", "root": "/absolute/path/to/dj-library", "enabled": true },
+    { "id": "NAS", "name": "Archive", "root": "/Volumes/music", "enabled": true },
+    { "id": "additional-library", "name": "Other collection", "root": "/Volumes/Other/Library", "enabled": true }
+  ],
+  "confirmed": true
+}
+
 ### Historical inventory only; no filesystem scan or audio reads
 GET {{baseUrl}}/media?library=JetDrive&page=1
+Authorization: Bearer {{apiKey}}
+
+### Group complete filtered inventory by embedded Release within Label
+GET {{baseUrl}}/media?groupBy=release&label=3rd%20Avenue&sort=release&direction=asc&page=1
+Authorization: Bearer {{apiKey}}
+
+### Exact stored versioned fingerprint groups, not fuzzy identity/backup proof
+GET {{baseUrl}}/media?groupBy=fingerprint
+Authorization: Bearer {{apiKey}}
+
+@groupKey = replace-with-server-release-group-key
+@releaseId = replace-with-canonical-release-id
+@releaseReviewId = replace-with-created-release-review-id
+@releaseReviewETag = "replace-with-original-release-review-etag"
+
+### Drill into group without defining association review membership
+GET {{baseUrl}}/media?groupBy=release&groupKey={{groupKey}}&artist=Seven%20Wells
+Authorization: Bearer {{apiKey}}
+
+### Freeze entire Release group; no audio reads, no Recording or placement writes
+POST {{baseUrl}}/media-release-reviews
+Authorization: Bearer {{apiKey}}
+Content-Type: application/json
+
+{
+  "groupKey": "{{groupKey}}",
+  "releaseId": "{{releaseId}}"
+}
+
+### Read original review and accepted association
+GET {{baseUrl}}/media-release-reviews/{{releaseReviewId}}
+Authorization: Bearer {{apiKey}}
+
+### Explicit whole-group association to Release
+POST {{baseUrl}}/media-release-reviews/{{releaseReviewId}}/apply
+Authorization: Bearer {{apiKey}}
+Content-Type: application/json
+If-Match: {{releaseReviewETag}}
+
+{
+  "reason": "Reviewed the entire embedded release group and Catalog Release",
+  "confirmed": true
+}
+
+### Accepted Release group associations (not fresh availability or backup coverage)
+GET {{baseUrl}}/releases/{{releaseId}}/media-groups
 Authorization: Bearer {{apiKey}}
 
 ### Embedded metadata candidates; no automatic acceptance

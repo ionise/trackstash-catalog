@@ -177,9 +177,12 @@ public sealed partial class EnrichmentApplyService(IStorageProvider storage, IRe
             ?? throw new EnrichmentApplyException(404, "enrichment_review_not_found", "Enrichment review was not found.");
         using var document = JsonDocument.Parse(stored.PayloadJson);
         if (document.RootElement.TryGetProperty("Type", out var type))
-            throw type.GetString() == "MediaLink"
-                ? new EnrichmentApplyException(409, "media_review_required", "Use the media-link review endpoint for this file-to-Recording review.")
-                : new EnrichmentApplyException(409, "enrichment_batch_required", "Use the batch review endpoint for this Release-to-Recording review.");
+            throw type.GetString() switch {
+                "MediaLink" => new EnrichmentApplyException(409, "media_review_required", "Use the media-link review endpoint for this file-to-Recording review."),
+                "MediaReleaseGroup" => new EnrichmentApplyException(409, "media_review_required", "Use the media-release review endpoint for this Release-group association."),
+                "MediaReconciliation" => new EnrichmentApplyException(409, "media_review_required", "Use the media reconciliation endpoint for this Release and Recording batch."),
+                _ => new EnrichmentApplyException(409, "enrichment_batch_required", "Use the batch review endpoint for this Release-to-Recording review.")
+            };
         return JsonSerializer.Deserialize<Payload>(stored.PayloadJson)
             ?? throw new InvalidDataException("Stored enrichment review is invalid.");
     }

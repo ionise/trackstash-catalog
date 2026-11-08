@@ -9,6 +9,7 @@ import { Backups } from './Backups'
 import { PurchaseReleases } from './PurchaseReleases'
 import { BeatportBrowse } from './BeatportBrowse'
 import { MediaInventory } from './Media'
+import { MediaLibraries } from './MediaLibraries'
 import TravelExploreIcon from '@mui/icons-material/TravelExplore'
 import { ReleaseList, ReleaseShow } from './Releases'
 import { ArtistList, ArtistShow } from './Artists'
@@ -43,6 +44,7 @@ function CatalogMenu() {
       {sidebarOpen && <><ListItemText primary="System" />{expanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}</>}
     </MenuItem>
     {sidebarOpen && expanded && <Menu.Item id="system-backup-menu" to="/backups" primaryText="Backup" leftIcon={<BackupIcon />} sx={{ pl: 4 }} />}
+    {sidebarOpen && expanded && <Menu.Item to="/media-libraries" primaryText="Libraries" leftIcon={<QueueMusicIcon />} sx={{ pl: 4 }} />}
   </Menu>
 }
 
@@ -71,6 +73,7 @@ export default function App() {
       <Resource name="purchase-releases" list={PurchaseReleases} />
       <Resource name="beatport" list={BeatportBrowse} />
       <Resource name="media" list={MediaInventory} />
+      <Resource name="media-libraries" list={MediaLibraries} />
     </Admin>
   )
 }
