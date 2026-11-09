@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, LinearProgress, MenuItem, Stack, Table, TableBody, TableCell,
   TableHead, TableRow, TextField, Tooltip, Typography } from '@mui/material'
@@ -11,6 +11,7 @@ import type { CatalogTrack, GroupPage, ReleaseCredit } from './catalog'
 import { ArtworkImage } from './LabelArtwork'
 import { trackContributors } from './labelPresentation'
 import { CreditEvidence, TrackTitleArtists } from './TrackPresentation'
+import { RecordingMedia } from './Media'
 import { defaultTrackSort, formatDuration, trackPageSize, trackQuery, trackSorts } from './trackView'
 import type { TrackContext, TrackFilter, TrackView } from './trackView'
 
@@ -30,9 +31,11 @@ function Credits({ items }: { items: ReleaseCredit[] }) {
 }
 
 function TrackDetails({ track, grouped }: { track: CatalogTrack; grouped: boolean }) {
-  return <Accordion disableGutters elevation={0} sx={{ bgcolor: 'transparent', '&::before': { display: 'none' } }}>
+  return <Stack spacing={2} sx={{ p: 2, minWidth: 0 }}>
+    <RecordingMedia id={track.recordingId} />
+    <Accordion disableGutters elevation={0} sx={{ bgcolor: 'transparent', '&::before': { display: 'none' } }}>
     <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={{ minHeight: 28, px: 0, '& .MuiAccordionSummary-content': { my: 0.5 } }}>
-      <Typography variant="caption">Track details</Typography>
+      <Typography variant="caption">Catalog credits and track details</Typography>
     </AccordionSummary>
     <AccordionDetails sx={{ px: 0 }}>
       <Typography variant="body2">{grouped && track.releaseCount > 1 ? 'Newest release: ' : ''}{releaseLink(track)}</Typography>
@@ -47,7 +50,8 @@ function TrackDetails({ track, grouped }: { track: CatalogTrack; grouped: boolea
       <Typography variant="subtitle2">Recording credits</Typography><Credits items={track.recordingCredits} />
       {track.externalReferences.map(r => <Typography variant="caption" sx={{ display: 'block' }} key={`${r.source}:${r.externalId}`}>{r.source}: {r.externalId}</Typography>)}
     </AccordionDetails>
-  </Accordion>
+    </Accordion>
+  </Stack>
 }
 
 interface Column { id: string; header: string; render: (track: CatalogTrack, index: number) => ReactNode; cell?: object }
@@ -65,7 +69,6 @@ function columns(context: TrackContext, grouped: boolean, offset: number): Colum
       <Stack spacing={0.5} sx={{ minWidth: 220, flex: 1 }}>
         <TrackTitleArtists title={track.title} mixName={track.mixName} credits={trackContributors(track.credits, track.recordingCredits)}
           to={context === 'recording' ? undefined : `/recordings/${encodeURIComponent(track.recordingId)}/show${track.releaseId ? `?${new URLSearchParams({ releaseId: track.releaseId })}` : ''}`} />
-        <TrackDetails track={track} grouped={grouped} />
       </Stack>
     </Stack> },
     { id: 'release', header: 'Release', render: track => <Typography variant="body2">{releaseLink(track)}</Typography> },
@@ -82,6 +85,9 @@ function columns(context: TrackContext, grouped: boolean, offset: number): Colum
     { id: 'key', header: 'Key', cell: muted, render: track => track.musicalMetadata?.keyValue
       ? `${track.musicalMetadata.keyValue} (${track.musicalMetadata.keyNotation})` : track.keyName ?? '—' },
     { id: 'length', header: 'Length', cell: muted, render: track => formatDuration(track.durationMs) },
+    { id: 'copies', header: 'Copies', cell: muted, render: track => <Tooltip title="Reviewed linked copies, not a live file-presence or backup check">
+      <span>{track.linkedCopyCount ?? '—'}</span>
+    </Tooltip> },
     { id: 'releases', header: 'Releases', cell: muted, render: track => track.releaseCount },
   ]
   const hidden = new Set(context === 'release' ? ['release', 'label', 'date'] : [])
@@ -102,6 +108,7 @@ function TrackRows({ filter, view, context, grouped, label, onPage }: {
 }) {
   const [data, setData] = useState<GroupPage<CatalogTrack>>()
   const [error, setError] = useState('')
+  const [expanded, setExpanded] = useState<{ query: string; key: string }>()
   const logout = useLogoutIfAccessDenied()
   const query = trackQuery(filter, view, grouped).toString()
   useEffect(() => {
@@ -117,10 +124,23 @@ function TrackRows({ filter, view, context, grouped, label, onPage }: {
   return <>
     {!data.total && <Typography>{view.q.trim() ? 'No tracks match this search.' : 'No tracks recorded.'}</Typography>}
     <Box sx={{ overflowX: 'auto', width: '100%', minWidth: 0, contain: 'inline-size' }}><Table size="small" aria-label={label}>
-      <TableHead><TableRow>{shown.map(column => <TableCell key={column.id}>{column.header}</TableCell>)}</TableRow></TableHead>
-      <TableBody>{data.items.map((track, index) => <TableRow hover key={track.placementId ?? `recording:${track.recordingId}`}>
-        {shown.map(column => <TableCell key={column.id} sx={column.cell}>{column.render(track, index)}</TableCell>)}
-      </TableRow>)}</TableBody>
+      <TableHead><TableRow><TableCell>Details</TableCell>{shown.map(column => <TableCell key={column.id}>{column.header}</TableCell>)}</TableRow></TableHead>
+      <TableBody>{data.items.map((track, index) => {
+        const key = track.placementId ?? `recording:${track.recordingId}`
+        const open = expanded?.query === query && expanded.key === key
+        return <Fragment key={key}>
+          <TableRow hover>
+            <TableCell><Button aria-expanded={open} aria-label={`${open ? 'Hide' : 'Show'} media and track details for ${track.title ?? 'Untitled recording'}`}
+              onClick={() => setExpanded(open ? undefined : { query, key })}><ExpandMoreIcon sx={{ transform: open ? 'rotate(180deg)' : undefined }} /></Button></TableCell>
+            {shown.map(column => <TableCell key={column.id} sx={column.cell}>{column.render(track, index)}</TableCell>)}
+          </TableRow>
+          {open && <TableRow><TableCell colSpan={shown.length + 1}>
+            <Box component="section" aria-label={`Expanded track ${track.title ?? 'Untitled recording'}`} sx={{ minWidth: 0 }}>
+              <TrackDetails track={track} grouped={grouped} />
+            </Box>
+          </TableCell></TableRow>}
+        </Fragment>
+      })}</TableBody>
     </Table></Box>
     <Pager page={view.page} total={data.total} onPage={onPage} />
   </>

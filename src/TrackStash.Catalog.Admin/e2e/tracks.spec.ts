@@ -2,6 +2,47 @@ import { expect, test } from '@playwright/test'
 
 const key = 'test-only-browser-key-not-a-production-secret'
 
+for (const context of [
+  { path: '/releases/release-fixture/show', label: 'Catalog release tracks' },
+  { path: '/labels/release-fixture-label/show', label: 'Label tracks' },
+  { path: '/artists/release-fixture-artist/show', label: 'Artist track credits' },
+]) {
+  test(`Shared ${context.label} row shows copy count and loads media only on expansion`, async ({ page }) => {
+    let mediaReads = 0
+    await page.route('**/api/v1/tracks?*', async route => {
+      const response = await route.fetch()
+      const data = await response.json()
+      for (const track of data.items) {
+        track.linkedCopyCount = 2
+        track.musicalMetadata = { bpm: 124, keyValue: '8A', keyNotation: 'Camelot' }
+      }
+      await route.fulfill({ response, json: data })
+    })
+    await page.route('**/api/v1/recordings/*/media', async route => {
+      mediaReads++
+      await route.fulfill({ json: [{ id: 'test-copy', path: '/hidden/path/tune.flac', libraryName: 'DJ library', format: 'FLAC', fingerprintKey: 'audio-key' }] })
+    })
+    await page.goto(`/admin/#${context.path}`)
+    await page.getByLabel('API key').fill(key)
+    await page.getByRole('button', { name: 'Connect', exact: true }).click()
+    if (context.label !== 'Catalog release tracks') await page.getByRole('tab', { name: 'Tracks', exact: true }).click()
+    const tracks = page.getByRole('table', { name: context.label, exact: true })
+    await expect(tracks).toBeVisible()
+    expect(mediaReads).toBe(0)
+    const row = tracks.getByRole('row').nth(1)
+    await expect(row).toContainText('124')
+    await expect(row).toContainText('8A (Camelot)')
+    const title = await row.getByRole('link', { name: /^Catalog Track/ }).first().textContent()
+    await row.getByRole('button', { name: `Show media and track details for ${title}`, exact: true }).click()
+    const detail = tracks.getByRole('region', { name: `Expanded track ${title}`, exact: true })
+    await expect(detail).toContainText('DJ library')
+    await expect(detail.getByText('/hidden/path/tune.flac', { exact: true })).not.toBeVisible()
+    expect(mediaReads).toBe(1)
+    await row.getByRole('button', { name: `Hide media and track details for ${title}`, exact: true }).click()
+    await expect(detail).toHaveCount(0)
+  })
+}
+
 test('Tracks menu, Recording page and Label tracks share one read-only track list', async ({ page }) => {
   const writes: string[] = []
   const errors: string[] = []
@@ -12,16 +53,17 @@ test('Tracks menu, Recording page and Label tracks share one read-only track lis
   await page.getByRole('button', { name: 'Connect', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Tracks', exact: true, level: 1 })).toBeVisible()
   const list = page.getByRole('table', { name: 'Catalog tracks', exact: true })
-  await expect(list.getByRole('columnheader')).toHaveText(['#', 'Title / Artist · Remixer', 'Release', 'Label / Genre · Subgenre', 'Release date', 'BPM', 'Key', 'Length', 'Releases'])
+  await expect(list.getByRole('columnheader')).toHaveText(['Details', '#', 'Title / Artist · Remixer', 'Release', 'Label / Genre · Subgenre', 'Release date', 'BPM', 'Key', 'Length', 'Copies', 'Releases'])
   const search = page.getByRole('textbox', { name: 'Search tracks', exact: true })
   expect((await search.boundingBox())!.width).toBeGreaterThan(300)
   await search.fill('RELTEST25')
   await expect(list.getByRole('row')).toHaveCount(2)
   await expect(page).toHaveURL(/q=RELTEST25/)
   const row = list.getByRole('row').nth(1)
-  await expect(row.getByRole('cell').nth(2)).toHaveText('Fixture Catalog Release')
-  await expect(row.getByRole('cell').nth(7)).toHaveText('2:03')
-  await expect(row.getByRole('cell').nth(8)).toHaveText('1')
+  await expect(row.getByRole('cell').nth(3)).toHaveText('Fixture Catalog Release')
+  await expect(row.getByRole('cell').nth(8)).toHaveText('2:03')
+  await expect(row.getByRole('cell').nth(9)).toHaveText('0')
+  await expect(row.getByRole('cell').nth(10)).toHaveText('1')
   await page.getByRole('combobox', { name: 'Sort tracks', exact: true }).click()
   await expect(page.getByRole('option')).toHaveText(['Newest release first', 'Oldest release first', 'Title A–Z', 'Artist A–Z', 'Release A–Z'])
   await page.getByRole('option', { name: 'Title A–Z', exact: true }).click()
@@ -33,7 +75,8 @@ test('Tracks menu, Recording page and Label tracks share one read-only track lis
   const releases = page.getByRole('table', { name: 'Recording releases', exact: true })
   await expect(releases.getByRole('row')).toHaveCount(2)
   await expect(releases.getByRole('link', { name: 'Catalog Track 26', exact: true })).toHaveCount(0)
-  await releases.getByRole('button', { name: 'Track details', exact: true }).click()
+  await releases.getByRole('button', { name: 'Show media and track details for Catalog Track 26', exact: true }).click()
+  await releases.getByRole('button', { name: 'Catalog credits and track details', exact: true }).click()
   await expect(releases).toContainText('Placement ID: release-placement-25')
   await releases.getByRole('link', { name: 'Release Fixture Label', exact: true }).click()
   await page.getByRole('tab', { name: 'Tracks', exact: true }).click()

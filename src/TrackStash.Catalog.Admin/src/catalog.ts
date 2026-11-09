@@ -135,6 +135,7 @@ export interface ReleaseTrack {
   externalReferences: { source: string; externalId: string; isPrimary: boolean }[]
 }
 export interface CatalogTrack {
+  linkedCopyCount?: number
   placementId: string | null; recordingId: string; title: string | null; mixName: string | null; isrc: string | null
   durationMs: number | null; releaseId: string | null; releaseTitle: string | null; coverAssetId: string | null
   publishDate: string | null; newReleaseDate: string | null; displayOrder: number | null; sourcePosition: number | null
@@ -147,6 +148,7 @@ export interface CatalogTrack {
   musicalMetadata?: CatalogMusicalMetadata | null
 }
 export interface RecordingDetail {
+  linkedCopyCount?: number
   id: string; title: string | null; mixName: string | null; isrc: string | null; durationMs: number | null; version: string
   credits: ReleaseCredit[]; externalReferences: { source: string; externalId: string; isPrimary: boolean }[]; releaseCount: number
   musicalMetadata?: CatalogMusicalMetadata | null
@@ -784,7 +786,8 @@ export function createCatalogClient(fetcher: typeof fetch = fetch) {
     apply: async (review: MediaLinkReview, reason: string, confirmed: boolean, signal?: AbortSignal): Promise<MediaLinkOutcome> =>
       (await request(`/${encodeURIComponent(review.id)}/apply`, { method: 'POST',
         headers: { 'Content-Type': 'application/json', 'If-Match': review.etag }, body: JSON.stringify({ reason, confirmed }), signal }, 'media-link-reviews')).json(),
-    linked: async (id: string, signal?: AbortSignal): Promise<{ id: string; path: string; sha256: string | null; linkedAt: string | null }[]> =>
+    linked: async (id: string, signal?: AbortSignal): Promise<{ id: string; path: string; sha256: string | null; linkedAt: string | null;
+      library?: string | null; libraryName?: string | null; format?: string | null; fingerprintKey?: string | null }[]> =>
       (await request(`/${encodeURIComponent(id)}/media`, { signal }, 'recordings')).json(),
     releaseSearch: async (q: string, page: number, signal?: AbortSignal): Promise<GroupPage<CatalogRelease>> =>
       (await request(`?${new URLSearchParams({ q, page: String(page) })}`, { signal }, 'releases')).json(),

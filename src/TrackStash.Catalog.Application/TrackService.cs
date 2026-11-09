@@ -6,11 +6,11 @@ namespace TrackStash.Catalog.Application;
 public sealed record TrackDetail(TrackListing Track, string? CoverAssetId, IReadOnlyList<ReleaseLabelDetail> Labels,
     IReadOnlyList<ReleaseContributorDetail> Credits, IReadOnlyList<ReleaseContributorDetail> RecordingCredits,
     IReadOnlyList<ReleaseReferenceDetail> ExternalReferences, IReadOnlyList<ArtistAppearanceCredit> ArtistCredits,
-    CatalogMusicalMetadata? MusicalMetadata = null);
+    CatalogMusicalMetadata? MusicalMetadata = null, int LinkedCopyCount = 0);
 public sealed record TrackDetailPage(IReadOnlyList<TrackDetail> Items, int Total, int Page, int PageSize);
 public sealed record CatalogRecordingDetail(string Id, string? Title, string? MixName, string? Isrc, long? DurationMs, string Version,
     IReadOnlyList<ReleaseContributorDetail> Credits, IReadOnlyList<ReleaseReferenceDetail> ExternalReferences, int ReleaseCount,
-    CatalogMusicalMetadata? MusicalMetadata = null);
+    CatalogMusicalMetadata? MusicalMetadata = null, int LinkedCopyCount = 0);
 public sealed class TrackBrowseUnavailableException : Exception;
 /// <summary>A track list filter names an entity that does not exist.</summary>
 public sealed class TrackFilterNotFoundException(string kind) : Exception($"Catalog {kind} was not found.")
@@ -52,6 +52,7 @@ public sealed class TrackService(IStorageProvider storage) : ITrackService
         var releases = new Dictionary<string, (IReadOnlyList<ReleaseLabelDetail> Labels, string? Cover)>(StringComparer.Ordinal);
         var labels = new Dictionary<string, Label?>(StringComparer.Ordinal);
         var items = new List<TrackDetail>();
+        var copyCounts = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var track in page.Items)
         {
             ReleasePlacement? placement = null;
@@ -78,6 +79,8 @@ public sealed class TrackService(IStorageProvider storage) : ITrackService
             }
             var recording = await unit.Recordings.GetByIdAsync(track.RecordingId, ct).ConfigureAwait(false)
                 ?? throw new InvalidOperationException("Track refers to a missing Recording.");
+            if (!copyCounts.TryGetValue(track.RecordingId, out var copyCount))
+                copyCounts.Add(track.RecordingId, copyCount = await unit.MediaFiles.CountByRecordingAsync(track.RecordingId, ct).ConfigureAwait(false));
             var recordingCredits = await foundations.GetCreditsAsync(CatalogEntityKind.Recording, track.RecordingId, ct).ConfigureAwait(false);
             var placementCredits = placement?.Credits ?? [];
             var references = (placement?.ExternalReferences ?? []).Concat(recording.ExternalReferences)
@@ -89,7 +92,7 @@ public sealed class TrackService(IStorageProvider storage) : ITrackService
                 await ReleaseService.Credits(unit, placementCredits, artists, ct).ConfigureAwait(false),
                 await ReleaseService.Credits(unit, recordingCredits, artists, ct).ConfigureAwait(false),
                 references, evidence, schema >= 13 && unit.Enrichment is { } enrichment
-                    ? await enrichment.GetMetadataAsync(CatalogEntityKind.Recording, recording.Id, ct).ConfigureAwait(false) : null));
+                    ? await enrichment.GetMetadataAsync(CatalogEntityKind.Recording, recording.Id, ct).ConfigureAwait(false) : null, copyCount));
         }
         return new(items, page.Total, page.Page, page.PageSize);
     }
@@ -108,6 +111,7 @@ public sealed class TrackService(IStorageProvider storage) : ITrackService
             metadata?.Version ?? recording.Version, await ReleaseService.Credits(unit, credits, [], ct).ConfigureAwait(false),
             recording.ExternalReferences.Select(r => new ReleaseReferenceDetail(r.Source, r.ExternalId, r.IsPrimary)).ToArray(),
             appearances.Items.SingleOrDefault()?.ReleaseCount ?? 0, schema >= 13 && unit.Enrichment is { } enrichment
-                ? await enrichment.GetMetadataAsync(CatalogEntityKind.Recording, id, ct).ConfigureAwait(false) : null);
+                ? await enrichment.GetMetadataAsync(CatalogEntityKind.Recording, id, ct).ConfigureAwait(false) : null,
+            await unit.MediaFiles.CountByRecordingAsync(id, ct).ConfigureAwait(false));
     }
 }

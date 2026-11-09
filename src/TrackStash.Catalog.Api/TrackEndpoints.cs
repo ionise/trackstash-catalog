@@ -14,13 +14,13 @@ public sealed record TrackResponse(string? PlacementId, string RecordingId, stri
     int? DisplayOrder, int? SourcePosition, string? OrderSource, int? DiscNumber, int? TrackNumber, int ReleaseCount,
     IReadOnlyList<ReleaseLabelResponse> Labels, IReadOnlyList<ReleaseCreditResponse> Credits, IReadOnlyList<ReleaseCreditResponse> RecordingCredits,
     IReadOnlyList<ReleaseReferenceResponse> ExternalReferences, IReadOnlyList<ArtistAppearanceCreditResponse> ArtistCredits,
-    CatalogMusicalMetadata? MusicalMetadata = null);
+    CatalogMusicalMetadata? MusicalMetadata = null, int LinkedCopyCount = 0);
 /// <summary>A page of tracks matching the combined filters.</summary>
 public sealed record TrackListResponse(IReadOnlyList<TrackResponse> Items, int Total, int Page, int PageSize);
 /// <summary>A canonical Recording with its own credits and provider identities.</summary>
 public sealed record RecordingResponse(string Id, string? Title, string? MixName, string? Isrc, long? DurationMs, string Version,
     IReadOnlyList<ReleaseCreditResponse> Credits, IReadOnlyList<ReleaseReferenceResponse> ExternalReferences, int ReleaseCount,
-    CatalogMusicalMetadata? MusicalMetadata = null);
+    CatalogMusicalMetadata? MusicalMetadata = null, int LinkedCopyCount = 0);
 
 internal static class TrackEndpoints
 {
@@ -73,7 +73,7 @@ internal static class TrackEndpoints
                 t.ReleaseCount, item.Labels.Select(l => new ReleaseLabelResponse(l.Id, l.Name, l.Role, l.IsPrimary)).ToArray(),
                 item.Credits.Select(Credit).ToArray(), item.RecordingCredits.Select(Credit).ToArray(),
                 item.ExternalReferences.Select(Reference).ToArray(),
-                item.ArtistCredits.Select(c => new ArtistAppearanceCreditResponse(c.Role, c.Scope, c.CreditedName)).ToArray(), item.MusicalMetadata);
+                item.ArtistCredits.Select(c => new ArtistAppearanceCreditResponse(c.Role, c.Scope, c.CreditedName)).ToArray(), item.MusicalMetadata, item.LinkedCopyCount);
         }).ToArray(), result.Total, result.Page, result.PageSize));
     }
 
@@ -82,6 +82,6 @@ internal static class TrackEndpoints
         var r = await service.GetRecordingAsync(id, ct) ?? throw new ApiRequestException(404, "recording_not_found", "Catalog Recording was not found.");
         context.Response.Headers.CacheControl = "no-store"; context.Response.Headers.ETag = LabelRequests.ETag(r.Version);
         return TypedResults.Ok(new RecordingResponse(r.Id, r.Title, r.MixName, r.Isrc, r.DurationMs, r.Version,
-            r.Credits.Select(Credit).ToArray(), r.ExternalReferences.Select(Reference).ToArray(), r.ReleaseCount, r.MusicalMetadata));
+            r.Credits.Select(Credit).ToArray(), r.ExternalReferences.Select(Reference).ToArray(), r.ReleaseCount, r.MusicalMetadata, r.LinkedCopyCount));
     }
 }

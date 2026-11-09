@@ -31,7 +31,8 @@ public sealed record MediaLinkReview(string Id, string Version, MediaInventoryIt
 /// <summary>Saved media association and immutable audit identity; no purchase assertion.</summary>
 public sealed record MediaLinkOutcome(string ReviewId, string MediaId, string RecordingId, DateTimeOffset AppliedAt);
 /// <summary>Persisted association, not a fresh file-presence or backup verification result.</summary>
-public sealed record LinkedRecordingMedia(string Id, string Path, string? Sha256, DateTimeOffset? LinkedAt);
+public sealed record LinkedRecordingMedia(string Id, string Path, string? Sha256, DateTimeOffset? LinkedAt,
+    string? Library = null, string? LibraryName = null, string? Format = null, string? FingerprintKey = null);
 
 public interface IMediaService
 {
@@ -68,7 +69,23 @@ public sealed partial class MediaService(IConfiguration configuration, IStorageP
         if (await unit.Recordings.GetByIdAsync(recordingId, ct) is null) throw Error(404, "recording_not_found", "Recording was not found.");
         var items = await unit.MediaFiles.ListByRecordingAsync(recordingId, ct);
         if (items.Count > 100) throw Error(409, "media_list_limit", "More than 100 linked copies; a paged media view is required.");
-        return items.Select(f => new LinkedRecordingMedia(f.Id, f.Path, f.ContentHash, f.CreatedUtc)).ToArray();
+        if (items.Count == 0) return [];
+        var settings = librarySettings.Read().Libraries;
+        return items.Select(f => {
+            MediaInventoryItem? snapshot = null;
+            if (f.Id.StartsWith("scanner-", StringComparison.Ordinal) && f.MetadataJson is not null)
+            {
+                try { snapshot = JsonSerializer.Deserialize<MediaInventoryItem>(f.MetadataJson); }
+                catch (JsonException) { throw Error(409, "media_evidence_invalid", "Stored linked-copy metadata is malformed; its audio evidence cannot be displayed."); }
+                if (snapshot is null || snapshot.Path != f.Path)
+                    throw Error(409, "media_evidence_invalid", "Stored linked-copy metadata does not identify its registered path.");
+            }
+            var library = snapshot is not null ? settings.FirstOrDefault(l => l.Id == snapshot.Library) :
+                settings.OrderByDescending(l => l.Root.Length).FirstOrDefault(l => Within(f.Path, l.Root));
+            return new LinkedRecordingMedia(f.Id, f.Path, f.ContentHash, f.CreatedUtc, snapshot?.Library ?? library?.Id,
+                library?.Name ?? snapshot?.Library, System.IO.Path.GetExtension(f.Path).TrimStart('.').ToUpperInvariant(),
+                snapshot?.FingerprintKey);
+        }).ToArray();
     }
     private string Scanner => configuration["CatalogApi:ScannerDatabasePath"] ??
         Environment.GetEnvironmentVariable("TRACKSTASH_SCAN_DATABASE_PATH") ??

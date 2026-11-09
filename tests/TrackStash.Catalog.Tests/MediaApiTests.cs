@@ -100,7 +100,7 @@ public sealed partial class LabelApiTests
     public async Task Media_MetadataCandidatesVerifiedReviewAndAcceptancePreserveCatalogAndReplay()
     {
         await using var fixture = await StartMedia();
-        var before = await fixture.Client.GetStringAsync("/api/v1/recordings/t-shared");
+        var before = (await fixture.Client.GetFromJsonAsync<RecordingResponse>("/api/v1/recordings/t-shared"))!;
         var page = await fixture.Client.GetFromJsonAsync<MediaInventoryPage>("/api/v1/media?library=Test");
         Assert.Equal(1, page!.Total);
         Assert.Equal("tune.aiff", page.Items[0].RelativePath);
@@ -119,7 +119,10 @@ public sealed partial class LabelApiTests
         Assert.Equal(1, await ImportCount("media_file"));
         Assert.Equal(1, await ImportCount("media_file_recording_match"));
         Assert.Equal(1, await ImportCount("enrichment_apply_revision"));
-        Assert.Equal(before, await fixture.Client.GetStringAsync("/api/v1/recordings/t-shared"));
+        var after = (await fixture.Client.GetFromJsonAsync<RecordingResponse>("/api/v1/recordings/t-shared"))!;
+        Assert.Equal(before.Version, after.Version);
+        Assert.Equal(before.Title, after.Title);
+        Assert.Equal(1, after.LinkedCopyCount);
         var links = await fixture.Client.GetFromJsonAsync<LinkedRecordingMedia[]>("/api/v1/recordings/t-shared/media");
         var link = Assert.Single(links!);
         Assert.Equal(fixture.File, link.Path);

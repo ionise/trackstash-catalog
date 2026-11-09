@@ -13,7 +13,6 @@ import { TrackArtists } from './TrackPresentation'
 import { LocalTrackList, TrackList } from './TrackList'
 import { formatDuration, trackQuery, useUrlTrackView } from './trackView'
 import { RecordingEnrichment } from './RecordingEnrichment'
-import { MusicalMetadata } from './MusicalMetadata'
 import { RecordingMedia } from './Media'
 
 export function TrackListPage() {
@@ -69,6 +68,7 @@ function RecordingArtwork({ id, releaseId }: { id: string; releaseId?: string })
 
 function Detail({ id }: { id: string }) {
   const [revision, setRevision] = useState(0)
+  const [mediaExpanded, setMediaExpanded] = useState(false)
   const [params] = useSearchParams()
   const releaseId = params.get('releaseId') || undefined
   const [data, setData] = useState<RecordingDetail>()
@@ -98,17 +98,26 @@ function Detail({ id }: { id: string }) {
           </IconButton>
         </Tooltip>)}</Stack>
         <Typography>ISRC: {data.isrc ?? 'Unknown'}; length: {formatDuration(data.durationMs)}; releases: {data.releaseCount}</Typography>
-        <MusicalMetadata metadata={data.musicalMetadata} />
+        <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1 }}>
+          <Chip label={`BPM: ${data.musicalMetadata?.bpm ?? 'Unknown'}`} />
+          <Chip label={`Key: ${data.musicalMetadata?.keyValue ?? 'Unknown'}${data.musicalMetadata?.keyNotation ? ` (${data.musicalMetadata.keyNotation})` : ''}`} />
+          <Tooltip title="Reviewed linked copies, not a live file-presence check"><Chip label={`${data.linkedCopyCount ?? 'Unknown'} linked copies`} /></Tooltip>
+        </Stack>
+        <Typography variant="body2" color="text.secondary">{[data.musicalMetadata?.genres?.join(', '), data.musicalMetadata?.subgenres?.join(', ')].filter(Boolean).join(' / ')}</Typography>
       </Stack>
     </Stack>
     <Divider />
-    <RecordingMedia key={`media:${id}:${revision}`} id={id} />
+    <Accordion expanded={mediaExpanded} onChange={(_, expanded) => setMediaExpanded(expanded)}>
+      <AccordionSummary expandIcon={<ExpandMoreIcon />}><Typography>Media locations and file details — {data.linkedCopyCount ?? 'Unknown'} linked copies</Typography></AccordionSummary>
+      <AccordionDetails>{mediaExpanded && <RecordingMedia key={`media:${id}:${revision}`} id={id} />}</AccordionDetails>
+    </Accordion>
     <RecordingEnrichment key={id} id={id} onApplied={() => setRevision(value => value + 1)} />
     <Typography component="h2" variant="h6">Releases of this Recording</Typography>
     <LocalTrackList key={revision} filter={{ recordingId: id }} context="recording" label="Recording releases" />
     <Accordion><AccordionSummary expandIcon={<ExpandMoreIcon />}><Typography>Details and provider identities</Typography></AccordionSummary>
       <AccordionDetails>
         <Typography sx={{ overflowWrap: 'anywhere' }}>Catalog ID: {data.id}</Typography>
+        {data.musicalMetadata?.preferredGenre && <Typography>Preferred classification: {data.musicalMetadata.preferredGenre}</Typography>}
         {data.externalReferences.map(r => <Typography key={`${r.source}:${r.externalId}`}>{r.source}: {r.externalId}{r.isPrimary ? ' (primary)' : ''}</Typography>)}
         <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>A Recording is one piece of audio (title, mix and ISRC). Each release it appears on is a separate track listing; explicitly accepted media copies are listed above.</Typography>
       </AccordionDetails>

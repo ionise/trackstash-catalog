@@ -41,6 +41,15 @@ test('Guided Release reconciliation verifies real synthetic copies, leaves a con
   await expect(guide).toContainText('2 already linked')
   await expect(verify).toBeDisabled()
   await expect(guide).toContainText('1 need attention')
+  await page.goto('/admin/#/recordings/release-recording-1/show')
+  await page.getByRole('button', { name: 'Media locations and file details — 2 linked copies', exact: true }).click()
+  const copies = page.getByRole('region', { name: 'Linked Recording media', exact: true })
+  await expect(copies).toContainText('2 copies share an exact stored audio fingerprint')
+  await expect(copies.getByText('Audio group 1 · matches 1 other copy', { exact: true })).toHaveCount(2)
+  await expect(copies.getByText('SHA-256 (whole-file bytes):', { exact: false }).first()).not.toBeVisible()
+  await copies.getByRole('button', { name: /Location and file details/ }).first().click()
+  await expect(copies.getByText('SHA-256 (whole-file bytes):', { exact: false }).first()).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
 })
 
 for (const failure of ['verification', 'stale apply']) {
@@ -98,5 +107,26 @@ for (const failure of ['verification', 'stale apply']) {
       await guide.getByRole('button', { name: 'Back to track selection', exact: true }).click()
       await expect(guide).toContainText('1 selected copies across 1 Recordings')
     }
+
   })
 }
+
+test('Recording copies distinguish unavailable and different fingerprints without claiming different audio', async ({ page }) => {
+      await page.route('**/api/v1/recordings/release-recording-1/media', route => route.fulfill({ json: [
+        { id: 'copy-a', path: '/private/full-path/a.aiff', libraryName: 'Main collection', format: 'AIFF', fingerprintKey: 'audio-a', sha256: 'hash-a' },
+        { id: 'copy-b', path: '/private/full-path/b.flac', libraryName: 'Backup collection', format: 'FLAC', fingerprintKey: 'audio-b', sha256: 'hash-b' },
+        { id: 'copy-c', path: '/private/full-path/c.aiff', libraryName: 'DJ collection', format: 'AIFF', fingerprintKey: null, sha256: 'hash-c' },
+      ] }))
+      await page.goto('/admin/#/recordings/release-recording-1/show')
+      await page.getByLabel('API key').fill('test-only-browser-key-not-a-production-secret')
+      await page.getByRole('button', { name: 'Connect', exact: true }).click()
+      const copies = page.getByRole('region', { name: 'Linked Recording media', exact: true })
+      await page.getByRole('button', { name: /Media locations and file details/ }).click()
+      await expect(copies).toContainText('2 different stored fingerprint groups')
+      await expect(copies).toContainText('Different fingerprints do not necessarily mean different audio')
+      await expect(copies).toContainText('1 copies have no stored fingerprint')
+      await expect(copies.getByText('Main collection', { exact: true })).toBeVisible()
+      await expect(copies.getByText('/private/full-path/a.aiff', { exact: true })).not.toBeVisible()
+      await copies.getByRole('button', { name: 'Location and file details — Main collection AIFF' }).click()
+      await expect(copies.getByText('/private/full-path/a.aiff', { exact: true })).toBeVisible()
+})

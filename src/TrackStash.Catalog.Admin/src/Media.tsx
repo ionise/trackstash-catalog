@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Checkbox, FormControlLabel, LinearProgress, MenuItem, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material'
+import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Checkbox, Chip, FormControlLabel, LinearProgress, MenuItem, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material'
 import { Title, useAuthenticated, useLogoutIfAccessDenied } from 'react-admin'
 import { Link } from 'react-router-dom'
 import { mediaClient, mediaLibraryName as libraryName } from './catalog'
@@ -204,13 +204,47 @@ export function RecordingMedia({ id }: { id: string }) {
       } })
     return () => controller.abort()
   }, [id, logout])
+  const fingerprintKeys = [...new Set(files?.map(f => f.fingerprintKey).filter((key): key is string => !!key) ?? [])]
+  const fingerprintCount = files?.filter(f => f.fingerprintKey).length ?? 0
   return <Stack component="section" aria-label="Linked Recording media" spacing={1}>
     <Typography component="h2" variant="h6">Linked media copies</Typography>
     {error ? <Alert severity="warning">{error}</Alert> : files === undefined ? <LinearProgress /> : <>
       {!files.length && <Typography>No accepted media links. <Link to="/media">Review media inventory</Link>.</Typography>}
-      {files.map(file => <Box key={file.id} sx={{ overflowWrap: 'anywhere' }}><Typography>{file.path}</Typography>
-        <Typography variant="body2">SHA-256: {file.sha256 ?? 'Not recorded'}; linked {file.linkedAt ?? 'Unknown'}.</Typography></Box>)}
-      {!!files.length && <Typography variant="body2">Persisted associations, not a fresh availability or complete NAS backup check. Playback and file operations are not enabled.</Typography>}
+      {!!files.length && <>
+        <Alert severity={fingerprintCount > 1 && fingerprintKeys.length === 1 ? 'success' : 'info'}>
+          {fingerprintCount > 1 && fingerprintKeys.length === 1
+            ? `${fingerprintCount} copies share an exact stored audio fingerprint.`
+            : fingerprintKeys.length > 1
+              ? `${fingerprintKeys.length} different stored fingerprint groups. Different fingerprints do not necessarily mean different audio.`
+              : fingerprintCount === 1 ? 'Only one copy has stored audio fingerprint evidence; cross-copy comparison is unavailable.'
+                : 'No stored audio fingerprints are available for these links.'}
+          {fingerprintCount < files.length && ` ${files.length - fingerprintCount} copies have no stored fingerprint.`}
+        </Alert>
+        <Typography variant="body2">Audio evidence comes from the scanner snapshot retained when each copy was linked, not a fresh audio check or AcoustID lookup. Exact matches use the same fingerprint algorithm/version. AIFF and FLAC can represent the same lossless audio while their file hashes differ; fingerprints alone do not prove identical decoded samples.</Typography>
+      </>}
+      {files.map(file => {
+        const location = file.libraryName ?? file.library ?? 'Unconfigured location'
+        const count = file.fingerprintKey ? files.filter(f => f.fingerprintKey === file.fingerprintKey).length : 0
+        return <Stack key={file.id} spacing={1} sx={{ border: 1, borderColor: 'divider', p: 2, minWidth: 0, overflowWrap: 'anywhere' }}>
+          <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1 }}>
+            <Typography sx={{ fontWeight: 'bold' }}>{location}</Typography>
+            <Chip size="small" label={file.format || 'Format unknown'} />
+            <Chip size="small" color={count > 1 ? 'success' : 'default'} label={file.fingerprintKey
+              ? `Audio group ${fingerprintKeys.indexOf(file.fingerprintKey) + 1}${count > 1 ? ` · matches ${count - 1} other ${count === 2 ? 'copy' : 'copies'}` : ' · no matching copy'}`
+              : 'Audio fingerprint not recorded'} />
+          </Stack>
+          <Accordion disableGutters>
+            <AccordionSummary>Location and file details — {location} {file.format}</AccordionSummary>
+            <AccordionDetails sx={{ overflowWrap: 'anywhere' }}>
+              <Typography>{file.path}</Typography>
+              <Typography variant="body2">SHA-256 (whole-file bytes): {file.sha256 ?? 'Not recorded'}</Typography>
+              <Typography variant="body2">Linked {file.linkedAt ?? 'Unknown'}. Media identity: {file.id}.</Typography>
+              <Typography variant="body2">SHA-256 includes tags, artwork and container encoding. Different hashes between copies are expected and do not indicate an audio mismatch.</Typography>
+            </AccordionDetails>
+          </Accordion>
+        </Stack>
+      })}
+      {!!files.length && <Typography variant="body2">Reviewed links, not a fresh availability or complete backup check. Playback and file operations are not enabled.</Typography>}
     </>}
   </Stack>
 }

@@ -321,4 +321,37 @@ public sealed partial class LabelApiTests
         var linked = Assert.Single((await fixture.Client.GetFromJsonAsync<LinkedRecordingMedia[]>("/api/v1/recordings/t-shared/media"))!);
         Assert.Equal(Convert.ToHexString(SHA256.HashData(new byte[] { 5, 6, 7, 2 })).ToLowerInvariant(), linked.Sha256);
     }
+    [Fact]
+    public async Task Media_LinkedCopiesDisplayCurrentLibraryNamesFormatsAndFrozenAudioEvidenceWithoutScannerReads()
+    {
+        await using var fixture = await StartMedia();
+        await AddBrowseMetadata(fixture);
+        await AddReconciliationCopy(fixture);
+        var (plan, tag) = await ReconciliationPlan(fixture);
+        var prepared = await PrepareReconciliation(fixture, plan, tag, new(1, "t-shared"), new(2, "t-shared"));
+        var review = (await prepared.Content.ReadFromJsonAsync<MediaReconciliationReview>())!;
+        Assert.Equal(HttpStatusCode.OK, (await ApplyReconciliation(fixture, review.Id, prepared.Headers.ETag!.ToString())).StatusCode);
+        var settings = await fixture.Client.GetAsync("/api/v1/media-libraries");
+        using var rename = new HttpRequestMessage(HttpMethod.Patch, "/api/v1/media-libraries") {
+            Content = JsonContent.Create(new { libraries = new[] { new { id = "Test", name = "Archive collection", root = Path.Combine(fixture.Root, "Relocated"), enabled = false } }, confirmed = true })
+        };
+        rename.Headers.TryAddWithoutValidation("If-Match", settings.Headers.ETag!.ToString());
+        Assert.Equal(HttpStatusCode.OK, (await fixture.Client.SendAsync(rename)).StatusCode);
+        File.Delete(fixture.Scanner);
+        File.Delete(fixture.File);
+        var copies = (await fixture.Client.GetFromJsonAsync<LinkedRecordingMedia[]>("/api/v1/recordings/t-shared/media"))!;
+        Assert.Equal(2, copies.Length);
+        Assert.All(copies, f => { Assert.Equal("Test", f.Library); Assert.Equal("Archive collection", f.LibraryName); Assert.NotNull(f.FingerprintKey); });
+        Assert.Single(copies.Select(f => f.FingerprintKey).Distinct());
+        Assert.Equal(2, copies.Select(f => f.Sha256).Distinct().Count());
+        Assert.Equal(new[] { "AIFF", "FLAC" }, copies.Select(f => f.Format).Order().ToArray());
+        var recording = (await fixture.Client.GetFromJsonAsync<RecordingResponse>("/api/v1/recordings/t-shared"))!;
+        Assert.Equal(2, recording.LinkedCopyCount);
+        foreach (var query in new[] { "releaseId=t-new", "labelId=t-label", "artistId=t-primary", "recordingId=t-shared" })
+        {
+            var tracks = (await fixture.Client.GetFromJsonAsync<TrackListResponse>("/api/v1/tracks?" + query))!;
+            Assert.Contains(tracks.Items, t => t.RecordingId == "t-shared");
+            Assert.All(tracks.Items.Where(t => t.RecordingId == "t-shared"), t => Assert.Equal(2, t.LinkedCopyCount));
+        }
+    }
 }
