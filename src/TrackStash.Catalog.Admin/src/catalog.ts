@@ -343,6 +343,16 @@ export interface MediaLinkReview {
   createdAt: string; verifiedSha256: string; sidecarTitle: string | null; sidecarMix: string | null; outcome: MediaLinkOutcome | null
 }
 export interface MediaTrackSelection { mediaId: number; recordingId: string }
+export interface MediaMatchSelection { mediaId: number; recordingId: string | null; classification: string | null }
+export interface MediaMatchRow extends MediaReconciliationFile { classification: string }
+export interface MediaMatchPlan { version: string; etag: string; files: MediaMatchRow[] }
+export interface MediaMatchOutcome {
+  reviewId: string; links: MediaLinkOutcome[]; classifications: MediaMatchSelection[]; appliedAt: string
+}
+export interface MediaMatchReview {
+  id: string; version: string; etag: string; plan: Omit<MediaMatchPlan, 'etag'>; selections: MediaMatchSelection[]
+  verifiedMediaIds: number[]; createdAt: string; outcome: MediaMatchOutcome | null
+}
 export interface MediaReconciliationFile {
   media: MediaInventoryItem; candidates: MediaRecordingCandidate[]; suggestedRecordingId: string | null
   linkedRecordingId: string | null; alreadyRegistered: boolean
@@ -641,6 +651,8 @@ export function createCatalogClient(fetcher: typeof fetch = fetch) {
   }
   const json = { 'Content-Type': 'application/json' }
   const beatportClient = {
+    prepareImport: async (releaseId: number, signal?: AbortSignal): Promise<BeatportBackfillResult> =>
+      (await request(`/releases/${releaseId}/prepare-import`, { method: 'POST', signal }, 'beatport')).json(),
     connection: async (signal?: AbortSignal): Promise<BeatportConnection> => (await request('/connection', { signal }, 'beatport')).json(),
     signIn: async (username: string, password: string): Promise<BeatportConnection> =>
       (await request('/sign-in', { method: 'POST', headers: json, body: JSON.stringify({ username, password }) }, 'beatport')).json(),
@@ -772,6 +784,30 @@ export function createCatalogClient(fetcher: typeof fetch = fetch) {
       (await request(`/${encodeURIComponent(id)}/${tracks ? 'tracks' : 'releases'}?page=${page}&pageSize=25`, { signal }, 'artists')).json(),
   }
   const mediaClient = {
+    matchProposals: async (mediaIds: number[], signal?: AbortSignal): Promise<MediaMatchPlan> => {
+      const response = await request('', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mediaIds }), signal }, 'media-match-proposals')
+      const etag = response.headers.get('ETag')
+      if (!etag) throw new Error('Media proposals are missing their ETag; reload before accepting.')
+      return { ...await response.json(), etag }
+    },
+    prepareMatches: async (plan: MediaMatchPlan, selections: MediaMatchSelection[], signal?: AbortSignal): Promise<MediaMatchReview> => {
+      const response = await request('', { method: 'POST', headers: { 'Content-Type': 'application/json', 'If-Match': plan.etag },
+        body: JSON.stringify({ mediaIds: plan.files.map(f => f.media.id), selections }), signal }, 'media-match-reviews')
+      const etag = response.headers.get('ETag')
+      if (!etag) throw new Error('Verified media batch is missing its ETag; no acceptance was attempted.')
+      return { ...await response.json(), etag }
+    },
+    matchReview: async (id: string, signal?: AbortSignal): Promise<MediaMatchReview> => {
+      const response = await request(`/${encodeURIComponent(id)}`, { signal }, 'media-match-reviews')
+      const etag = response.headers.get('ETag')
+      if (!etag) throw new Error('Media batch outcome is missing its ETag.')
+      return { ...await response.json(), etag }
+    },
+    acceptMatches: async (review: MediaMatchReview, signal?: AbortSignal): Promise<MediaMatchOutcome> =>
+      (await request(`/${encodeURIComponent(review.id)}/apply`, { method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'If-Match': review.etag },
+        body: JSON.stringify({ confirmed: true }), signal }, 'media-match-reviews')).json(),
     list: async (query: URLSearchParams, signal?: AbortSignal): Promise<{ items: MediaInventoryItem[]; total: number; page: number; pageSize: number; libraries: string[]; warnings: string[]; groups?: MediaGroup[]; groupTotal?: number; libraryNames?: Record<string, string> }> =>
       (await request(`?${query}`, { signal }, 'media')).json(),
     candidates: async (id: number, signal?: AbortSignal): Promise<{ media: MediaInventoryItem; candidates: MediaRecordingCandidate[]; linkedRecordingId: string | null }> =>

@@ -4,7 +4,8 @@ namespace TrackStash.Catalog.Api;
 
 /// <summary>Literal embedded-metadata filters, deterministic sorting and selectable grouping.</summary>
 public sealed record MediaBrowseOptions(string? Label = null, string? Release = null, string? Artist = null,
-    string? Track = null, string Sort = "title", string Direction = "asc", string GroupBy = "none", string? GroupKey = null);
+    string? Track = null, string Sort = "title", string Direction = "asc", string GroupBy = "none", string? GroupKey = null,
+    string? Classification = null, int PageSize = 25);
 /// <summary>A whole-inventory metadata group and recorded locations, not verified backup coverage.</summary>
 public sealed record MediaGroup(string Key, string Name, string? Label, string? Release, int FileCount,
     IReadOnlyList<string> Libraries, bool CanAssociateRelease, string? AssociatedReleaseId = null, string? AssociatedReleaseTitle = null);
@@ -44,7 +45,7 @@ public sealed partial class MediaService
     private (MediaInventoryItem[] Items, int Total, MediaGroup[] Groups, int GroupTotal) Browse(
         List<MediaInventoryItem> rows, string? library, string? search, int page, MediaBrowseOptions options)
     {
-        if (options.Sort is not ("title" or "label" or "release" or "artist" or "library") ||
+        if (options.PageSize is not (25 or 50 or 100) || options.Sort is not ("title" or "label" or "release" or "artist" or "library") ||
             options.Direction is not ("asc" or "desc") ||
             options.GroupBy is not ("none" or "label" or "release" or "artist" or "track" or "fingerprint") ||
             new[] { options.Label, options.Release, options.Artist, options.Track, options.GroupKey }.Any(v => v?.Length > 200) ||
@@ -57,7 +58,7 @@ public sealed partial class MediaService
             Contains(r.Label, options.Label) && Contains(r.Release, options.Release) &&
             Contains(r.Artist, options.Artist) && Contains(r.Title, options.Track) &&
             (options.GroupKey is null || GroupKey(r, options.GroupBy) == options.GroupKey)).ToArray();
-        var offset = (int)Math.Min(((long)page - 1) * 25, int.MaxValue);
+        var offset = (int)Math.Min(((long)page - 1) * options.PageSize, int.MaxValue);
         string Sort(MediaInventoryItem item) => options.Sort switch {
             "label" => item.Label ?? "", "release" => item.Release ?? "", "artist" => item.Artist ?? "",
             "library" => Libraries.First(l => l.Id == item.Library).Name, _ => item.Title ?? ""
@@ -65,13 +66,13 @@ public sealed partial class MediaService
         var ordered = options.Direction == "asc" ? filtered.OrderBy(Sort, StringComparer.OrdinalIgnoreCase)
             : filtered.OrderByDescending(Sort, StringComparer.OrdinalIgnoreCase);
         if (options.GroupBy == "none" || options.GroupKey is not null)
-            return (ordered.ThenBy(r => r.Id).Skip(offset).Take(25).ToArray(), filtered.Length, [], 0);
+            return (ordered.ThenBy(r => r.Id).Skip(offset).Take(options.PageSize).ToArray(), filtered.Length, [], 0);
         var groups = ordered.ThenBy(r => r.Id).GroupBy(r => GroupKey(r, options.GroupBy)).Select(g => {
             var first = g.First();
             return new MediaGroup(g.Key, GroupName(first, options.GroupBy), first.Label, first.Release, g.Count(),
                 g.Select(r => r.Library).Distinct().Order(StringComparer.Ordinal).ToArray(),
                 options.GroupBy == "release" && !string.IsNullOrWhiteSpace(first.Release));
         }).ToArray();
-        return ([], filtered.Length, groups.Skip(offset).Take(25).ToArray(), groups.Length);
+        return ([], filtered.Length, groups.Skip(offset).Take(options.PageSize).ToArray(), groups.Length);
     }
 }

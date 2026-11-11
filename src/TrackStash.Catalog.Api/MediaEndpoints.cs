@@ -17,6 +17,7 @@ internal static class MediaEndpoints
 {
     public static void MapMedia(this WebApplication app)
     {
+        app.MapMediaMatches();
         app.MapGet("/api/v1/media-reconciliation", async (HttpContext context, IMediaService service, CancellationToken ct) =>
         {
             foreach (var field in context.Request.Query)
@@ -128,17 +129,20 @@ internal static class MediaEndpoints
         app.MapGet("/api/v1/media", async (HttpContext context, IMediaService service, CancellationToken ct) =>
         {
             foreach (var field in context.Request.Query)
-                if (field.Value.Count != 1 || field.Key is not ("library" or "q" or "page" or "label" or "release" or "artist" or "track" or "sort" or "direction" or "groupBy" or "groupKey"))
+                if (field.Value.Count != 1 || field.Key is not ("library" or "q" or "page" or "pageSize" or "label" or "release" or "artist" or "track" or "sort" or "direction" or "groupBy" or "groupKey" or "classification"))
                     throw new ApiRequestException(400, "validation_failed", "Unknown or repeated media query field.");
             var page = !context.Request.Query.TryGetValue("page", out var text) ? 1 : int.TryParse(text, out var value) ? value :
                 throw new ApiRequestException(400, "validation_failed", "Invalid media page.");
+            var pageSize = !context.Request.Query.TryGetValue("pageSize", out var size) ? 25 : int.TryParse(size, out var sizeValue) ? sizeValue :
+                throw new ApiRequestException(400, "validation_failed", "Invalid media page size.");
             context.Response.Headers.CacheControl = "no-store";
             return TypedResults.Ok(await service.QueryAsync(context.Request.Query["library"].FirstOrDefault(),
                 context.Request.Query["q"].FirstOrDefault(), page, ct, new MediaBrowseOptions(
                     context.Request.Query["label"].FirstOrDefault(), context.Request.Query["release"].FirstOrDefault(),
                     context.Request.Query["artist"].FirstOrDefault(), context.Request.Query["track"].FirstOrDefault(),
                     context.Request.Query["sort"].FirstOrDefault() ?? "title", context.Request.Query["direction"].FirstOrDefault() ?? "asc",
-                    context.Request.Query["groupBy"].FirstOrDefault() ?? "none", context.Request.Query["groupKey"].FirstOrDefault())));
+                    context.Request.Query["groupBy"].FirstOrDefault() ?? "none", context.Request.Query["groupKey"].FirstOrDefault(),
+                    context.Request.Query["classification"].FirstOrDefault(), pageSize)));
         }).WithName("ListMediaInventory").WithTags("Media")
           .WithSummary("Browse historical scanner tags in named approved libraries without reading audio")
           .Produces<MediaInventoryPage>().ProducesProblem(400).ProducesProblem(409);

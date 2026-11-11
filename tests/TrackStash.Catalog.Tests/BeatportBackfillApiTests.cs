@@ -11,11 +11,59 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Http;
 using TrackStash.Catalog.Api.Beatport;
+using TrackStash.Catalog.Api;
+using TrackStash.Core.Sqlite;
 
 namespace TrackStash.Catalog.Tests;
 
 public sealed partial class LabelApiTests
 {
+    [Fact]
+    public async Task BeatportCatalogAdmission_CachesNonPurchaseReleaseWithoutChangingCorpusOrCatalog()
+    {
+        await CreatePurchaseSource();
+        await SourceSql("DELETE FROM bpc_release WHERE beatport_release_id=10; DELETE FROM beatport_release_cache WHERE beatport_release_id=10");
+        var (app, client, broker) = await StartWithBrokerAsync();
+        await using var _ = app;
+        broker.Payloads["release:10"] = ReleasePayload();
+        var response = await client.PostAsync("/api/v1/beatport/releases/10/prepare-import", null);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True(response.Headers.CacheControl!.NoStore);
+        var result = (await response.Content.ReadFromJsonAsync<BeatportBackfillResult>())!;
+        Assert.False(result.SourceCompleteBefore);
+        Assert.True(result.SourceCompleteAfter);
+        var source = new SqlitePurchaseReleaseSource(PurchaseSourcePath);
+        Assert.Null(await source.InspectAsync(10, new()));
+        var catalogSource = await source.InspectAsync(10, new() { AllowCachedRelease = true });
+        Assert.NotNull(catalogSource);
+        Assert.Equal("catalog_cache", catalogSource.SourceKind);
+        Assert.DoesNotContain((await source.QueryAsync(new())).Items, r => r.ReleaseId == 10);
+        Assert.DoesNotContain(await source.InspectAllAsync(), r => r.ReleaseId == 10);
+        Assert.Equal(0, await ImportCount("release"));
+        Assert.Equal(0, await ImportCount("recording"));
+        Assert.Equal(["GET /v4/catalog/releases/10/"], broker.Requests);
+        var again = await client.PostAsync("/api/v1/beatport/releases/10/prepare-import", null);
+        Assert.Equal(HttpStatusCode.OK, again.StatusCode);
+        Assert.Single(broker.Requests);
+    }
+
+    [Fact]
+    public async Task BeatportCatalogAdmission_FetchesMissingTracksAndReportsUnavailableRelease()
+    {
+        await CreatePurchaseSource();
+        await SourceSql("DELETE FROM bpc_release WHERE beatport_release_id=10");
+        await MakeTrack102MissingAsync();
+        var (app, client, broker) = await StartWithBrokerAsync();
+        await using var _ = app;
+        broker.Payloads["track:102"] = TrackPayload(102);
+        var response = await client.PostAsync("/api/v1/beatport/releases/10/prepare-import", null);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True((await response.Content.ReadFromJsonAsync<BeatportBackfillResult>())!.SourceCompleteAfter);
+        Assert.Equal(["GET /v4/catalog/tracks/102/"], broker.Requests);
+        await ProblemAsync(await client.PostAsync("/api/v1/beatport/releases/9999/prepare-import", null), 404, "beatport_release_not_found");
+        await ProblemAsync(await client.PostAsync("/api/v1/beatport/releases/invalid/prepare-import", null), 400, "validation_failed");
+    }
+
     private const string BrokerKey = "test-broker-key-not-a-real-secret-0123456789";
 
     /// <summary>Simulates the broker: successful fetches are written to beatport_broker_entity, as the real broker does.</summary>

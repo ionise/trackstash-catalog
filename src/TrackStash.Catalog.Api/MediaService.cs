@@ -50,6 +50,10 @@ public interface IMediaService
     Task<MediaReconciliationReview> PrepareReconciliationAsync(string groupKey, string releaseId, string version, IReadOnlyList<MediaTrackSelection> selections, CancellationToken ct);
     Task<MediaReconciliationReview> GetReconciliationAsync(string id, CancellationToken ct);
     Task<MediaReconciliationOutcome> ApplyReconciliationAsync(string id, string version, string reason, bool confirmed, CancellationToken ct);
+    Task<MediaMatchPlan> MatchPlanAsync(IReadOnlyList<long> mediaIds, CancellationToken ct);
+    Task<MediaMatchReview> PrepareMatchesAsync(IReadOnlyList<long> mediaIds, IReadOnlyList<MediaMatchSelection> selections, string version, CancellationToken ct);
+    Task<MediaMatchReview> GetMatchesAsync(string id, CancellationToken ct);
+    Task<MediaMatchOutcome> ApplyMatchesAsync(string id, string version, bool confirmed, CancellationToken ct);
 }
 
 public sealed partial class MediaService(IConfiguration configuration, IStorageProvider storage, TimeProvider clock,
@@ -164,6 +168,15 @@ public sealed partial class MediaService(IConfiguration configuration, IStorageP
         if (page < 1 || search?.Length > 200 || library is not null && !Libraries.Any(l => l.Id == library))
             throw Error(400, "validation_failed", "Choose a configured library, page >=1 and search <=200 characters.");
         var rows = await Inventory(ct);
+        if (options?.Classification is { } classification)
+        {
+            if (classification is not ("unofficial" or "unclassified"))
+                throw Error(400, "validation_failed", "Choose an independent media classification.");
+            await Ready(ct);
+            await using var unit = await storage.BeginUnitOfWorkAsync(ct);
+            var classifications = await MediaClassifications(unit, ct);
+            rows = rows.Where(r => classifications.GetValueOrDefault(r.Id, "unclassified") == classification).ToList();
+        }
         var browse = Browse(rows, library, search, page, options ?? new());
         if (browse.Groups.Length > 0 && await storage.Migrations.GetCurrentVersionAsync(ct) >= 13)
         {
@@ -174,7 +187,7 @@ public sealed partial class MediaService(IConfiguration configuration, IStorageP
                 return g with { AssociatedReleaseId = accepted?.Review.ReleaseId, AssociatedReleaseTitle = accepted?.Review.CatalogTitle };
             }).ToArray();
         }
-        return new(browse.Items, browse.Total, page, 25,
+        return new(browse.Items, browse.Total, page, options?.PageSize ?? 25,
             Libraries.Select(l => l.Id).ToArray(), [
                 "Historical scanner inventory, not a fresh filesystem scan. Missing or moved files require scanner refresh; nothing is inferred from absence.",
                 "Tags, duration and sidecars propose identity. Listing does not read audio; preparing a review verifies SHA-256 and may download a cloud-only Dropbox file.",

@@ -54,6 +54,7 @@ for (const stale of [false, true]) {
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
     if (!stale) {
       await review.getByRole('link', { name: 'View Recording and linked copies' }).click()
+      await page.getByRole('button', { name: /Media locations and file details/ }).click()
       await expect(page.getByRole('region', { name: 'Linked Recording media' })).toBeVisible()
     }
   })

@@ -5,6 +5,66 @@
 @reviewId = replace-with-created-review-id
 @reviewETag = "replace-with-original-response-etag"
 
+### Media-led admission: explicit Beatport Release search seeded from media tags
+GET {{baseUrl}}/beatport/releases?q=Absurd&page=1&pageSize=10
+Authorization: Bearer {{apiKey}}
+
+### Fetch complete metadata for reviewed admission, including a non-purchase Release
+### Writes broker cache metadata only; does not change purchase flags or admit entities
+@beatportReleaseId = 900
+POST {{baseUrl}}/beatport/releases/{{beatportReleaseId}}/prepare-import
+Authorization: Bearer {{apiKey}}
+
+### Continue with existing /release-import-previews review/apply, then fresh media-match proposals
+### The GUI carries media IDs through both stages; admission and linking are separate transactions
+
+### Bulk worklist: preview existing Recording proposals (no audio reads)
+POST {{baseUrl}}/media-match-proposals
+Authorization: Bearer {{apiKey}}
+Content-Type: application/json
+
+{ "mediaIds": [1, 2] }
+
+### Freeze selected links and/or independent media classifications; no typed reason
+@matchProposalETag = "replace-with-original-proposal-etag"
+POST {{baseUrl}}/media-match-reviews
+Authorization: Bearer {{apiKey}}
+Content-Type: application/json
+If-Match: {{matchProposalETag}}
+
+{
+  "mediaIds": [1, 2],
+  "selections": [
+    { "mediaId": 1, "recordingId": "{{recordingId}}", "classification": null },
+    { "mediaId": 2, "recordingId": null, "classification": "unofficial" }
+  ]
+}
+
+### Recover frozen batch/outcome
+@matchReviewId = replace-with-created-matching-review-id
+@matchReviewETag = "replace-with-original-review-etag"
+GET {{baseUrl}}/media-match-reviews/{{matchReviewId}}
+Authorization: Bearer {{apiKey}}
+
+### Explicit acceptance records judgement automatically; same-review retry is replay-safe
+POST {{baseUrl}}/media-match-reviews/{{matchReviewId}}/apply
+Authorization: Bearer {{apiKey}}
+Content-Type: application/json
+If-Match: {{matchReviewETag}}
+
+{ "confirmed": true }
+
+### Independent unofficial bucket; literal metadata filters/grouping still apply
+GET {{baseUrl}}/media?classification=unofficial&groupBy=release&pageSize=100
+Authorization: Bearer {{apiKey}}
+
+### Error: no preview identities (400)
+POST {{baseUrl}}/media-match-proposals
+Authorization: Bearer {{apiKey}}
+Content-Type: application/json
+
+{ "mediaIds": [] }
+
 ### 1. Preview the whole group's existing Catalog tracks (no audio reads)
 @mediaGroupKey = replace-with-group-key-from-media-release-groups
 @catalogReleaseId = replace-with-catalog-release-id

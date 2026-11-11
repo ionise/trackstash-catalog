@@ -1,6 +1,54 @@
 import { expect, it, vi } from 'vitest'
 import { createCatalogClient, mediaLibraryName } from './catalog'
 
+it('media-led Beatport admission requests explicit metadata caching without media or purchase assertions', async () => {
+  const fetcher = vi.fn<typeof fetch>().mockImplementation(async () => Response.json({ releaseId: 930, sourceCompleteAfter: true }))
+  const { authProvider, beatportClient } = createCatalogClient(fetcher)
+  await authProvider.login({ apiKey: 'test-catalog-key' })
+  fetcher.mockClear()
+  const signal = new AbortController().signal
+  await beatportClient.prepareImport(930, signal)
+  expect(fetcher.mock.calls[0][0]).toBe('/api/v1/beatport/releases/930/prepare-import')
+  expect(fetcher.mock.calls[0][1]?.method).toBe('POST')
+  expect(fetcher.mock.calls[0][1]?.body).toBeUndefined()
+  expect(fetcher.mock.calls[0][1]?.signal).toBe(signal)
+})
+
+it('bulk proposals and acceptance retain original ETags and explicit selections without a typed reason', async () => {
+  const fetcher = vi.fn<typeof fetch>().mockImplementation(async () => Response.json({
+    id: 'bulk /1', version: 'v1', files: [{ media: { id: 42 } }, { media: { id: 43 } }],
+  }, { headers: { ETag: '"proposal"' } }))
+  const { authProvider, mediaClient } = createCatalogClient(fetcher)
+  await authProvider.login({ apiKey: 'test-catalog-key' })
+  fetcher.mockClear()
+  const signal = new AbortController().signal
+  const plan = await mediaClient.matchProposals([42, 43], signal)
+  expect(fetcher.mock.calls[0][0]).toBe('/api/v1/media-match-proposals')
+  expect(JSON.parse(String(fetcher.mock.calls[0][1]?.body))).toEqual({ mediaIds: [42, 43] })
+  fetcher.mockResolvedValueOnce(Response.json({ id: 'bulk /1' }, { headers: { ETag: '"frozen"' } }))
+  const selections = [{ mediaId: 42, recordingId: 'recording-1', classification: null },
+    { mediaId: 43, recordingId: null, classification: 'unofficial' }]
+  const review = await mediaClient.prepareMatches(plan, selections, signal)
+  expect(new Headers(fetcher.mock.calls[1][1]?.headers).get('If-Match')).toBe('"proposal"')
+  expect(JSON.parse(String(fetcher.mock.calls[1][1]?.body))).toEqual({ mediaIds: [42, 43], selections })
+  await mediaClient.acceptMatches(review, signal)
+  expect(fetcher.mock.calls[2][0]).toBe('/api/v1/media-match-reviews/bulk%20%2F1/apply')
+  expect(new Headers(fetcher.mock.calls[2][1]?.headers).get('If-Match')).toBe('"frozen"')
+  expect(JSON.parse(String(fetcher.mock.calls[2][1]?.body))).toEqual({ confirmed: true })
+  await mediaClient.matchReview('bulk /1', signal)
+  expect(fetcher.mock.calls[3][0]).toBe('/api/v1/media-match-reviews/bulk%20%2F1')
+  expect(fetcher.mock.calls.every(call => call[1]?.signal === signal)).toBe(true)
+})
+
+it('bulk proposals and batch preparation fail explicitly without ETags', async () => {
+  const fetcher = vi.fn<typeof fetch>().mockImplementation(async () => Response.json({ files: [{ media: { id: 42 } }] }))
+  const { authProvider, mediaClient } = createCatalogClient(fetcher)
+  await authProvider.login({ apiKey: 'test-catalog-key' })
+  await expect(mediaClient.matchProposals([42])).rejects.toThrow('missing their ETag')
+  await expect(mediaClient.prepareMatches({ version: 'v1', etag: '"original"', files: [] }, [])).rejects.toThrow('missing its ETag')
+  await expect(mediaClient.matchReview('batch')).rejects.toThrow('missing its ETag')
+})
+
 it('media verification sends only server-derived identity, then original ETag and explicit audit intent', async () => {
   const fetcher = vi.fn<typeof fetch>().mockImplementation(async () => Response.json({ id: 'review /1' }, { headers: { ETag: '"verified-review"' } }))
   const { authProvider, mediaClient } = createCatalogClient(fetcher)

@@ -8,7 +8,7 @@ import { LoginPage } from './LoginPage'
 import { Backups } from './Backups'
 import { PurchaseReleases } from './PurchaseReleases'
 import { BeatportBrowse } from './BeatportBrowse'
-import { MediaInventory } from './Media'
+import { MediaInventory, MediaMatching } from './Media'
 import { MediaLibraries } from './MediaLibraries'
 import TravelExploreIcon from '@mui/icons-material/TravelExplore'
 import { ReleaseList, ReleaseShow } from './Releases'
@@ -33,6 +33,7 @@ function CatalogMenu() {
     <Menu.ResourceItem name="artists" />
     <Menu.ResourceItem name="tracks" />
     <Menu.Item to="/media" primaryText="Media" leftIcon={<QueueMusicIcon />} />
+    <Menu.Item to="/media-matches" primaryText="Media matching" leftIcon={<QueueMusicIcon />} />
     <Menu.ResourceItem name="label-groups" />
     <Menu.Item to="/purchase-releases" primaryText="Purchase releases" leftIcon={<SearchIcon />} />
     <Menu.Item to="/beatport" primaryText="Beatport" leftIcon={<TravelExploreIcon />} />
@@ -73,6 +74,7 @@ export default function App() {
       <Resource name="purchase-releases" list={PurchaseReleases} />
       <Resource name="beatport" list={BeatportBrowse} />
       <Resource name="media" list={MediaInventory} />
+      <Resource name="media-matches" list={MediaMatching} />
       <Resource name="media-libraries" list={MediaLibraries} />
     </Admin>
   )

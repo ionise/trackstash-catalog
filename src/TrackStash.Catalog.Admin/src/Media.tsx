@@ -3,18 +3,21 @@ import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Chec
 import { Title, useAuthenticated, useLogoutIfAccessDenied } from 'react-admin'
 import { Link } from 'react-router-dom'
 import { mediaClient, mediaLibraryName as libraryName } from './catalog'
-import type { MediaGroup, MediaLinkReview } from './catalog'
+import type { MediaGroup, MediaInventoryItem, MediaLinkReview } from './catalog'
 import { MediaReleaseLink } from './MediaReleaseLink'
 import { MediaReconciliation } from './MediaReconciliation'
+import { MediaMatches } from './MediaMatches'
+import { MediaReleaseAdmission } from './MediaReleaseAdmission'
 
-export function MediaInventory() {
+export function MediaInventory({ matching = false }: { matching?: boolean }) {
   const { isPending } = useAuthenticated()
   const logout = useLogoutIfAccessDenied()
   const [library, setLibrary] = useState('')
   const [search, setSearch] = useState('')
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(1)
-  const [groupBy, setGroupBy] = useState('release')
+  const [pageSize, setPageSize] = useState(matching ? 100 : 25)
+  const [groupBy, setGroupBy] = useState(matching ? 'none' : 'release')
   const [group, setGroup] = useState<MediaGroup>()
   const [sort, setSort] = useState('release')
   const [direction, setDirection] = useState('asc')
@@ -25,10 +28,14 @@ export function MediaInventory() {
   const [review, setReview] = useState<MediaLinkReview>()
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [matchingLocked, setMatchingLocked] = useState(false)
+  const locked = busy || matchingLocked
   const [reason, setReason] = useState('')
   const [confirmed, setConfirmed] = useState(false)
   const [revision, setRevision] = useState(0)
   const [individualFiles, setIndividualFiles] = useState(false)
+  const [classification, setClassification] = useState('')
+  const [admissionItems, setAdmissionItems] = useState<MediaInventoryItem[]>()
   const pending = useRef<AbortController | undefined>(undefined)
   const names = data?.libraryNames ?? {}
   const name = (id: string) => libraryName(id, names)
@@ -37,17 +44,19 @@ export function MediaInventory() {
     if (isPending) return
     const controller = new AbortController()
     const params = new URLSearchParams({ page: String(page), groupBy, sort, direction })
+    if (matching) params.set('pageSize', String(pageSize))
     if (group) params.set('groupKey', group.key)
     for (const [name, value] of Object.entries(appliedFilters)) if (value) params.set(name, value)
     if (library) params.set('library', library)
     if (query) params.set('q', query)
+    if (classification) params.set('classification', classification)
     void mediaClient.list(params, controller.signal).then(result => {
       if (!controller.signal.aborted) setData(result)
     }).catch(failure => { if (!controller.signal.aborted) {
       setError(failure instanceof Error ? failure.message : 'Media inventory failed.'); void logout(failure)
     } })
     return () => controller.abort()
-  }, [library, query, page, groupBy, group, sort, direction, appliedFilters, isPending, logout, revision])
+  }, [library, query, page, pageSize, matching, groupBy, group, sort, direction, appliedFilters, isPending, logout, revision, classification])
   function resetView() {
     setData(undefined); setError(''); setCandidates(undefined); setReview(undefined)
   }
@@ -61,8 +70,9 @@ export function MediaInventory() {
     } } finally { if (!controller.signal.aborted) { pending.current = undefined; setBusy(false) } }
   }
   return <Stack spacing={2} sx={{ p: 3, minWidth: 0, contain: 'inline-size', overflowWrap: 'anywhere' }}>
-    <Title title="Media" /><Typography variant="h4" component="h1">{group?.canAssociateRelease ? 'Release reconciliation' : 'Media inventory and Recording links'}</Typography>
+    <Title title={matching ? 'Media matching' : 'Media'} /><Typography variant="h4" component="h1">{matching ? 'Media matching worklist' : group?.canAssociateRelease ? 'Release reconciliation' : 'Media inventory and Recording links'}</Typography>
     <Link to="/media-libraries">Manage libraries</Link>
+    <Link to={matching ? '/media' : '/media-matches'}>{matching ? 'Release reconciliation and advanced media inventory' : 'Match media in bulk — tick and accept'}</Link>
     {!group?.canAssociateRelease && <Alert severity="info">Match using embedded tags and scoped sidecars, not filenames alone. No files are moved or retagged. Preparing and accepting a review reads/verifies audio bytes and may download cloud-only Dropbox files.</Alert>}
     {error && <Alert severity="error">{error}</Alert>}
     {(busy || !data && !error) && <LinearProgress aria-label="Loading media" />}
@@ -72,47 +82,54 @@ export function MediaInventory() {
         : 'Media request cancelled. No automatic retry; choose Review media to start again.')
     }}>Cancel media request</Button>}
     {data && <>
-      {!group?.canAssociateRelease && <>
+      {(!group?.canAssociateRelease || matching) && <>
       {data.warnings.map((warning, index) => <Alert severity="warning" key={index}>{warning}</Alert>)}
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-        <TextField select label="Media library" value={library} disabled={busy} onChange={event => {
+        <TextField select label="Media library" value={library} disabled={locked} onChange={event => {
           if (library !== event.target.value) { resetView(); setLibrary(event.target.value); setPage(1) }
         }}>
           <MenuItem value="">All libraries</MenuItem>{data.libraries.map(value => <MenuItem key={value} value={value}>{name(value)}</MenuItem>)}
         </TextField>
-        <TextField label="Search embedded metadata" value={search} disabled={busy} slotProps={{ htmlInput: { maxLength: 200 } }}
+        <TextField label="Search embedded metadata" value={search} disabled={locked} slotProps={{ htmlInput: { maxLength: 200 } }}
           onChange={event => setSearch(event.target.value)} />
-        <Button disabled={busy} onClick={() => {
+        <Button disabled={locked} onClick={() => {
           resetView(); setQuery(search); setAppliedFilters({ ...filters }); setPage(1)
         }}>Search</Button>
       </Stack>
       <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+        {matching && <TextField select label="Media classification" value={classification} disabled={locked} onChange={event => {
+          resetView(); setClassification(event.target.value); setGroup(undefined); setPage(1)
+        }}><MenuItem value="">All classifications</MenuItem><MenuItem value="unofficial">Unofficial / self-released</MenuItem>
+          <MenuItem value="unclassified">Unclassified</MenuItem></TextField>}
+        {matching && <TextField select label="Files / groups per page" value={pageSize} disabled={locked} onChange={event => {
+          resetView(); setPageSize(Number(event.target.value)); setPage(1)
+        }}>{[25, 50, 100].map(size => <MenuItem key={size} value={size}>{size}</MenuItem>)}</TextField>}
         {(['label', 'release', 'artist', 'track'] as const).map(name => <TextField key={name} label={`Filter ${name}`}
-          value={filters[name]} disabled={busy} slotProps={{ htmlInput: { maxLength: 200 } }}
+          value={filters[name]} disabled={locked} slotProps={{ htmlInput: { maxLength: 200 } }}
           onChange={event => setFilters({ ...filters, [name]: event.target.value })} />)}
-        <TextField select label="Group media by" value={groupBy} disabled={busy} onChange={event => {
+        <TextField select label="Group media by" value={groupBy} disabled={locked} onChange={event => {
           if (groupBy !== event.target.value) { resetView(); setGroup(undefined); setGroupBy(event.target.value); setPage(1) }
         }}>{[['none', 'Individual files'], ['label', 'Label'], ['release', 'Release'], ['artist', 'Artist'],
           ['track', 'Track'], ['fingerprint', 'Audio fingerprint']].map(([value, name]) => <MenuItem key={value} value={value}>{name}</MenuItem>)}</TextField>
-        <TextField select label="Sort media by" value={sort} disabled={busy} onChange={event => {
+        <TextField select label="Sort media by" value={sort} disabled={locked} onChange={event => {
           if (sort !== event.target.value) { resetView(); setSort(event.target.value); setPage(1) }
         }}>{['title', 'label', 'release', 'artist', 'library'].map(value => <MenuItem key={value} value={value}>{value}</MenuItem>)}</TextField>
-        <TextField select label="Sort direction" value={direction} disabled={busy} onChange={event => {
+        <TextField select label="Sort direction" value={direction} disabled={locked} onChange={event => {
           if (direction !== event.target.value) { resetView(); setDirection(event.target.value); setPage(1) }
         }}><MenuItem value="asc">Ascending</MenuItem><MenuItem value="desc">Descending</MenuItem></TextField>
       </Box>
       <Typography>{data.total} historical scanner files{!group && groupBy !== 'none' ? ` in ${data.groupTotal ?? 0} groups` : ''}. Page {page}.</Typography>
       </>}
       {group && <>
-        <Button disabled={busy} onClick={() => { resetView(); setGroup(undefined); setPage(1) }}>Back to groups</Button>
+        <Button disabled={locked} onClick={() => { resetView(); setGroup(undefined); setPage(1) }}>Back to groups</Button>
         <Typography variant="h6">{group.name}</Typography>
         {group.associatedReleaseId && <Alert severity="success">Associated with <Link to={`/releases/${encodeURIComponent(group.associatedReleaseId)}/show?tab=Details`}>{group.associatedReleaseTitle ?? group.associatedReleaseId}</Link>.</Alert>}
-        {group.canAssociateRelease && <MediaReconciliation key={group.key} group={group} libraryNames={names} onSaved={outcome => {
+        {!matching && group.canAssociateRelease && <MediaReconciliation key={group.key} group={group} libraryNames={names} onSaved={outcome => {
           setCandidates(undefined); setReview(undefined)
           setGroup({ ...group, associatedReleaseId: outcome.releaseId, associatedReleaseTitle: outcome.association.releaseTitle })
           setRevision(value => value + 1)
         }} />}
-        {!group.associatedReleaseId && group.canAssociateRelease && <Accordion>
+        {!matching && !group.associatedReleaseId && group.canAssociateRelease && <Accordion>
           <AccordionSummary>Release association only (without track links)</AccordionSummary>
           <AccordionDetails><MediaReleaseLink key={group.key} group={group} libraryNames={names} /></AccordionDetails>
         </Accordion>}
@@ -122,9 +139,9 @@ export function MediaInventory() {
         </Accordion>}
       </>}
       {groupBy === 'fingerprint' && <Alert severity="info">Exact stored acoustic fingerprints only, not fuzzy matching or byte-identical backup proof. Files without fingerprints stay separate.</Alert>}
-      {group?.canAssociateRelease && <FormControlLabel label="Show individual file reviews (advanced)"
+      {!matching && group?.canAssociateRelease && <FormControlLabel label="Show individual file reviews (advanced)"
         control={<Checkbox checked={individualFiles} onChange={event => setIndividualFiles(event.target.checked)} />} />}
-      {!group && <Alert severity="info">To assign media with fewer clicks, group by Release and choose Organise Release. Other groupings remain useful for exploring labels, Artists and shared audio.</Alert>}
+      {!matching && !group && <Alert severity="info">To assign media with fewer clicks, group by Release and choose Organise Release. Other groupings remain useful for exploring labels, Artists and shared audio.</Alert>}
       <Box sx={{ width: '100%', overflowX: 'auto', contain: 'inline-size' }}>
         {!!data.groups?.length && <Table size="small" aria-label="Media groups"><TableHead><TableRow>
           <TableCell>Metadata group</TableCell><TableCell>Libraries</TableCell><TableCell>Files</TableCell><TableCell>Details</TableCell>
@@ -132,9 +149,9 @@ export function MediaInventory() {
           <TableCell>{item.name}<Typography variant="body2">{item.label ?? 'Unknown Label'}{groupBy !== 'release' && item.release ? ` / ${item.release}` : ''}</Typography>
             {item.associatedReleaseId && <Link to={`/releases/${encodeURIComponent(item.associatedReleaseId)}/show?tab=Details`}>Associated: {item.associatedReleaseTitle}</Link>}</TableCell>
           <TableCell>{item.libraries.map(name).join(', ')}</TableCell><TableCell>{item.fileCount}</TableCell>
-          <TableCell><Button disabled={busy} onClick={() => { resetView(); setGroup(item); setPage(1); setIndividualFiles(false) }}>{item.canAssociateRelease ? 'Organise Release' : 'Open group'} {item.name}</Button></TableCell>
+          <TableCell><Button disabled={locked} onClick={() => { resetView(); setGroup(item); setPage(1); setIndividualFiles(false) }}>{item.canAssociateRelease && !matching ? 'Organise Release' : 'Open group'} {item.name}</Button></TableCell>
         </TableRow>)}</TableBody></Table>}
-        {(!group?.canAssociateRelease || individualFiles) && (group || groupBy === 'none' || !!data.items.length) &&
+        {!matching && (!group?.canAssociateRelease || individualFiles) && (group || groupBy === 'none' || !!data.items.length) &&
         <Table size="small" aria-label="Media inventory"><TableHead><TableRow>
           <TableCell>Library</TableCell><TableCell>Track / Artist</TableCell><TableCell>Label / Release</TableCell><TableCell>Review</TableCell>
         </TableRow></TableHead><TableBody>{data.items.map(item => <TableRow key={item.id}>
@@ -147,10 +164,14 @@ export function MediaInventory() {
           })}>Review media {item.id}</Button></TableCell>
         </TableRow>)}</TableBody></Table>}
       </Box>
+      {matching && (group || groupBy === 'none') && <MediaMatches items={data.items} libraryNames={names} onBusy={setMatchingLocked}
+        onSaved={() => setRevision(value => value + 1)} onFindRelease={setAdmissionItems} />}
       {!data.items.length && !data.groups?.length && <Typography>No media matches these filters.</Typography>}
-      {(!group?.canAssociateRelease || individualFiles) && <Stack direction="row" spacing={1}><Button disabled={busy || page === 1} onClick={() => { resetView(); setPage(page - 1) }}>Previous</Button>
-        <Button disabled={busy || page * 25 >= (!group && groupBy !== 'none' ? data.groupTotal ?? 0 : data.total)} onClick={() => { resetView(); setPage(page + 1) }}>Next</Button></Stack>}
+      {(matching || !group?.canAssociateRelease || individualFiles) && <Stack direction="row" spacing={1}><Button disabled={locked || page === 1} onClick={() => { resetView(); setPage(page - 1) }}>Previous</Button>
+        <Button disabled={locked || page * data.pageSize >= (!group && groupBy !== 'none' ? data.groupTotal ?? 0 : data.total)} onClick={() => { resetView(); setPage(page + 1) }}>Next</Button></Stack>}
     </>}
+    {admissionItems && <MediaReleaseAdmission items={admissionItems} libraryNames={names}
+      onClose={() => { setAdmissionItems(undefined); setRevision(value => value + 1) }} onSaved={() => setRevision(value => value + 1)} />}
     {candidates && <Stack component="section" aria-label="Media Recording candidates" spacing={2}>
       <Typography variant="h6" component="h2">{candidates.media.title ?? candidates.media.relativePath}</Typography>
       <Typography>{candidates.media.path}</Typography>
@@ -190,6 +211,10 @@ export function MediaInventory() {
       </>}
     </Stack>}
   </Stack>
+}
+
+export function MediaMatching() {
+  return <MediaInventory matching />
 }
 
 export function RecordingMedia({ id }: { id: string }) {

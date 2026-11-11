@@ -32,12 +32,12 @@ public sealed class ReleaseImportService(IStorageProvider storage, IPurchaseRele
 
     private async ValueTask<PurchaseReleaseInspection> Bundle(long id, CancellationToken ct)
     {
-        var first = await source.InspectAsync(id, new(PageSize: 100), ct).ConfigureAwait(false)
-            ?? throw new ReleaseImportException(404, "purchase_candidate_not_found", "Release is not in the configured corpus.");
+        var first = await source.InspectAsync(id, new(PageSize: 100) { AllowCachedRelease = true }, ct).ConfigureAwait(false)
+            ?? throw new ReleaseImportException(404, "purchase_candidate_not_found", "Release is not in the configured corpus or cached catalog source. Fetch the Beatport release for admission first.");
         var tracks = first.Tracks.Items.ToList();
         for (var page = 2; tracks.Count < first.Tracks.Total; page++)
         {
-            var next = await source.InspectAsync(id, new(Page: page, PageSize: 100), ct).ConfigureAwait(false);
+            var next = await source.InspectAsync(id, new(Page: page, PageSize: 100) { AllowCachedRelease = true }, ct).ConfigureAwait(false);
             if (next is null || next.BundleDigest != first.BundleDigest || next.Tracks.Total != first.Tracks.Total || next.Tracks.Items.Count == 0)
                 throw new ReleaseImportException(412, "import_source_changed", "Source changed while assembling the bundle. Inspect again.");
             tracks.AddRange(next.Tracks.Items);

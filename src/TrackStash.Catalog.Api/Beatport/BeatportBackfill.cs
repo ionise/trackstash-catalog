@@ -16,6 +16,7 @@ public sealed record BeatportBackfillJobResponse(string Id, string Status, DateT
 public interface IBeatportBackfillService
 {
     Task<BeatportBackfillResult> BackfillReleaseAsync(long releaseId, CancellationToken ct);
+    Task<BeatportBackfillResult> PrepareCatalogReleaseAsync(long releaseId, CancellationToken ct);
     Task<IReadOnlyList<long>> IncompleteReleaseIdsAsync(CancellationToken ct);
 }
 
@@ -27,34 +28,49 @@ public sealed class BeatportBackfillService(IPurchaseReleaseSource source, IBeat
     public async Task<IReadOnlyList<long>> IncompleteReleaseIdsAsync(CancellationToken ct) =>
         (await source.InspectAllAsync(ct)).Where(r => !r.SourceComplete).Select(r => r.ReleaseId).ToArray();
 
-    private async Task<(PurchaseReleaseInspection Inspection, List<SourceReleaseTrack> Tracks)> InspectAsync(long releaseId, CancellationToken ct)
+    private async Task<(PurchaseReleaseInspection Inspection, List<SourceReleaseTrack> Tracks)> InspectAsync(long releaseId, CancellationToken ct,
+        bool allowCachedRelease = false)
     {
-        var first = await source.InspectAsync(releaseId, new PurchaseReleaseQuery(1, PageSize), ct)
+        var first = await source.InspectAsync(releaseId, new PurchaseReleaseQuery(1, PageSize) { AllowCachedRelease = allowCachedRelease }, ct)
             ?? throw new ApiRequestException(404, "purchase_candidate_not_found", "This release is not in the configured purchase corpus.");
         var tracks = new List<SourceReleaseTrack>(first.Tracks.Items);
         for (var page = 2; tracks.Count < first.Tracks.Total; page++)
         {
-            var next = await source.InspectAsync(releaseId, new PurchaseReleaseQuery(page, PageSize), ct);
+            var next = await source.InspectAsync(releaseId, new PurchaseReleaseQuery(page, PageSize) { AllowCachedRelease = allowCachedRelease }, ct);
             if (next is null || next.Tracks.Items.Count == 0) break;
             tracks.AddRange(next.Tracks.Items);
         }
         return (first, tracks);
     }
 
-    public async Task<BeatportBackfillResult> BackfillReleaseAsync(long releaseId, CancellationToken ct)
+    public Task<BeatportBackfillResult> BackfillReleaseAsync(long releaseId, CancellationToken ct) =>
+        BackfillAsync(releaseId, false, ct);
+
+    public Task<BeatportBackfillResult> PrepareCatalogReleaseAsync(long releaseId, CancellationToken ct) =>
+        BackfillAsync(releaseId, true, ct);
+
+    private async Task<BeatportBackfillResult> BackfillAsync(long releaseId, bool allowCachedRelease, CancellationToken ct)
     {
         if (releaseId <= 0) throw new ApiRequestException(400, "validation_failed", "Release ID must be a positive Beatport ID.");
         if (!broker.Configured)
             throw new ApiRequestException(503, "beatport_broker_not_configured", "The Beatport broker is not configured. Start TrackStash with start-prod.sh.");
-        var (before, tracks) = await InspectAsync(releaseId, ct);
         var refreshed = false;
+        var sourceWasMissing = false;
+        if (allowCachedRelease && await source.InspectAsync(releaseId, new() { AllowCachedRelease = true }, ct) is null)
+        {
+            sourceWasMissing = true;
+            if (await broker.FetchAsync("releases", releaseId, refresh: false, ct) == BrokerFetchOutcome.NotFound)
+                throw new ApiRequestException(404, "beatport_release_not_found", "Beatport no longer lists this release.");
+            refreshed = true;
+        }
+        var (before, tracks) = await InspectAsync(releaseId, ct, allowCachedRelease);
         // Release-level blockers (no track position) mean the release payload itself is missing, stale or invalid.
         if (before.Diagnostics.Any(d => d.Severity == "blocker" && d.SourcePosition is null))
         {
             if (await broker.FetchAsync("releases", releaseId, refresh: true, ct) == BrokerFetchOutcome.NotFound)
                 throw new ApiRequestException(404, "beatport_release_not_found", "Beatport no longer lists this release.");
             refreshed = true;
-            (_, tracks) = await InspectAsync(releaseId, ct);
+            (_, tracks) = await InspectAsync(releaseId, ct, allowCachedRelease);
         }
         int requested = 0, fetched = 0, notFound = 0;
         foreach (var track in tracks.Where(t => t.Status != "cached" && t.ProviderId is > 0))
@@ -65,8 +81,8 @@ public sealed class BeatportBackfillService(IPurchaseReleaseSource source, IBeat
             var outcome = await broker.FetchAsync("tracks", track.ProviderId!.Value, refresh: track.Status == "invalid", ct);
             if (outcome == BrokerFetchOutcome.Fetched) fetched++; else notFound++;
         }
-        var (after, _) = requested > 0 || refreshed ? await InspectAsync(releaseId, ct) : (before, tracks);
-        return new(releaseId, before.SourceComplete, after.SourceComplete, refreshed, requested, fetched, notFound,
+        var (after, _) = requested > 0 || refreshed ? await InspectAsync(releaseId, ct, allowCachedRelease) : (before, tracks);
+        return new(releaseId, !sourceWasMissing && before.SourceComplete, after.SourceComplete, refreshed, requested, fetched, notFound,
             after.Diagnostics.Where(d => d.Severity == "blocker").Select(d => d.Code).Distinct().Order(StringComparer.Ordinal).ToArray());
     }
 }

@@ -42,6 +42,19 @@ try {
     `])
   }
   const sourceArtists = [{ id: 4907, name: 'Kasey Taylor' }, { id: 635680, name: 'Amega' }]
+  for (const id of [200, 201, 202]) {
+    const path = join(mediaRoot, `worklist-${id}.flac`)
+    writeFileSync(path, Buffer.from([8, 7, 6, id]))
+    execFileSync('sqlite3', [scannerDatabase, `
+      INSERT INTO media_file(media_file_id,content_hash,path,format,size_bytes,duration_seconds,last_modified_utc,scanned_utc)
+        VALUES(${id},NULL,'${path}','flac',4,${id === 200 ? 123.456 : 'NULL'},'2026-11-09','2026-11-09');
+      INSERT INTO metadata(media_file_id,artist,title,subtitle,album,release,label)
+        VALUES(${id},'Fixture Composer',${id === 202 ? "'Worklist private bootleg'" : "'Catalog Track 3'"},
+          ${id === 200 ? "'Original Mix'" : 'NULL'},'Worklist Fixture Release','Worklist Fixture Release','Worklist Fixture Label');
+      INSERT INTO acoustic_fingerprint(media_file_id,algorithm,algorithm_version,fingerprint_raw,generation_status,generated_from_path,generated_utc)
+        VALUES(${id},'chromaprint','1','worklist-${id === 202 ? 'unmatched' : 'same-audio'}','complete','${path}','2026-11-09');
+    `])
+  }
   const sourceRemixers = [{ id: 69845, name: 'GMJ' }, { id: 118649, name: 'Matter' }]
   const sourceLabel = { id: 42, name: 'Fixture label' }
   const sourceTracks = Array.from({ length: 26 }, (_, index) => ({
@@ -62,6 +75,26 @@ try {
     INSERT INTO bpc_release (beatport_release_id, title, in_purchase_corpus) VALUES (900, 'Inspector complete release', 1), (901, 'Inspector missing release', 1), (999001, 'Inspector admitted release', 1);
     INSERT INTO beatport_release_cache (beatport_release_id, release_json, fetched_utc) VALUES (900, ${sqlString(sourceRelease)}, '2026-11-05T00:00:00Z'), (901, 'null', '2026-11-05T00:00:00Z');
     INSERT INTO beatport_isrc_lookup (normalized_isrc, lookup_status, result_count, tracks_json, searched_utc) VALUES ('INSPECTOR', 'Success', 26, ${sqlString(sourceTracks)}, '2026-11-05T00:00:00Z');
+  `])
+  const mediaAdmissionArtist = { id: 987123, name: 'Media Admission Artist' }
+  const mediaAdmissionRelease = { id: 930, name: 'Media Admission Release', label: sourceLabel,
+    artists: [mediaAdmissionArtist], remixers: [], track_count: 1,
+    tracks: ['https://api.beatport.com/v4/catalog/tracks/9301/'] }
+  const mediaAdmissionTrack = { id: 9301, name: 'Media admission tune', mix_name: 'Original Mix',
+    isrc: 'GBABC2600001', length_ms: 123456, release: { id: 930, label: sourceLabel },
+    artists: [mediaAdmissionArtist], remixers: [] }
+  const admissionPath = join(mediaRoot, 'media-admission-300.flac')
+  writeFileSync(admissionPath, Buffer.from([8, 7, 6, 5]))
+  execFileSync('sqlite3', [scannerDatabase, `
+    INSERT INTO beatport_release_cache(beatport_release_id,release_json,fetched_utc)
+      VALUES(930,${sqlString(mediaAdmissionRelease)},'2026-11-09T00:00:00Z');
+    INSERT INTO beatport_isrc_lookup(normalized_isrc,lookup_status,result_count,tracks_json,searched_utc)
+      VALUES('GBABC2600001','Success',1,${sqlString([mediaAdmissionTrack])},'2026-11-09T00:00:00Z');
+    INSERT INTO media_file(media_file_id,content_hash,path,format,size_bytes,duration_seconds,last_modified_utc,scanned_utc)
+      VALUES(300,NULL,'${admissionPath}','flac',4,123.456,'2026-11-09','2026-11-09');
+    INSERT INTO metadata(media_file_id,title,artist,album,release,label,isrc)
+      VALUES(300,'Media admission tune (Original Mix)','Media Admission Artist','Media Admission Release',
+        'Media Admission Release','Test label','GBABC2600001');
   `])
   execFileSync('dotnet', ['run', '--project', join(root, 'trackstash-bootstrap/src/TrackStash.Bootstrap'), '--',
     'migrate', '--provider', 'sqlite', '--db-path', database], { stdio: 'pipe' })

@@ -58,6 +58,15 @@ internal static class BeatportEndpoints
         }).WithName("GetBeatportRelease").WithSummary("A Beatport release with its tracks and catalog status")
             .Produces<BeatportReleaseDetail>().ProducesProblem(400).ProducesProblem(404).ProducesProblem(409).ProducesProblem(502).ProducesProblem(503);
 
+        group.MapPost("/releases/{id}/prepare-import", async (string id, HttpContext context, IBeatportBackfillService service, CancellationToken ct) =>
+        {
+            context.Response.Headers.CacheControl = "no-store";
+            return TypedResults.Ok(await service.PrepareCatalogReleaseAsync(PositiveId(id, "Release ID"), ct));
+        }).WithName("PrepareBeatportCatalogSource").WithSummary("Cache complete Beatport release/track metadata for reviewed Catalog admission")
+          .WithDescription("Explicit provider lookup; writes only broker metadata caches, never purchase flags, media tags or Catalog entities. Works for non-purchase releases. Use the existing reviewed importer afterwards.")
+          .Produces<BeatportBackfillResult>().ProducesProblem(400).ProducesProblem(404).ProducesProblem(409)
+          .ProducesProblem(429).ProducesProblem(502).ProducesProblem(503).ProducesProblem(504);
+
         group.MapGet("/labels", async (HttpContext context, IBeatportBrowseService browse, CancellationToken ct) =>
         {
             context.Response.Headers.CacheControl = "no-store";

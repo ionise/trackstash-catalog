@@ -181,6 +181,7 @@ public sealed partial class EnrichmentApplyService(IStorageProvider storage, IRe
                 "MediaLink" => new EnrichmentApplyException(409, "media_review_required", "Use the media-link review endpoint for this file-to-Recording review."),
                 "MediaReleaseGroup" => new EnrichmentApplyException(409, "media_review_required", "Use the media-release review endpoint for this Release-group association."),
                 "MediaReconciliation" => new EnrichmentApplyException(409, "media_review_required", "Use the media reconciliation endpoint for this Release and Recording batch."),
+                "MediaMatches" => new EnrichmentApplyException(409, "media_review_required", "Use the media matching endpoint for selected links/classifications."),
                 _ => new EnrichmentApplyException(409, "enrichment_batch_required", "Use the batch review endpoint for this Release-to-Recording review.")
             };
         return JsonSerializer.Deserialize<Payload>(stored.PayloadJson)

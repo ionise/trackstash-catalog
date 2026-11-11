@@ -16,6 +16,20 @@ namespace TrackStash.Catalog.Tests;
 
 public sealed partial class LabelApiTests
 {
+    [Fact]
+    public async Task ReleaseImport_ExplicitCachedNonPurchaseReleaseUsesSameIdentityReviewWithoutPurchaseClaims()
+    {
+        var service = await ImportService();
+        await SourceSql("DELETE FROM bpc_release WHERE beatport_release_id=10");
+        var reviewed = await Reviewed(service);
+        Assert.Equal("catalog_cache", reviewed.Plan.Source.SourceKind);
+        var outcome = await service.ApplyAsync(reviewed.Plan.OperationId, reviewed.Plan.Version, "", true);
+        Assert.Equal(2, outcome.CreatedRecordings);
+        Assert.Equal(1, await ImportCount("release"));
+        Assert.Null(await new SqlitePurchaseReleaseSource(PurchaseSourcePath).InspectAsync(10, new()));
+        Assert.DoesNotContain((await new SqlitePurchaseReleaseSource(PurchaseSourcePath).QueryAsync(new())).Items, r => r.ReleaseId == 10);
+    }
+
     private async Task ImportSql(string sql)
     {
         await using var connection = new SqliteConnection($"Data Source={_path};Pooling=False");
