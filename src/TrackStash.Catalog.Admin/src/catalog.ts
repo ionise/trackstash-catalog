@@ -342,6 +342,10 @@ export interface MediaLinkReview {
   id: string; version: string; etag: string; media: MediaInventoryItem; candidate: MediaRecordingCandidate
   createdAt: string; verifiedSha256: string; sidecarTitle: string | null; sidecarMix: string | null; outcome: MediaLinkOutcome | null
 }
+export interface ManualMediaReview {
+  id: string; version: string; etag: string; media: MediaInventoryItem; candidate: MediaRecordingCandidate
+  previousRecordingId: string | null; verifiedSha256: string; createdAt: string; outcome: MediaLinkOutcome | null
+}
 export interface MediaTrackSelection { mediaId: number; recordingId: string }
 export interface MediaMatchSelection { mediaId: number; recordingId: string | null; classification: string | null }
 export interface MediaMatchRow extends MediaReconciliationFile { classification: string }
@@ -784,6 +788,23 @@ export function createCatalogClient(fetcher: typeof fetch = fetch) {
       (await request(`/${encodeURIComponent(id)}/${tracks ? 'tracks' : 'releases'}?page=${page}&pageSize=25`, { signal }, 'artists')).json(),
   }
   const mediaClient = {
+    prepareManual: async (mediaId: number, recordingId: string, signal?: AbortSignal): Promise<ManualMediaReview> => {
+      const response = await request('', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mediaId, recordingId }), signal }, 'manual-media-reviews')
+      const etag = response.headers.get('ETag')
+      if (!etag) throw new Error('Manual review is missing its ETag; no assignment was attempted.')
+      return { ...await response.json(), etag }
+    },
+    manualReview: async (id: string, signal?: AbortSignal): Promise<ManualMediaReview> => {
+      const response = await request(`/${encodeURIComponent(id)}`, { signal }, 'manual-media-reviews')
+      const etag = response.headers.get('ETag')
+      if (!etag) throw new Error('Manual review is missing its ETag.')
+      return { ...await response.json(), etag }
+    },
+    applyManual: async (review: ManualMediaReview, signal?: AbortSignal): Promise<MediaLinkOutcome> =>
+      (await request(`/${encodeURIComponent(review.id)}/apply`, { method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'If-Match': review.etag },
+        body: JSON.stringify({ confirmed: true }), signal }, 'manual-media-reviews')).json(),
     matchProposals: async (mediaIds: number[], signal?: AbortSignal): Promise<MediaMatchPlan> => {
       const response = await request('', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mediaIds }), signal }, 'media-match-proposals')

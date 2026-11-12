@@ -55,6 +55,14 @@ try {
         VALUES(${id},'chromaprint','1','worklist-${id === 202 ? 'unmatched' : 'same-audio'}','complete','${path}','2026-11-09');
     `])
   }
+  const manualPath = join(mediaRoot, 'manual-worklist-203.flac')
+  writeFileSync(manualPath, Buffer.from([8, 7, 6, 203]))
+  execFileSync('sqlite3', [scannerDatabase, `
+    INSERT INTO media_file(media_file_id,content_hash,path,format,size_bytes,duration_seconds,last_modified_utc,scanned_utc)
+      VALUES(203,NULL,'${manualPath}','flac',4,NULL,'2026-11-09','2026-11-09');
+    INSERT INTO metadata(media_file_id,artist,title,album,release,label)
+      VALUES(203,'Fixture Composer','Manual worklist unrelated','Manual Fixture Release','Manual Fixture Release','Worklist Fixture Label');
+  `])
   const sourceRemixers = [{ id: 69845, name: 'GMJ' }, { id: 118649, name: 'Matter' }]
   const sourceLabel = { id: 42, name: 'Fixture label' }
   const sourceTracks = Array.from({ length: 26 }, (_, index) => ({

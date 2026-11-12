@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Checkbox, Chip, LinearProgress, MenuItem, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material'
 import { useLogoutIfAccessDenied } from 'react-admin'
 import { Link } from 'react-router-dom'
 import { mediaClient, mediaLibraryName } from './catalog'
 import type { MediaInventoryItem, MediaMatchPlan, MediaMatchReview, MediaMatchRow, MediaMatchSelection } from './catalog'
+import { ManualMedia, manualRecoveryKey } from './ManualMedia'
 
 const recoveryKey = 'trackstash.mediaMatches.pending'
 function outcomeMessage(review: MediaMatchReview) {
@@ -26,12 +27,18 @@ export function MediaMatches({ items, libraryNames, onBusy, onSaved, onFindRelea
   const [revision, setRevision] = useState(0)
   const [recoveryId, setRecoveryId] = useState(() => sessionStorage.getItem(recoveryKey) ?? '')
   const [recoveryRevision, setRecoveryRevision] = useState(0)
+  const [manual, setManual] = useState<{ media?: MediaInventoryItem; recoveryId?: string } | undefined>(() => {
+    const id = sessionStorage.getItem(manualRecoveryKey)
+    return id ? { recoveryId: id } : undefined
+  })
   const pending = useRef<AbortController | undefined>(undefined)
   const pendingReview = useRef<MediaMatchReview | undefined>(undefined)
   const current = loaded?.items === items && loaded.revision === revision ? loaded : undefined
   const plan = current?.plan
   const loading = items.length > 0 && !current
   useEffect(() => () => { pending.current?.abort(); onBusy(false) }, [onBusy])
+  useEffect(() => { if (manual) onBusy(true) }, [manual, onBusy])
+  const manualSaved = useCallback(() => { setRevision(value => value + 1); onSaved() }, [onSaved])
   useEffect(() => {
     if (!recoveryId) return
     const controller = new AbortController()
@@ -99,7 +106,7 @@ export function MediaMatches({ items, libraryNames, onBusy, onSaved, onFindRelea
     <Alert severity="info">
       Tick the proposed mappings you agree with, then Accept selected. Your selection is the judgement: no typed reason or second confirmation.
       Acceptance verifies each selected file and any exact-fingerprint supporting copies, then saves the entire batch or none.
-      This links existing Recordings only; Release identity is separate. Unmatched edits, bootlegs and remixes stay here.
+      This links existing Recordings only; Release identity is separate. Unmatched edits, bootlegs and remixes require separate review.
     </Alert>
     <Typography variant="body2">Browsing proposals does not read audio. Acceptance reads bytes and may download cloud-only files. SHA-256 freezes each copy individually; hashes need not match across formats or tags.</Typography>
     {error && <Alert severity="error">{error}</Alert>}
@@ -172,11 +179,18 @@ export function MediaMatches({ items, libraryNames, onBusy, onSaved, onFindRelea
                   {c.title} {c.mix} — {c.status} ({c.recordingId})
                 </MenuItem>)}
               </TextField>}
-              {!row.alreadyRegistered && !row.candidates.length && <Typography>No existing Catalog match.</Typography>}
+              {!row.alreadyRegistered && !row.candidates.length && <Typography>No existing Catalog match found using tagged ISRC, title or exact-fingerprint copies.</Typography>}
+              {!row.alreadyRegistered && row.candidates.filter(c => c.blockers.length > 0).map(c =>
+                <Alert severity="warning" key={c.recordingId}>
+                  Cannot select {c.title} {c.mix} ({c.recordingId}): {c.blockers.join(' ')}
+                </Alert>)}
               {!row.alreadyRegistered && onFindRelease && <Button disabled={disabled} onClick={() => onFindRelease(
                 plan!.files.filter(f => !f.alreadyRegistered && (f.media.id === row.media.id ||
                   row.media.fingerprintKey && f.media.fingerprintKey === row.media.fingerprintKey)).map(f => f.media)
               )}>Find Release and admit for media {row.media.id}</Button>}
+              <Button disabled={disabled || row.alreadyRegistered && !row.linkedRecordingId} onClick={() => setManual({ media: row.media })}>
+                {row.linkedRecordingId ? 'Reassign' : 'Manually assign'} media {row.media.id}
+              </Button>
               {!recordingId && !row.alreadyRegistered && row.candidates.some(c => c.status === 'Needs manual review: matches linked audio') &&
                 <Alert severity="warning">Matches audio already linked to a Recording. Tags differ or are incomplete; choose that Recording above to accept your judgement.</Alert>}
               {candidate && <><Typography variant="body2">{candidate.status}</Typography>
@@ -237,5 +251,8 @@ export function MediaMatches({ items, libraryNames, onBusy, onSaved, onFindRelea
         setReview(undefined); setRevision(value => value + 1)
       })}>Check then discard unaccepted review</Button>
     </Stack>}
+    {manual && <ManualMedia media={manual.media} recoveryId={manual.recoveryId} onSaved={manualSaved} onClose={() => {
+      setManual(undefined); onBusy(!!pendingReview.current)
+    }} />}
   </Stack>
 }

@@ -54,6 +54,9 @@ public interface IMediaService
     Task<MediaMatchReview> PrepareMatchesAsync(IReadOnlyList<long> mediaIds, IReadOnlyList<MediaMatchSelection> selections, string version, CancellationToken ct);
     Task<MediaMatchReview> GetMatchesAsync(string id, CancellationToken ct);
     Task<MediaMatchOutcome> ApplyMatchesAsync(string id, string version, bool confirmed, CancellationToken ct);
+    Task<ManualMediaReview> PrepareManualMediaAsync(long id, string recordingId, CancellationToken ct);
+    Task<ManualMediaReview> GetManualMediaAsync(string id, CancellationToken ct);
+    Task<MediaLinkOutcome> ApplyManualMediaAsync(string id, string version, bool confirmed, CancellationToken ct);
 }
 
 public sealed partial class MediaService(IConfiguration configuration, IStorageProvider storage, TimeProvider clock,

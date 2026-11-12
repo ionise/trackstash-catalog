@@ -6,6 +6,8 @@ namespace TrackStash.Catalog.Api;
 
 /// <summary>Select a server-derived Recording candidate; no filesystem paths or proposal values are accepted.</summary>
 public sealed record PrepareMediaLinkRequest(string RecordingId);
+/// <summary>Choose any existing Recording for explicit manual review.</summary>
+public sealed record PrepareManualMediaRequest(long MediaId, string RecordingId);
 /// <summary>Explicit version identity confirmation and audit reason.</summary>
 public sealed record ApplyMediaLinkRequest(string Reason, bool Confirmed);
 /// <summary>Select a server-derived embedded Release group and a canonical Release.</summary>
@@ -18,6 +20,37 @@ internal static class MediaEndpoints
     public static void MapMedia(this WebApplication app)
     {
         app.MapMediaMatches();
+        app.MapPost("/api/v1/manual-media-reviews", async (HttpContext context, IMediaService service, CancellationToken ct) =>
+        {
+            var fields = await LabelRequests.FieldsAsync(context.Request, "application/json", ct, ["mediaId", "recordingId"]);
+            if (!fields.TryGetValue("mediaId", out var media) || media.ValueKind != JsonValueKind.Number || !media.TryGetInt64(out var mediaId) ||
+                !fields.TryGetValue("recordingId", out var recording) || recording.ValueKind != JsonValueKind.String ||
+                recording.GetString() is not { Length: > 0 and <= 200 } recordingId)
+                throw new ApiRequestException(400, "validation_failed", "Choose a scanner file and an existing Recording.");
+            var review = await service.PrepareManualMediaAsync(mediaId, recordingId, ct);
+            context.Response.Headers.CacheControl = "no-store";
+            context.Response.Headers.ETag = LabelRequests.ETag(review.Version);
+            return TypedResults.Created($"/api/v1/manual-media-reviews/{review.Id}", review);
+        }).WithName("PrepareManualMedia").WithTags("Media").WithSummary("Verify a file and review a manual link or reassignment")
+          .Accepts<PrepareManualMediaRequest>("application/json").Produces<ManualMediaReview>(201).ProducesProblem(400).ProducesProblem(409);
+        app.MapGet("/api/v1/manual-media-reviews/{id}", async (string id, HttpContext context, IMediaService service, CancellationToken ct) =>
+        {
+            var review = await service.GetManualMediaAsync(id, ct);
+            context.Response.Headers.CacheControl = "no-store";
+            context.Response.Headers.ETag = LabelRequests.ETag(review.Version);
+            return TypedResults.Ok(review);
+        }).WithName("GetManualMedia").WithTags("Media").Produces<ManualMediaReview>().ProducesProblem(404);
+        app.MapPost("/api/v1/manual-media-reviews/{id}/apply", async (string id, HttpContext context, IMediaService service, CancellationToken ct) =>
+        {
+            var version = LabelRequests.ExpectedVersion(context.Request);
+            var fields = await LabelRequests.FieldsAsync(context.Request, "application/json", ct, ["confirmed"]);
+            if (!fields.TryGetValue("confirmed", out var confirmed) || confirmed.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                throw new ApiRequestException(400, "validation_failed", "Explicit confirmation is required.");
+            context.Response.Headers.CacheControl = "no-store";
+            return TypedResults.Ok(await service.ApplyManualMediaAsync(id, version, confirmed.GetBoolean(), ct));
+        }).WithName("ApplyManualMedia").WithTags("Media").WithSummary("Confirm an audited manual link or reassignment")
+          .Accepts<AcceptMediaMatchesRequest>("application/json").Produces<MediaLinkOutcome>()
+          .ProducesProblem(400).ProducesProblem(409).ProducesProblem(412);
         app.MapGet("/api/v1/media-reconciliation", async (HttpContext context, IMediaService service, CancellationToken ct) =>
         {
             foreach (var field in context.Request.Query)
