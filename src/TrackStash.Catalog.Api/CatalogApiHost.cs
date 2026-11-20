@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.OpenApi.Models;
+using TrackStash.Catalog.Api.Authentication;
 using TrackStash.Catalog.Api.Beatport;
 using TrackStash.Catalog.Api.Middleware;
 using TrackStash.Catalog.Application;
@@ -20,14 +21,25 @@ public static class CatalogApiHost
             Args = args, ApplicationName = typeof(CatalogApiHost).Assembly.FullName,
         });
         configure?.Invoke(builder);
+        if (string.Equals(builder.WebHost.GetSetting("forwardedHeaders_Enabled"), "true", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(Environment.GetEnvironmentVariable("ASPNETCORE_FORWARDEDHEADERS_ENABLED"), "true", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Automatic forwarded headers are not supported.");
         var key = builder.Configuration["CatalogApi:ApiKey"];
-        if (string.IsNullOrWhiteSpace(key) || key.Length < 32 || key.Any(char.IsWhiteSpace))
-            throw new InvalidOperationException("Set CatalogApi:ApiKey to a secret of at least 32 characters without whitespace.");
+        if (key is not null && (key.Length < 32 || key.Any(char.IsWhiteSpace)))
+            throw new InvalidOperationException("CatalogApi:ApiKey, if provided, must be at least 32 characters without whitespace.");
+        var adminCredentials = AdminCredentials.FromConfiguration(builder.Configuration);
+        var proxy = ProxyAccess.FromConfiguration(builder.Configuration);
+        var proxyIdentity = TrustedProxyIdentity.FromConfiguration(builder.Configuration, proxy is not null);
+        if (key is null && adminCredentials is null && !proxyIdentity.Enabled)
+            throw new InvalidOperationException("Configure an API key, native administrator credentials, or trusted proxy identity before starting the API.");
         var port = builder.Configuration.GetValue("CatalogApi:Port", 5187);
         if (port is < 1 or > 65535)
             throw new InvalidOperationException("CatalogApi:Port must be between 1 and 65535.");
         if (builder.Configuration.GetSection("Kestrel:Endpoints").Exists())
-            throw new InvalidOperationException("Custom Kestrel endpoints are not supported. Use CatalogApi:Port; this host is loopback-only.");
+            throw new InvalidOperationException("Custom Kestrel endpoints are not supported. Use CatalogApi:Port.");
+        builder.Services.AddSingleton(proxyIdentity);
+        builder.Services.AddSingleton<IAdminSessions>(services =>
+            new AdminSessions(adminCredentials, services.GetRequiredService<TimeProvider>(), proxy is not null));
         var browserOrigins = new BrowserOrigins(builder.Configuration.GetSection("CatalogApi:AllowedOrigins").Get<string[]>() ?? []);
         builder.Services.AddSingleton(browserOrigins);
         builder.Services.AddCors(options => options.AddDefaultPolicy(policy =>
@@ -36,11 +48,12 @@ public static class CatalogApiHost
                 .WithExposedHeaders("ETag", "Location")));
         builder.WebHost.ConfigureKestrel(options =>
         {
-            options.ListenLocalhost(port);
+            if (proxy is null) options.ListenLocalhost(port);
+            else options.Listen(proxy.ListenAddress, port);
             options.Limits.MaxRequestBodySize = 16 * 1024;
         });
         builder.Services.AddSingleton<IStorageProviderFactory, SqliteStorageProviderFactory>();
-        builder.Services.AddSingleton<IArtworkContentStore>(_ => new ManagedArtworkStore(builder.Configuration["CatalogApi:ArtworkRoot"]));
+        builder.Services.TryAddSingleton<IArtworkContentStore>(_ => new ManagedArtworkStore(builder.Configuration["CatalogApi:ArtworkRoot"]));
         builder.Services.TryAddSingleton<IArtworkImageProcessor, ArtworkImageProcessor>();
         builder.Services.TryAddScoped<IArtworkService, ArtworkService>();
         builder.Services.AddSingleton<IStorageProvider>(services =>
@@ -87,7 +100,7 @@ public static class CatalogApiHost
                 services.GetRequiredService<IBeatportBrokerClient>(),
                 services.GetRequiredService<IHttpClientFactory>().CreateClient(BeatportArtworkProvider.HttpClientName)));
         builder.Services.AddScoped<IEnrichmentProvider, BeatportEnrichmentProvider>();
-        builder.Services.AddSingleton<ICatalogBackupService>(services => new CatalogBackupService(
+        builder.Services.TryAddSingleton<ICatalogBackupService>(services => new CatalogBackupService(
             new SqliteCatalogSnapshotSource(builder.Configuration["CatalogApi:DatabasePath"]!),
             services.GetRequiredService<IArtworkContentStore>(), builder.Configuration["CatalogApi:BackupRoot"]));
         builder.Services.AddSingleton<BackupSources>();
@@ -155,16 +168,46 @@ public static class CatalogApiHost
                 },
             });
             options.IncludeXmlComments(Path.Combine(AppContext.BaseDirectory, $"{Assembly.GetExecutingAssembly().GetName().Name}.xml"));
-            options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+            if (key is not null)
             {
-                Type = SecuritySchemeType.Http, Scheme = "bearer",
-                Description = "Local catalog API key. Configure it out of source control.",
-            });
-            options.AddSecurityRequirement(new OpenApiSecurityRequirement
+                options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+                {
+                    Type = SecuritySchemeType.Http, Scheme = "bearer",
+                    Description = "Local catalog API key. Configure it out of source control.",
+                });
+                options.AddSecurityRequirement(new OpenApiSecurityRequirement
+                {
+                    [new OpenApiSecurityScheme { Reference = new OpenApiReference { Type = ReferenceType.SecurityScheme, Id = "Bearer" } }] = [],
+                });
+            }
+            if (adminCredentials is not null)
             {
-                [new OpenApiSecurityScheme { Reference = new OpenApiReference { Type = ReferenceType.SecurityScheme, Id = "Bearer" } }] = [],
-            });
+                options.AddSecurityDefinition("NativeSession", new OpenApiSecurityScheme
+                {
+                    Type = SecuritySchemeType.ApiKey, In = ParameterLocation.Cookie,
+                    Name = proxy is null ? AdminSessions.LocalCookieName : AdminSessions.ProxyCookieName,
+                    Description = "Native browser session. Unsafe methods require the exact same Origin.",
+                });
+                options.AddSecurityRequirement(new OpenApiSecurityRequirement
+                {
+                    [new OpenApiSecurityScheme { Reference = new OpenApiReference { Type = ReferenceType.SecurityScheme, Id = "NativeSession" } }] = [],
+                });
+            }
+            if (proxyIdentity.Enabled)
+            {
+                options.AddSecurityDefinition("TrustedProxyIdentity", new OpenApiSecurityScheme
+                {
+                    Type = SecuritySchemeType.ApiKey, In = ParameterLocation.Header,
+                    Name = TrustedProxyIdentity.HeaderName,
+                    Description = "Identity injected by a trusted authenticating proxy, not by the API client.",
+                });
+                options.AddSecurityRequirement(new OpenApiSecurityRequirement
+                {
+                    [new OpenApiSecurityScheme { Reference = new OpenApiReference { Type = ReferenceType.SecurityScheme, Id = "TrustedProxyIdentity" } }] = [],
+                });
+            }
             options.OperationFilter<LabelOperationFilter>();
+            options.OperationFilter<SessionSecurityOperationFilter>();
             options.SchemaFilter<LabelProfileSchemaFilter>();
             options.SchemaFilter<LabelGroupSchemaFilter>();
         });
@@ -174,9 +217,10 @@ public static class CatalogApiHost
         _ = app.Services.GetRequiredService<IPurchaseReleaseSource>();
         _ = app.Services.GetRequiredService<IBeatportBrokerClient>();
         app.UseExceptionHandler();
-        app.UseMiddleware<LocalAccessMiddleware>();
+        if (proxy is null) app.UseMiddleware<LocalAccessMiddleware>();
+        else app.UseMiddleware<ProxyAccessMiddleware>(proxy);
         app.UseCors();
-        app.UseMiddleware<BearerKeyMiddleware>(key);
+        app.UseMiddleware<BearerKeyMiddleware>(key ?? string.Empty);
         app.UseStatusCodePages(async context =>
         {
             var status = context.HttpContext.Response.StatusCode;
@@ -184,6 +228,7 @@ public static class CatalogApiHost
             await ApiErrors.WriteAsync(context.HttpContext, status, code, "Request could not be completed");
         });
         app.UseSwagger(options => options.RouteTemplate = "openapi/{documentName}.json");
+        app.MapSessions();
         app.MapLabels();
         app.MapLabelMerges();
         app.MapArtwork();

@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Configuration;
@@ -189,6 +190,82 @@ public sealed partial class LabelApiTests : IAsyncLifetime
         using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/labels");
         request.Headers.Host = "example.invalid";
         await ProblemAsync(await _client.SendAsync(request), 403, "host_not_allowed");
+    }
+
+    private static readonly Dictionary<string, string?> ProxySettings = new()
+    {
+        ["CatalogApi:PublicOrigin"] = "https://catalog.example.test:8443",
+        ["CatalogApi:TrustedProxyIp"] = "192.0.2.10",
+        ["CatalogApi:ListenAddress"] = "0.0.0.0",
+    };
+
+    [Theory]
+    [InlineData("CatalogApi:PublicOrigin", null)]
+    [InlineData("CatalogApi:PublicOrigin", "http://catalog.example.test")]
+    [InlineData("CatalogApi:PublicOrigin", "https://catalog.example.test/")]
+    [InlineData("CatalogApi:PublicOrigin", "https://catalog.example.test/path")]
+    [InlineData("CatalogApi:PublicOrigin", "https://catalog.example.test?x=1")]
+    [InlineData("CatalogApi:PublicOrigin", "https://user@catalog.example.test")]
+    [InlineData("CatalogApi:PublicOrigin", "https://*.example.test")]
+    [InlineData("CatalogApi:TrustedProxyIp", null)]
+    [InlineData("CatalogApi:TrustedProxyIp", "192.0.2.0/24")]
+    [InlineData("CatalogApi:TrustedProxyIp", "0.0.0.0")]
+    [InlineData("CatalogApi:TrustedProxyIp", "ff02::1")]
+    [InlineData("CatalogApi:ListenAddress", null)]
+    [InlineData("CatalogApi:ListenAddress", "localhost")]
+    [InlineData("CatalogApi:AllowedOrigins:0", "http://localhost:5173")]
+    public void InvalidProxyConfigurationFailsStartup(string key, string? value)
+    {
+        var settings = new Dictionary<string, string?>(ProxySettings) { [key] = value };
+        Assert.Throws<InvalidOperationException>(() => Build(builder => builder.Configuration.AddInMemoryCollection(settings)));
+    }
+
+    [Fact]
+    public void ListenAddressAloneAndAutomaticForwardingFailStartup()
+    {
+        Assert.Throws<InvalidOperationException>(() => Build(builder => builder.Configuration.AddInMemoryCollection(
+            new Dictionary<string, string?> { ["CatalogApi:ListenAddress"] = "0.0.0.0" })));
+        Assert.Throws<InvalidOperationException>(() => Build(builder => builder.WebHost.UseSetting("forwardedHeaders_Enabled", "true")));
+    }
+
+    [Fact]
+    public async Task ProxyModeRequiresTrustedPeerExactHostHttpsAndOriginWithoutWeakeningBearerAuth()
+    {
+        await using var app = Build(builder => builder.Configuration.AddInMemoryCollection(ProxySettings));
+        await app.StartAsync();
+        async Task<HttpContext> Send(string? remote = "192.0.2.10", string host = "catalog.example.test:8443",
+            string? proto = "https", string? origin = null, bool authenticated = true,
+            string? forwardedFor = null, string? forwardedHost = null, string method = "GET")
+            => await app.GetTestServer().SendAsync(context =>
+            {
+                context.Connection.RemoteIpAddress = remote is null ? null : IPAddress.Parse(remote);
+                context.Request.Method = method;
+                context.Request.Path = "/api/v1/labels";
+                context.Request.Host = new Microsoft.AspNetCore.Http.HostString(host);
+                if (proto is not null) context.Request.Headers["X-Forwarded-Proto"] = proto;
+                if (origin is not null) context.Request.Headers.Origin = origin;
+                if (forwardedFor is not null) context.Request.Headers["X-Forwarded-For"] = forwardedFor;
+                if (forwardedHost is not null) context.Request.Headers["X-Forwarded-Host"] = forwardedHost;
+                if (authenticated) context.Request.Headers.Authorization = $"Bearer {Key}";
+            });
+
+        Assert.Equal(200, (await Send(origin: "https://catalog.example.test:8443")).Response.StatusCode);
+        Assert.Equal(200, (await Send(remote: "::ffff:192.0.2.10", forwardedFor: "203.0.113.1", forwardedHost: "evil.test")).Response.StatusCode);
+        Assert.Equal(401, (await Send(authenticated: false)).Response.StatusCode);
+        Assert.Equal(403, (await Send(remote: null, forwardedFor: "192.0.2.10")).Response.StatusCode);
+        Assert.Equal(403, (await Send(remote: "192.0.2.11", forwardedFor: "192.0.2.10")).Response.StatusCode);
+        Assert.Equal(403, (await Send(host: "evil.test", forwardedHost: "catalog.example.test:8443")).Response.StatusCode);
+        Assert.Equal(403, (await Send(host: "catalog.example.test")).Response.StatusCode);
+        Assert.Equal(403, (await Send(proto: null)).Response.StatusCode);
+        Assert.Equal(403, (await Send(proto: "http")).Response.StatusCode);
+        Assert.Equal(403, (await Send(proto: "https,https")).Response.StatusCode);
+        Assert.Equal(403, (await Send(origin: "https://evil.test")).Response.StatusCode);
+        Assert.Equal(403, (await Send(origin: "https://catalog.example.test:8443,https://evil.test")).Response.StatusCode);
+        Assert.Equal(403, (await Send(origin: "https://catalog.example.test:8443/")).Response.StatusCode);
+        Assert.Equal(403, (await Send(origin: "")).Response.StatusCode);
+        Assert.Equal(403, (await Send(method: "POST")).Response.StatusCode);
+        Assert.Equal(403, (await Send(method: "POST", origin: "https://evil.test")).Response.StatusCode);
+        Assert.Equal(415, (await Send(method: "POST", origin: "https://catalog.example.test:8443")).Response.StatusCode);
     }
 
     [Fact]

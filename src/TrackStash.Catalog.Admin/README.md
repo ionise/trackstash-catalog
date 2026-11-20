@@ -93,9 +93,9 @@ Entity/group deletion, bulk mutation, automated enrichment, and alias/reference 
 
 ## Credentials and Browser Access
 
-The API key is held only in JavaScript memory: not local/session storage, cookies, URL parameters, bundled environment variables, or committed files. Page reloads and explicit logout require signing in again. React-admin preferences also use a memory store, and framework telemetry is disabled.
+API-key authentication keeps the key only in JavaScript memory, never in browser storage, cookies, URL parameters, bundled environment variables, or committed files. A reload discards the key. If the backend reports native session login as available, the UI shows the single-administrator username/password form first, with API-key sign-in collapsed as an option for deployments that configure a key. The UI relies on the native HTTP-only same-origin session cookie, so a valid session survives page refresh. The UI sends the username and password only to the same-origin session endpoint and does not save them. When native login is unavailable (including older backends returning 404), the API-key form is shown directly. React-admin preferences use a memory store, and framework telemetry is disabled.
 
-The unauthenticated `/admin` shell and assets contain no key or catalog data. All `/api` and OpenAPI requests still require the bearer key. API and UI remain loopback-only; this is not a remote/multi-user deployment.
+The unauthenticated `/admin` shell and assets contain no key or catalog data. API-key sign-in validates the bearer key even if a native session cookie already exists. Signing out clears any native session shared by browser tabs, including when the current tab signed in with an API key. A legacy 404 is expected; if sign-out cannot be confirmed, the UI shows an error so you can retry. The default is loopback-only. The opt-in [SWAG/auth gateway mode](../../README.md#opt-in-swagauth-gateway) sends its own same-origin gateway cookies on API requests and is separate from catalog administrator login.
 
 The built GUI uses the same origin as the API. For hot-reload development, configure the API with an explicit extra loopback origin before starting it:
 
@@ -110,7 +110,7 @@ In another terminal, from this directory:
 npm run dev
 ```
 
-Open <http://localhost:5173/admin/>. Vite binds localhost only, uses strict port 5173, and proxies `/api` to localhost:5187. If the API uses another port, set `CatalogApi__Port` to the same value in the Vite shell. The API checks the browser's original Origin, even through this development proxy; it does not trust forwarded headers or disable authentication. Direct configured-origin access allows only GET/POST/PATCH and Authorization/Content-Type/If-Match, exposing ETag/Location without cookie credentials.
+Open <http://localhost:5173/admin/>. Vite binds localhost only, uses strict port 5173, and proxies `/api` to localhost:5187. If the API uses another port, set `CatalogApi__Port` to the same value in the Vite shell. The API checks the browser's original Origin, even through this development proxy; it does not trust forwarded headers or disable authentication. Direct configured-origin access allows only GET/POST/PATCH/DELETE and Authorization/Content-Type/If-Match, exposing ETag/Location without cross-origin cookie credentials.
 
 Do not put the key into `VITE_*` variables: Vite embeds those variables in public JavaScript.
 

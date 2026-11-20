@@ -1,0 +1,25 @@
+@baseUrl = http://localhost:5187
+
+### Native session state (public; no identity). Use a client with an in-memory cookie jar.
+GET {{baseUrl}}/api/v1/session
+
+### Native sign-in (204, or 404 when disabled). Supply variables outside this file.
+POST {{baseUrl}}/api/v1/session
+Origin: {{baseUrl}}
+Content-Type: application/json
+
+{
+  "username": "{{adminUsername}}",
+  "password": "{{adminPassword}}"
+}
+
+### Confirm native session status after sign-in
+GET {{baseUrl}}/api/v1/session
+
+### Origin rejection (403, even if an active session cookie is present)
+DELETE {{baseUrl}}/api/v1/session
+Origin: https://other.example.test
+
+### Sign out (204; clears and revokes the session)
+DELETE {{baseUrl}}/api/v1/session
+Origin: {{baseUrl}}

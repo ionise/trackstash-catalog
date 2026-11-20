@@ -11,7 +11,7 @@ describe('canonical release transport', () => {
     fetcher.mockResolvedValueOnce(Response.json({ items: [], total: 0, page: 2, pageSize: 25 }))
     await releaseClient.list(new URLSearchParams({ labelId: 'label & one', q: 'A & B', page: '2', pageSize: '25' }), signal)
     expect(fetcher.mock.calls[1][0]).toBe('/api/v1/releases?labelId=label+%26+one&q=A+%26+B&page=2&pageSize=25')
-    expect(fetcher.mock.calls[1][1]).toMatchObject({ signal, cache: 'no-store', credentials: 'omit' })
+    expect(fetcher.mock.calls[1][1]).toMatchObject({ signal, cache: 'no-store', credentials: 'same-origin' })
     fetcher.mockResolvedValueOnce(Response.json({ id: 'release/one' }))
     await releaseClient.get('release/one', signal)
     expect(fetcher.mock.calls[2][0]).toBe('/api/v1/releases/release%2Fone')

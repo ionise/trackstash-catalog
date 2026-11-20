@@ -29,7 +29,7 @@ describe('catalog data provider', () => {
     })
     const headers = new Headers(fetcher.mock.calls[0][1]?.headers)
     expect(headers.get('Authorization')).toBe('Bearer test-key')
-    expect(fetcher.mock.calls[0][1]?.credentials).toBe('omit')
+    expect(fetcher.mock.calls[0][1]?.credentials).toBe('same-origin')
   })
 
   it('retains the original read ETag, patches only editable changes, and clears sortName', async () => {
@@ -96,6 +96,116 @@ describe('catalog data provider', () => {
 })
 
 describe('memory-only authentication', () => {
+  it('accepts a trusted proxy session and redirects sign-out to the gateway', async () => {
+    const { authProvider, dataProvider, fetcher } = setup()
+    vi.stubGlobal('window', { location: { origin: 'https://catalog.example.test' } })
+    try {
+      fetcher.mockResolvedValueOnce(Response.json({
+        available: false, authenticated: true, proxyUser: 'approved-user',
+        proxyLogoutPath: '/outpost.goauthentik.io/sign_out',
+      }))
+      await expect(authProvider.checkAuth({})).resolves.toBeUndefined()
+      fetcher.mockResolvedValueOnce(Response.json({ id: 'one' }, { headers: { ETag: '"one"' } }))
+      await dataProvider.getOne('labels', { id: 'one' })
+      expect(new Headers(fetcher.mock.calls[1][1]?.headers).get('Authorization')).toBeNull()
+      fetcher.mockResolvedValueOnce(new Response(null, { status: 204 }))
+      await expect(authProvider.logout({})).resolves.toBe('https://catalog.example.test/outpost.goauthentik.io/sign_out')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('rejects invalid gateway logout redirects in session responses', async () => {
+    const { authProvider, fetcher } = setup()
+    fetcher.mockResolvedValueOnce(Response.json({
+      available: false, authenticated: true, proxyUser: 'approved-user', proxyLogoutPath: '//evil.example/logout',
+    }))
+    await expect(authProvider.checkAuth({})).rejects.toThrow('invalid proxy session status')
+  })
+
+  it('uses the same-origin session cookie and restores it after a page refresh', async () => {
+    const { authProvider, dataProvider, fetcher, sessionClient } = setup()
+    fetcher.mockResolvedValueOnce(Response.json({ available: true, authenticated: false }))
+    await expect(sessionClient.status()).resolves.toEqual({ available: true, authenticated: false })
+    fetcher.mockResolvedValueOnce(new Response(null, { status: 204 }))
+    await authProvider.login({ username: 'admin', password: 'secret' })
+    expect(fetcher.mock.calls[1][0]).toBe('/api/v1/session')
+    expect(fetcher.mock.calls[1][1]).toMatchObject({
+      method: 'POST', credentials: 'same-origin', cache: 'no-store',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'admin', password: 'secret' }),
+    })
+    expect(new Headers(fetcher.mock.calls[1][1]?.headers).get('Authorization')).toBeNull()
+
+    fetcher.mockResolvedValueOnce(Response.json({ available: true, authenticated: true }))
+    await authProvider.checkAuth({})
+    fetcher.mockResolvedValueOnce(Response.json({ id: 'one' }, { headers: { ETag: '"one"' } }))
+    await dataProvider.getOne('labels', { id: 'one' })
+    expect(new Headers(fetcher.mock.calls[3][1]?.headers).get('Authorization')).toBeNull()
+    expect(fetcher.mock.calls[3][1]?.credentials).toBe('same-origin')
+
+    fetcher.mockResolvedValueOnce(new Response(null, { status: 204 }))
+    await authProvider.logout({})
+    expect(fetcher.mock.calls[4][0]).toBe('/api/v1/session')
+    expect(fetcher.mock.calls[4][1]).toMatchObject({ method: 'DELETE', credentials: 'same-origin' })
+  })
+
+  it('falls back to the existing bearer-key flow when an older API has no session endpoint', async () => {
+    const { authProvider, dataProvider, fetcher, sessionClient } = setup()
+    fetcher.mockResolvedValueOnce(new Response(null, { status: 404 }))
+    await expect(sessionClient.status()).resolves.toEqual({ available: false, authenticated: false })
+    fetcher.mockResolvedValueOnce(Response.json({ items: [] }))
+    await authProvider.login({ apiKey: 'test-key' })
+    fetcher.mockResolvedValueOnce(Response.json({ items: [], total: 0 }))
+    await dataProvider.getList('labels', { pagination: { page: 1, perPage: 25 }, sort: { field: 'name', order: 'ASC' }, filter: {} })
+    expect(new Headers(fetcher.mock.calls[2][1]?.headers).get('Authorization')).toBe('Bearer test-key')
+    expect(fetcher.mock.calls[2][1]?.credentials).toBe('same-origin')
+  })
+
+  it('revokes a native cookie acquired in another tab when signing out with an API key', async () => {
+    let cookieActive = false
+    const fetcher = vi.fn<typeof fetch>(async (url, init) => {
+      if (url === '/api/v1/session') {
+        if (init?.method === 'POST') {
+          cookieActive = true
+          return new Response(null, { status: 204 })
+        }
+        if (init?.method === 'DELETE') {
+          if (init.credentials === 'same-origin') cookieActive = false
+          return new Response(null, { status: 204 })
+        }
+        return Response.json({ available: true, authenticated: cookieActive })
+      }
+      if (new Headers(init?.headers).get('Authorization') === 'Bearer test-key') return Response.json({ items: [] })
+      return Response.json({ title: 'Wrong key' }, { status: 401 })
+    })
+    const { authProvider } = createCatalogClient(fetcher)
+    await authProvider.login({ apiKey: 'test-key' })
+    const otherTab = createCatalogClient(fetcher)
+    await otherTab.authProvider.login({ username: 'admin', password: 'secret' })
+
+    fetcher.mockRejectedValueOnce(new TypeError('Network unavailable'))
+    await expect(authProvider.logout({})).rejects.toThrow('Could not confirm sign-out')
+    await expect(authProvider.checkAuth({})).resolves.toBeUndefined()
+    expect(cookieActive).toBe(true)
+
+    await authProvider.logout({})
+    expect(fetcher).toHaveBeenLastCalledWith('/api/v1/session', expect.objectContaining({ method: 'DELETE' }))
+    await expect(createCatalogClient(fetcher).authProvider.checkAuth({})).rejects.toThrow('Sign in')
+  })
+
+  it('clears expired native sessions and requires a fresh sign-in', async () => {
+    const { authProvider, dataProvider, fetcher } = setup()
+    fetcher.mockResolvedValueOnce(new Response(null, { status: 204 }))
+    await authProvider.login({ username: 'admin', password: 'secret' })
+    fetcher.mockResolvedValueOnce(Response.json({ title: 'Unauthorized' }, { status: 401 }))
+    await expect(dataProvider.getList('labels', { pagination: { page: 1, perPage: 25 }, sort: { field: 'name', order: 'ASC' }, filter: {} }))
+      .rejects.toMatchObject({ status: 401 })
+    await expect(authProvider.checkError({ status: 401 })).rejects.toThrow('Your session has expired.')
+    fetcher.mockResolvedValueOnce(Response.json({ available: true, authenticated: false }))
+    await expect(authProvider.checkAuth({})).rejects.toThrow()
+  })
+
   it('validates keys before login and clears them after failed login, logout, and 401', async () => {
     const { authProvider, dataProvider, fetcher, login } = setup()
     fetcher.mockResolvedValueOnce(Response.json({ title: 'Wrong key' }, { status: 401 }))
@@ -103,7 +213,9 @@ describe('memory-only authentication', () => {
     await expect(authProvider.checkAuth({})).rejects.toThrow()
     await login()
     await authProvider.checkAuth({})
+    fetcher.mockResolvedValueOnce(new Response(null, { status: 404 }))
     await authProvider.logout({})
+    expect(new Headers(fetcher.mock.lastCall?.[1]?.headers).get('Authorization')).toBe('Bearer test-key')
     await expect(dataProvider.getOne('labels', { id: 'one' })).rejects.toMatchObject({ status: 401 })
     await login()
     await expect(authProvider.checkError({ status: 401 })).rejects.toThrow()

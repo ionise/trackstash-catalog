@@ -27,7 +27,7 @@ describe('shared track list', () => {
     fetcher.mockResolvedValueOnce(Response.json({ items: [], total: 0, page: 1, pageSize: 25 }))
     await trackClient.list(new URLSearchParams({ labelId: 'label & one', q: 'A & B' }), signal)
     expect(fetcher.mock.calls[1][0]).toBe('/api/v1/tracks?labelId=label+%26+one&q=A+%26+B')
-    expect(fetcher.mock.calls[1][1]).toMatchObject({ signal, cache: 'no-store', credentials: 'omit' })
+    expect(fetcher.mock.calls[1][1]).toMatchObject({ signal, cache: 'no-store', credentials: 'same-origin' })
     fetcher.mockResolvedValueOnce(Response.json({ id: 'recording/one' }))
     await trackClient.recording('recording/one', signal)
     expect(fetcher.mock.calls[2][0]).toBe('/api/v1/recordings/recording%2Fone')

@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { Admin, Layout, Menu, Resource, memoryStore, useSidebarState } from 'react-admin'
-import type { LayoutProps } from 'react-admin'
+import { Admin, AppBar, Layout, Logout, Menu, Resource, UserMenu, memoryStore, useLogout, useNotify, useSidebarState } from 'react-admin'
+import type { AppBarProps, LayoutProps } from 'react-admin'
 import { ListItemIcon, ListItemText, MenuItem } from '@mui/material'
 import { authProvider, dataProvider } from './catalog'
 import { LabelCreate, LabelEdit, LabelList, LabelShow } from './labels'
@@ -49,8 +49,28 @@ function CatalogMenu() {
   </Menu>
 }
 
+function CatalogLogout() {
+  const logout = useLogout()
+  const notify = useNotify()
+  const [pending, setPending] = useState(false)
+  return <Logout disabled={pending} onClick={async () => {
+    setPending(true)
+    try {
+      await logout({}, undefined, false)
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'Could not confirm sign-out. Try again.', { type: 'error' })
+    } finally {
+      setPending(false)
+    }
+  }} />
+}
+
+function CatalogAppBar(props: AppBarProps) {
+  return <AppBar {...props} userMenu={<UserMenu><CatalogLogout /></UserMenu>} />
+}
+
 function CatalogLayout(props: LayoutProps) {
-  return <Layout {...props} menu={CatalogMenu} />
+  return <Layout {...props} appBar={CatalogAppBar} menu={CatalogMenu} />
 }
 
 export default function App() {

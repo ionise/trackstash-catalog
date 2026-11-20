@@ -209,7 +209,62 @@ The generated key stays in the shell environment, not source control. Configure 
 
 The host listens on `http://localhost:5187` (both loopback addresses when available). Change the port with `CatalogApi__Port`. General URL overrides do not enable remote hosting, and custom Kestrel endpoint configuration is rejected. The startup storage check refuses incompatible/uninitialized label storage without applying migrations or seeding.
 
-Every API request, including OpenAPI, requires `Authorization: Bearer <key>`. Keys must have at least 32 characters and no whitespace. Only the public `/admin` shell/assets are exempt; they contain no credentials or catalog data. Browser requests may use the API's own origin or exact additional HTTP(S) loopback origins configured in `CatalogApi:AllowedOrigins`. For Vite development set `CatalogApi__AllowedOrigins__0=http://localhost:5173`; other origins are rejected. Do not deploy behind a proxy or expose over LAN; remote access, TLS, per-user permissions, and key lifecycle management need a separate design.
+Catalog data and OpenAPI require `Authorization: Bearer <key>`, a native administrator session, or opt-in trusted proxy identity. Configure at least one mode; startup refuses to run without authentication. Omit `CatalogApi__ApiKey` entirely when not using API keys. If supplied, it must have at least 32 characters without whitespace. An explicit `Authorization` header is rejected when there is no configured API key or the header is invalid, even with a valid session cookie or proxy identity. The public `/admin` shell/assets contain no credentials or catalog data. API-key browser clients may also use exact loopback origins in `CatalogApi:AllowedOrigins` (e.g. `CatalogApi__AllowedOrigins__0=http://localhost:5173`); native browser login is same-origin only.
+
+### Optional native administrator login
+
+Leave both settings unset to keep native login off. To enable it, set `CatalogApi__AdminUsername` (case-sensitive, 1–128 characters, no whitespace or control characters) and `CatalogApi__AdminPasswordHash` together. Missing, empty or malformed values in an otherwise configured pair stop startup. Provision a unique password of 16–256 characters at a trusted terminal; the helper prompts twice without echo and writes only the salted ASP.NET Core Identity hash to stdout:
+
+```bash
+dotnet build src/TrackStash.Catalog.Api
+export CatalogApi__AdminUsername=local-admin
+CatalogApi__AdminPasswordHash="$(dotnet run --no-build --no-launch-profile --project src/TrackStash.Catalog.Api -- hash-admin-password)" &&
+  export CatalogApi__AdminPasswordHash
+```
+
+For an already-built Docker image that includes native login, run this from a trusted interactive terminal (substitute your local image tag if needed):
+
+```bash
+docker run --pull=never --rm -it --network none trackstash-catalog:latest hash-admin-password
+```
+
+The image entrypoint runs the compiled API DLL, so no SDK, database mount, or API key is needed. Enter the password only at the two masked prompts, never in the shell command. Copy the printed hash into your deployment's secret store as `CatalogApi__AdminPasswordHash`; do not paste it into a shell command or save the terminal transcript.
+
+For persistent configuration, inject the hash through an access-controlled secret store (the .NET configuration keys are `CatalogApi:AdminUsername` and `CatalogApi:AdminPasswordHash`). Treat the hash as sensitive. Do not put the password or hash in command-line arguments, tracked files or request logs. Do not enable tracing of the provisioning shell. To change the password, provision and replace the hash, then restart the API. Any restart revokes all native sessions; logout revokes only the presented session. API keys are independent and must be rotated separately.
+
+See the [session API contract](docs/api-design.md#native-administrator-session) and [request examples](src/TrackStash.Catalog.Api/Session.http). Direct HTTP login is for a trusted loopback workstation only. Cookies do not isolate ports on the same host, so don't share the loopback hostname with untrusted local services. LAN access requires the HTTPS proxy mode below; Authentik is not required for native login.
+
+### Opt-in SWAG/auth gateway
+
+The default remains loopback-only. For a gateway deployment, set **all three** values, for example:
+
+```bash
+CatalogApi__PublicOrigin=https://catalog.example.com
+CatalogApi__TrustedProxyIp=172.30.0.2
+CatalogApi__ListenAddress=0.0.0.0
+```
+
+`PublicOrigin` is one exact canonical HTTPS origin (no path, trailing slash, user info, query or fragment; omit the default port). `TrustedProxyIp` is the proxy's fixed, canonical unicast IP, not a CIDR or hostname. `ListenAddress` is a canonical IP address on the container network; `0.0.0.0` or `::` listens on all container interfaces. `CatalogApi__Port` remains the backend port. Missing or invalid values fail startup, and `AllowedOrigins` cannot be combined with this mode. Do not enable ASP.NET automatic forwarded headers or custom Kestrel endpoints.
+
+The backend accepts only connections whose actual peer IP is the configured proxy, with the exact public Host (including any non-default port), a single `X-Forwarded-Proto: https`, and, if present, an Origin exactly equal to `PublicOrigin`. POST, PATCH, DELETE and other unsafe methods **must** include that Origin, including non-browser clients. Other forwarded IP/Host headers are ignored. Configure SWAG to preserve the exact public Host, overwrite (never append or pass through) `X-Forwarded-Proto` based on its TLS connection, and reject or redirect external HTTP. In the existing gateway-auth deployment, continue authenticating **all** catalog routes at the gateway including `/admin` and `/openapi`. With native login enabled, a TLS-only gateway is also supported: the catalog serves the public shell and session entry points, but authenticates data and OpenAPI itself. It must not be possible for clients to inject the trusted scheme or bypass the proxy.
+
+Connect catalog to a dedicated internal Docker network shared with SWAG at the fixed trusted IP, publish no catalog port, and prevent other containers or hosts from joining or impersonating the proxy. If outbound access is needed, use a separate egress network and bind the API specifically to the proxy-network IP rather than all interfaces. The peer-IP check is not cryptographic authentication; a compromised proxy/network defeats it. Protect the proxy-to-catalog network (backend HTTP is plaintext) and do not log Authorization, cookies, or login bodies. The proxy must forward the bearer Authorization header unchanged for API-key clients and preserve native cookies and `Set-Cookie`. Gateway authentication is additional by default. Native sessions and API keys have the same administrator access, without per-user permissions. No cross-origin development access is supported in proxy mode.
+
+To opt into gateway single sign-on, configure trusted proxy mode as above and
+set `CatalogApi__TrustedProxyIdentity=true` and
+`CatalogApi__TrustedProxyLogoutPath=/outpost.goauthentik.io/sign_out` (or
+another gateway's same-origin logout path). The proxy must authenticate and
+authorize every catalog request and **overwrite** `X-Trackstash-User` with one
+nonempty username from a successful authentication check; it must never accept
+that header from the browser. Enable this only after verifying that clients
+cannot bypass the gateway or inject a username. Missing, duplicate, malformed,
+or oversized usernames are not authenticated. All gateway-approved identities
+receive full catalog administrator access; there are no per-user roles.
+Unsafe requests still require the exact same Origin. Native and API-key
+authentication remain optional and independent. Sign-out clears the local
+session and redirects to the configured gateway path; its effect on other
+applications and the upstream SSO session depends on the gateway. See the
+[optional Authentik guide](../deploy/authentik/README.md).
 
 From another shell configured with the same key:
 

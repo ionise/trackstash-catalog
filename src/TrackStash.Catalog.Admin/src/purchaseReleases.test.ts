@@ -29,7 +29,7 @@ describe('purchase release inspector transport', () => {
     fetcher.mockResolvedValueOnce(Response.json({ items: [], total: 0, page: 2, pageSize: 25 }))
     await purchaseReleaseClient.list(2, 'A & B', abort.signal)
     expect(fetcher.mock.calls[1][0]).toBe('/api/v1/purchase-release-candidates?page=2&pageSize=25&q=A+%26+B')
-    expect(fetcher.mock.calls[1][1]).toMatchObject({ signal: abort.signal, cache: 'no-store', credentials: 'omit' })
+    expect(fetcher.mock.calls[1][1]).toMatchObject({ signal: abort.signal, cache: 'no-store', credentials: 'same-origin' })
     expect(new Headers(fetcher.mock.calls[1][1]?.headers).get('Authorization')).toBe('Bearer test-key')
     fetcher.mockResolvedValueOnce(Response.json({ source: { releaseId: 10 } }))
     await purchaseReleaseClient.inspect(10, 3, abort.signal)

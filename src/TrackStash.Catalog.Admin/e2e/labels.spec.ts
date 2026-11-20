@@ -3,6 +3,57 @@ import { test, expect } from '@playwright/test'
 const key = 'test-only-browser-key-not-a-production-secret'
 const authorization = { Authorization: `Bearer ${key}` }
 
+test('trusted proxy sign-in opens the catalog and signs out through the gateway', async ({ page }) => {
+  await page.route('**/api/v1/session', route => route.request().method() === 'DELETE'
+    ? route.fulfill({ status: 204 })
+    : route.fulfill({ json: {
+      available: false, authenticated: true, proxyUser: 'approved-user',
+      proxyLogoutPath: '/outpost.goauthentik.io/sign_out',
+    } }))
+  await page.route('**/api/v1/labels**', route => route.fulfill({
+    json: { items: [{ id: 'gateway-label', name: 'Gateway Records', version: 'v1' }], total: 1 },
+  }))
+  await page.route('**/outpost.goauthentik.io/sign_out', route => route.fulfill({ body: 'Gateway sign-out' }))
+  await page.goto('/admin/')
+  await expect(page.getByRole('cell', { name: 'Gateway Records' })).toBeVisible()
+  await expect(page.getByLabel('API key')).toBeHidden()
+  await page.getByRole('button', { name: 'Profile' }).click()
+  await page.getByText('Logout', { exact: true }).click()
+  await expect(page).toHaveURL(/\/outpost\.goauthentik\.io\/sign_out$/)
+  await expect(page.getByText('Gateway sign-out')).toBeVisible()
+})
+
+test('native sign-in starts with the API-key alternative collapsed', async ({ page }) => {
+  await page.route('**/api/v1/session', route => route.fulfill({ json: { available: true, authenticated: false } }))
+  await page.goto('/admin/')
+
+  await expect(page.getByLabel('Username')).toBeVisible()
+  await expect(page.getByLabel('Password')).toBeVisible()
+  const apiKey = page.getByLabel('API key')
+  await expect(apiKey).toBeHidden()
+
+  await page.getByRole('button', { name: 'Sign in with an API key instead' }).click()
+  await expect(apiKey).toBeVisible()
+  await apiKey.fill(key)
+  await page.getByRole('button', { name: 'Hide API-key sign-in' }).click()
+  await expect(apiKey).toBeHidden()
+  await page.getByRole('button', { name: 'Sign in with an API key instead' }).click()
+  await expect(apiKey).toHaveValue('')
+})
+
+for (const [mode, response] of [
+  ['native login is disabled', { json: { available: false, authenticated: false } }],
+  ['the session endpoint is missing', { status: 404 }],
+] as const) {
+  test(`API-key sign-in is directly visible when ${mode}`, async ({ page }) => {
+    await page.route('**/api/v1/session', route => route.fulfill(response))
+    await page.goto('/admin/')
+    await expect(page.getByLabel('API key')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Connect', exact: true })).toBeVisible()
+    await expect(page.getByLabel('Username')).toBeHidden()
+  })
+}
+
 test('sign in, inspect, create, edit, clear sort name, and sign out on reload', async ({ page }) => {
   const browserErrors: string[] = []
   page.on('pageerror', error => browserErrors.push(error.message))

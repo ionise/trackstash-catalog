@@ -402,18 +402,72 @@ export interface BeatportBackfillJob {
   currentReleaseId: number | null; finishedUtc?: string | null; error?: string | null; stillIncomplete?: number[] | null
 }
 
+export interface CatalogSessionStatus {
+  available: boolean
+  authenticated: boolean
+  proxyUser?: string
+  proxyLogoutPath?: string
+}
+
 export function createCatalogClient(fetcher: typeof fetch = fetch) {
   let token: string | undefined
+  let nativeSession = false
+  let proxyLogoutPath: string | undefined
+  let lastAuthFailure: 'session' | 'apiKey' | undefined
+
+  async function sessionStatus(): Promise<CatalogSessionStatus> {
+    const response = await fetcher('/api/v1/session', { cache: 'no-store', credentials: 'same-origin' })
+    if (response.status === 404) return { available: false, authenticated: false }
+    if (!response.ok) {
+      let problem: Problem = {}
+      try { problem = await response.json() as Problem } catch { /* The response may not contain JSON. */ }
+      throw new HttpError(problem.detail ?? problem.title ?? `Session check failed (${response.status}).`, response.status, problem)
+    }
+    const status: unknown = await response.json()
+    if (!status || typeof status !== 'object' ||
+      typeof (status as CatalogSessionStatus).available !== 'boolean' ||
+      typeof (status as CatalogSessionStatus).authenticated !== 'boolean')
+      throw new Error('The catalog returned an invalid session status.')
+    const result = status as CatalogSessionStatus
+    if ((result.proxyUser !== undefined || result.proxyLogoutPath !== undefined) &&
+      (!result.authenticated || typeof result.proxyUser !== 'string' || !result.proxyUser.trim() ||
+       typeof result.proxyLogoutPath !== 'string' || !/^\/(?!\/)[a-zA-Z0-9._~/-]+$/.test(result.proxyLogoutPath) ||
+       result.proxyLogoutPath.split('/').some(segment => segment === '.' || segment === '..')))
+      throw new Error('The catalog returned an invalid proxy session status.')
+    return result
+  }
+
+  async function sessionRequest(method: 'POST' | 'DELETE', body?: { username: string; password: string }) {
+    const headers: Record<string, string> = body ? { 'Content-Type': 'application/json' } : {}
+    // Older APIs can require the bearer key before returning 404 for an unknown route.
+    if (method === 'DELETE' && token) headers.Authorization = `Bearer ${token}`
+    const response = await fetcher('/api/v1/session', {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+      cache: 'no-store',
+      credentials: 'same-origin',
+      redirect: 'error',
+    })
+    if (response.status === 204 || (method === 'DELETE' && response.status === 404)) return
+    let problem: Problem = {}
+    try { problem = await response.json() as Problem } catch { /* The response may not contain JSON. */ }
+    const message = response.status === 401 && method === 'POST'
+      ? 'Username or password was not accepted.'
+      : problem?.detail ?? problem?.title ?? `Session request failed (${response.status}).`
+    throw new HttpError(message, response.status, problem)
+  }
 
   async function request(path: string, init: RequestInit = {}, resource = 'labels') {
-    if (!token) throw new HttpError('Sign in with your catalog API key.', 401)
+    if (!token && !nativeSession) throw new HttpError('Sign in to the local catalog.', 401)
     const headers = new Headers(init.headers)
-    headers.set('Authorization', `Bearer ${token}`)
+    if (token) headers.set('Authorization', `Bearer ${token}`)
     const response = await fetcher(`/api/v1/${resource}${path}`, {
-      ...init, headers, cache: 'no-store', credentials: 'omit',
+      ...init, headers, cache: 'no-store', credentials: 'same-origin',
     })
     if (!response.ok) {
       const problem: Problem = await response.json()
+      if (response.status === 401) lastAuthFailure = token ? 'apiKey' : 'session'
       const message = response.status === 404 && (resource === 'backup-sources' || resource === 'backups' && (path === '' || path.startsWith('?')))
         ? 'The running catalog API does not provide backup support. Restart the API with the updated backend, then refresh backups.'
         : response.status === 412 && problem.code !== 'merge_state_changed' && problem.code !== 'relationship_state_changed' && problem.code !== 'group_state_changed' && problem.code !== 'enrichment_state_changed'
@@ -512,23 +566,67 @@ export function createCatalogClient(fetcher: typeof fetch = fetch) {
   }
 
   const authProvider: AuthProvider = {
-    login: async ({ apiKey }: { apiKey: string }) => {
-      token = apiKey
-      try {
-        await request('?pageSize=1')
-      } catch (error) {
-        token = undefined
-        throw error
+    login: async ({ apiKey, username, password }: { apiKey?: string; username?: string; password?: string }) => {
+      lastAuthFailure = undefined
+      if (apiKey) {
+        nativeSession = false
+        token = apiKey
+        try {
+          await request('?pageSize=1')
+        } catch (error) {
+          token = undefined
+          lastAuthFailure = undefined
+          throw error
+        }
+        return
       }
+      if (!username || !password) throw new Error('Enter a username and password or an API key.')
+      token = undefined
+      nativeSession = false
+      await sessionRequest('POST', { username, password })
+      nativeSession = true
     },
-    logout: async () => { token = undefined },
+    logout: async () => {
+      const gatewayLogout = proxyLogoutPath
+      if (token || nativeSession) {
+        // The cookie is shared across tabs, even if this tab only used an API key.
+        try {
+          await sessionRequest('DELETE')
+        } catch (error) {
+          const reason = error instanceof HttpError ? ` ${error.message}` : ''
+          throw new Error(`Could not confirm sign-out. Check your connection and try again.${reason}`, { cause: error })
+        }
+      }
+      token = undefined
+      nativeSession = false
+      proxyLogoutPath = undefined
+      lastAuthFailure = undefined
+      if (gatewayLogout) return `${window.location.origin}${gatewayLogout}`
+    },
     checkAuth: async () => {
-      if (!token) throw new Error('Sign in to the local catalog.')
+      if (token) return
+      const status = await sessionStatus()
+      if (status.authenticated) {
+        nativeSession = true
+        proxyLogoutPath = status.proxyLogoutPath
+        return
+      }
+      nativeSession = false
+      proxyLogoutPath = undefined
+      throw new Error('Sign in to the local catalog.')
     },
     checkError: async (error: { status?: number }) => {
       if (error.status === 401) {
+        const failure = lastAuthFailure ?? (nativeSession ? 'session' : token ? 'apiKey' : undefined)
         token = undefined
-        throw new Error('Your API key is no longer accepted. Sign in again.')
+        nativeSession = false
+        proxyLogoutPath = undefined
+        lastAuthFailure = undefined
+        throw new Error(failure === 'session'
+          ? 'Your session has expired. Sign in again.'
+          : failure === 'apiKey'
+            ? 'Your API key is no longer accepted. Sign in again.'
+            : 'Your session or API key is no longer valid. Sign in again.')
       }
     },
     getPermissions: async () => [],
@@ -896,7 +994,7 @@ export function createCatalogClient(fetcher: typeof fetch = fetch) {
       return { ...await response.json(), etag }
     },
   }
-  return { dataProvider, authProvider, mergeClient, artworkClient, releaseArtworkClient, artistArtworkClient, backupsClient, relationshipsClient, groupClient, beatportClient, purchaseReleaseClient, releaseImportClient, releaseClient, artistClient, trackClient, enrichmentClient, mediaClient }
+  return { dataProvider, authProvider, sessionClient: { status: sessionStatus }, mergeClient, artworkClient, releaseArtworkClient, artistArtworkClient, backupsClient, relationshipsClient, groupClient, beatportClient, purchaseReleaseClient, releaseImportClient, releaseClient, artistClient, trackClient, enrichmentClient, mediaClient }
 }
 
-export const { dataProvider, authProvider, mergeClient, artworkClient, releaseArtworkClient, artistArtworkClient, backupsClient, relationshipsClient, groupClient, beatportClient, purchaseReleaseClient, releaseImportClient, releaseClient, artistClient, trackClient, enrichmentClient, mediaClient } = createCatalogClient()
+export const { dataProvider, authProvider, sessionClient, mergeClient, artworkClient, releaseArtworkClient, artistArtworkClient, backupsClient, relationshipsClient, groupClient, beatportClient, purchaseReleaseClient, releaseImportClient, releaseClient, artistClient, trackClient, enrichmentClient, mediaClient } = createCatalogClient()
