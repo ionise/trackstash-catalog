@@ -32,7 +32,8 @@ public sealed record MediaLinkReview(string Id, string Version, MediaInventoryIt
 public sealed record MediaLinkOutcome(string ReviewId, string MediaId, string RecordingId, DateTimeOffset AppliedAt);
 /// <summary>Persisted association, not a fresh file-presence or backup verification result.</summary>
 public sealed record LinkedRecordingMedia(string Id, string Path, string? Sha256, DateTimeOffset? LinkedAt,
-    string? Library = null, string? LibraryName = null, string? Format = null, string? FingerprintKey = null);
+    string? Library = null, string? LibraryName = null, string? Format = null, string? FingerprintKey = null,
+    bool? VerifiedAtLink = null);
 
 public interface IMediaService
 {
@@ -70,6 +71,7 @@ public sealed partial class MediaService(IConfiguration configuration, IStorageP
     private static EnrichmentApplyException Error(int status, string code, string message) => new(status, code, message);
     private static string Json<T>(T value) => JsonSerializer.Serialize(value);
     private static string Hash<T>(T value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Json(value)))).ToLowerInvariant();
+    internal static string FingerprintKey(string fingerprintJson) => Hash(fingerprintJson);
     public async Task<IReadOnlyList<LinkedRecordingMedia>> LinkedAsync(string recordingId, CancellationToken ct)
     {
         await using var unit = await storage.BeginUnitOfWorkAsync(ct);
@@ -80,7 +82,8 @@ public sealed partial class MediaService(IConfiguration configuration, IStorageP
         var settings = librarySettings.Read().Libraries;
         return items.Select(f => {
             MediaInventoryItem? snapshot = null;
-            if (f.Id.StartsWith("scanner-", StringComparison.Ordinal) && f.MetadataJson is not null)
+            if ((f.Id.StartsWith("scanner-", StringComparison.Ordinal) || f.Id.StartsWith("remote-", StringComparison.Ordinal))
+                && f.MetadataJson is not null)
             {
                 try { snapshot = JsonSerializer.Deserialize<MediaInventoryItem>(f.MetadataJson); }
                 catch (JsonException) { throw Error(409, "media_evidence_invalid", "Stored linked-copy metadata is malformed; its audio evidence cannot be displayed."); }
@@ -91,7 +94,8 @@ public sealed partial class MediaService(IConfiguration configuration, IStorageP
                 settings.OrderByDescending(l => l.Root.Length).FirstOrDefault(l => Within(f.Path, l.Root));
             return new LinkedRecordingMedia(f.Id, f.Path, f.ContentHash, f.CreatedUtc, snapshot?.Library ?? library?.Id,
                 library?.Name ?? snapshot?.Library, System.IO.Path.GetExtension(f.Path).TrimStart('.').ToUpperInvariant(),
-                snapshot?.FingerprintKey);
+                snapshot?.FingerprintKey, f.Id.StartsWith("remote-", StringComparison.Ordinal) ? false :
+                    f.Id.StartsWith("scanner-", StringComparison.Ordinal) ? true : null);
         }).ToArray();
     }
     private string Scanner => configuration["CatalogApi:ScannerDatabasePath"] ??
@@ -162,7 +166,7 @@ public sealed partial class MediaService(IConfiguration configuration, IStorageP
             rows.Add(new(reader.GetInt64(0), library.Id, System.IO.Path.GetRelativePath(library.Root, path),
                 Text(2), Text(3), Text(4), Text(5), Text(6), reader.IsDBNull(7) ? null : reader.GetDouble(7),
                 Text(8), reader.GetInt64(9), reader.GetString(10), reader.GetString(11), path, Text(12),
-                Text(13) ?? Text(5), string.IsNullOrWhiteSpace(Text(14)) ? null : Hash(Text(14))));
+                Text(13) ?? Text(5), string.IsNullOrWhiteSpace(Text(14)) ? null : FingerprintKey(Text(14)!)));
         }
         return rows;
     }
@@ -202,7 +206,7 @@ public sealed partial class MediaService(IConfiguration configuration, IStorageP
         ?? throw Error(404, "media_not_found", "Scanner media file was not found in approved libraries.");
     private static bool Same(string? a, string? b) => !string.IsNullOrWhiteSpace(a) && !string.IsNullOrWhiteSpace(b) &&
         EntityNameNormalizer.NormalizeStrict(a) == EntityNameNormalizer.NormalizeStrict(b);
-    private static bool Isrc(string? value) => value is not null && Regex.IsMatch(value.Trim().ToUpperInvariant(), "^[A-Z]{2}[A-Z0-9]{3}[0-9]{7}$");
+    internal static bool Isrc(string? value) => value is not null && Regex.IsMatch(value.Trim().ToUpperInvariant(), "^[A-Z]{2}[A-Z0-9]{3}[0-9]{7}$");
     private static async Task<RecordingState> ReadRecording(IUnitOfWork unit, string id, CancellationToken ct)
     {
         var recording = await unit.Recordings.GetByIdAsync(id, ct) ?? throw Error(404, "recording_not_found", "Recording was not found.");
@@ -215,6 +219,15 @@ public sealed partial class MediaService(IConfiguration configuration, IStorageP
             if (!string.IsNullOrWhiteSpace(name)) artists.Add(name);
         }
         return new(recording, credits, artists);
+    }
+    internal static async Task<MediaRecordingCandidate> CompareRemote(IUnitOfWork unit, RemoteInventoryRecord record,
+        string recordingId, CancellationToken ct)
+    {
+        var state = await ReadRecording(unit, recordingId, ct);
+        var media = new MediaInventoryItem(record.MediaFileId, "", "", record.Title, record.Subtitle, record.Artist,
+            record.Album, record.Isrc, record.DurationSeconds, null, record.SizeBytes, record.ScannedUtc.ToString("O"),
+            record.LastModifiedUtc.ToString("O"), record.Path!, record.Label, record.Release);
+        return Compare(WithExplicitTitleMix(media, state), state);
     }
     private static MediaRecordingCandidate Compare(MediaInventoryItem media, RecordingState state, Sidecar? sidecar = null)
     {

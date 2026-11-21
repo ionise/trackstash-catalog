@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using Microsoft.AspNetCore.Http.Features;
 using TrackStash.Catalog.Api.Authentication;
 
 namespace TrackStash.Catalog.Api.Middleware;
@@ -15,9 +16,20 @@ internal sealed class BearerKeyMiddleware
         _keyHash = key.Length == 0 ? null : SHA256.HashData(Encoding.UTF8.GetBytes(key));
     }
 
-    public async Task InvokeAsync(HttpContext context, IAdminSessions sessions, TrustedProxyIdentity proxyIdentity)
+    public async Task InvokeAsync(HttpContext context, IAdminSessions sessions, TrustedProxyIdentity proxyIdentity, RemoteInventorySettings remoteInventory)
     {
         var request = context.Request;
+        if (context.GetEndpoint()?.Metadata.GetMetadata<DeviceInventoryEndpoint>() is not null)
+        {
+            if (remoteInventory.Authenticate(request))
+            {
+                var limit = context.Features.Get<IHttpMaxRequestBodySizeFeature>();
+                if (limit is { IsReadOnly: false }) limit.MaxRequestBodySize = 1024 * 1024;
+                await _next(context);
+            }
+            else await ApiErrors.WriteAsync(context, 401, "unauthorized", "A valid device credential is required");
+            return;
+        }
         if ((HttpMethods.IsGet(request.Method) || HttpMethods.IsHead(request.Method))
             && request.Path.StartsWithSegments("/admin"))
         {

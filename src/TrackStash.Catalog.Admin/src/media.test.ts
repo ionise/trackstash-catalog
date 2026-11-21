@@ -1,6 +1,36 @@
 import { expect, it, vi } from 'vitest'
 import { createCatalogClient, mediaLibraryName } from './catalog'
 
+it('browses remote inventory with the normal administrator authentication', async () => {
+  const fetcher = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ items: [], total: 0, page: 2, pageSize: 25 }))
+  const { authProvider, remoteInventoryClient } = createCatalogClient(fetcher)
+  await authProvider.login({ apiKey: 'test-catalog-key' })
+  fetcher.mockClear()
+  const signal = new AbortController().signal
+  await remoteInventoryClient.list(2, 'label & artist', signal)
+  expect(fetcher.mock.calls[0][0]).toBe('/api/v1/remote-inventory?page=2&q=label+%26+artist')
+  expect(new Headers(fetcher.mock.calls[0][1]?.headers).get('Authorization')).toBe('Bearer test-catalog-key')
+  expect(fetcher.mock.calls[0][1]?.signal).toBe(signal)
+})
+
+it('sends selected remote identities and snapshot versions without a typed reason', async () => {
+  const fetcher = vi.fn<typeof fetch>().mockImplementation(async () => Response.json([]))
+  const { authProvider, remoteInventoryClient } = createCatalogClient(fetcher)
+  await authProvider.login({ apiKey: 'test-catalog-key' })
+  fetcher.mockClear()
+  const signal = new AbortController().signal
+  const key = { ownerId: 'owner', deviceId: 'mac', mediaFileId: 7 }
+  await remoteInventoryClient.proposals([key], signal)
+  await remoteInventoryClient.match([{ key, version: 'v1', recordingId: 'recording-1' }], signal)
+  expect(fetcher.mock.calls.map(call => call[0])).toEqual([
+    '/api/v1/remote-inventory/match-proposals', '/api/v1/remote-inventory/matches',
+  ])
+  expect(JSON.parse(String(fetcher.mock.calls[1][1]?.body))).toEqual({
+    items: [{ key, version: 'v1', recordingId: 'recording-1' }],
+  })
+  expect(fetcher.mock.calls.every(call => call[1]?.signal === signal)).toBe(true)
+})
+
 it('media-led Beatport admission requests explicit metadata caching without media or purchase assertions', async () => {
   const fetcher = vi.fn<typeof fetch>().mockImplementation(async () => Response.json({ releaseId: 930, sourceCompleteAfter: true }))
   const { authProvider, beatportClient } = createCatalogClient(fetcher)

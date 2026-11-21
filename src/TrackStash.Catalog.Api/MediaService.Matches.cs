@@ -77,22 +77,48 @@ public sealed partial class MediaService
         var conflicts = family.SelectMany(f => Compare(WithExplicitTitleMix(f, recording), recording).Blockers)
             .Where(b => b != "Insufficient independent tagged metadata to accept a link.").Distinct().ToArray();
         var isrcs = family.Append(media).Where(f => Isrc(f.Isrc)).Select(f => f.Isrc!.Trim().ToUpperInvariant()).Distinct().ToArray();
-        if (conflicts.Length > 0 || isrcs.Length > 1)
+        var allCopies = family.Append(media).ToArray();
+        static bool Differ(IEnumerable<string?> values)
+        {
+            var present = values.Where(v => !string.IsNullOrWhiteSpace(v)).ToArray();
+            return present.Length > 1 && present.Skip(1).Any(value => !Same(present[0], value));
+        }
+        var durations = allCopies.Where(f => f.DurationSeconds is not null).Select(f => f.DurationSeconds!.Value).ToArray();
+        if (conflicts.Length > 0 || isrcs.Length > 1 ||
+            Differ(allCopies.Select(f => f.Artist)) || Differ(allCopies.Select(f => f.Mix)) ||
+            durations.Any(d => !double.IsFinite(d)) ||
+            durations.Length > 1 && durations.Max() - durations.Min() > 2)
             return direct with { Status = "Blocked", Blockers = ["Exact fingerprint copies have conflicting identity tags; reconcile these versions individually."] };
-        string? Fill(string? value, Func<MediaInventoryItem, string?> field) =>
-            !string.IsNullOrWhiteSpace(value) ? value : family.Select(field).FirstOrDefault(v => !string.IsNullOrWhiteSpace(v));
+        var sources = new List<string>();
+        string? Fill(string? value, string name, Func<MediaInventoryItem, string?> field)
+        {
+            if (!string.IsNullOrWhiteSpace(value)) return value;
+            var source = family.FirstOrDefault(f => !string.IsNullOrWhiteSpace(field(f)));
+            if (source is null) return null;
+            sources.Add($"{name} from media {source.Id}");
+            return field(source);
+        }
         var title = recording.Recording.Title ?? recording.Recording.Name;
         var mix = recording.Recording.MixName;
-        var explicitMix = !string.IsNullOrWhiteSpace(mix) && family.Any(f =>
-            Same(f.Title, $"{title} ({mix})") || Same(f.Title, $"{title} {mix}")) ? mix : null;
+        var explicitMixSource = !string.IsNullOrWhiteSpace(mix) ? family.FirstOrDefault(f =>
+            Same(f.Title, $"{title} ({mix})") || Same(f.Title, $"{title} {mix}")) : null;
+        var filledMix = Fill(media.Mix, "mix", f => f.Mix);
+        if (filledMix is null && explicitMixSource is not null)
+        {
+            sources.Add($"mix from media {explicitMixSource.Id} title");
+            filledMix = mix;
+        }
+        var durationSource = media.DurationSeconds is null ? family.FirstOrDefault(f => f.DurationSeconds is not null) : null;
+        if (durationSource is not null) sources.Add($"duration from media {durationSource.Id}");
         var composite = media with {
-            Title = Fill(media.Title, f => f.Title), Mix = Fill(media.Mix, f => f.Mix) ?? explicitMix,
-            Artist = Fill(media.Artist, f => f.Artist), Isrc = Fill(media.Isrc, f => f.Isrc),
-            DurationSeconds = media.DurationSeconds ?? family.Select(f => f.DurationSeconds).FirstOrDefault(d => d is not null)
+            Title = Fill(media.Title, "title", f => f.Title), Mix = filledMix,
+            Artist = Fill(media.Artist, "artist", f => f.Artist), Isrc = Fill(media.Isrc, "ISRC", f => f.Isrc),
+            DurationSeconds = media.DurationSeconds ?? durationSource?.DurationSeconds
         };
+        if (sources.Count == 0) return direct;
         var merged = Compare(WithExplicitTitleMix(composite, recording), recording, sidecar);
         return merged.Blockers.Count == 0 ? merged with {
-            Evidence = merged.Evidence.Concat(["Composite tags from exact stored audio fingerprint copies; every supporting copy is verified before acceptance. Duplicate tags are not independent votes."]).ToArray()
+            Evidence = merged.Evidence.Concat([$"Composite tags from exact stored audio fingerprint copies ({string.Join(", ", sources)}); every supporting copy is verified before acceptance. Duplicate tags are not independent votes."]).ToArray()
         } : direct;
     }
 

@@ -27,6 +27,9 @@ public static class CatalogApiHost
         var key = builder.Configuration["CatalogApi:ApiKey"];
         if (key is not null && (key.Length < 32 || key.Any(char.IsWhiteSpace)))
             throw new InvalidOperationException("CatalogApi:ApiKey, if provided, must be at least 32 characters without whitespace.");
+        var remoteInventory = new RemoteInventorySettings(builder.Configuration, key);
+        builder.Services.AddSingleton(remoteInventory);
+        builder.Services.TryAddScoped<IRemoteInventoryService, RemoteInventoryService>();
         var adminCredentials = AdminCredentials.FromConfiguration(builder.Configuration);
         var proxy = ProxyAccess.FromConfiguration(builder.Configuration);
         var proxyIdentity = TrustedProxyIdentity.FromConfiguration(builder.Configuration, proxy is not null);
@@ -240,6 +243,7 @@ public static class CatalogApiHost
         app.MapTracks();
         app.MapEnrichment();
         app.MapMedia();
+        app.MapRemoteInventory();
         app.MapMediaLibrarySettings();
         app.MapArtists();
         app.MapBackups();

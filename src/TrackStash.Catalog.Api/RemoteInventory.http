@@ -1,0 +1,39 @@
+@baseUrl = http://localhost:5187/api/v1
+@deviceToken = replace-with-a-scoped-device-token
+@adminKey = replace-with-the-admin-api-key
+
+### Upload a scanner batch; the device token is not an administrator key
+POST {{baseUrl}}/remote-inventory/batches
+Authorization: Bearer {{deviceToken}}
+Content-Type: application/json
+
+{
+  "items": [{
+    "media_file_id": 1,
+    "path": "/music/example.flac",
+    "format": "flac",
+    "size_bytes": 1000,
+    "scanned_utc": "2026-01-02T00:00:00Z",
+    "last_modified_utc": "2026-01-01T00:00:00Z",
+    "title": "Example track",
+    "artist": "Example artist"
+  }]
+}
+
+### Browse using administrator credentials; a device token is rejected
+GET {{baseUrl}}/remote-inventory?page=1&q=example
+Authorization: Bearer {{adminKey}}
+
+### Request suggestions for scanner records
+POST {{baseUrl}}/remote-inventory/match-proposals
+Authorization: Bearer {{adminKey}}
+Content-Type: application/json
+
+{"items":[{"ownerId":"owner","deviceId":"mac","mediaFileId":1}]}
+
+### Save an explicit match using the version returned by the suggestions
+POST {{baseUrl}}/remote-inventory/matches
+Authorization: Bearer {{adminKey}}
+Content-Type: application/json
+
+{"items":[{"key":{"ownerId":"owner","deviceId":"mac","mediaFileId":1},"version":"replace-with-proposal-version","recordingId":"existing-recording-id"}]}

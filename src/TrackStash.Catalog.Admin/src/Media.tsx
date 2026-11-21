@@ -72,6 +72,7 @@ export function MediaInventory({ matching = false }: { matching?: boolean }) {
   return <Stack spacing={2} sx={{ p: 3, minWidth: 0, contain: 'inline-size', overflowWrap: 'anywhere' }}>
     <Title title={matching ? 'Media matching' : 'Media'} /><Typography variant="h4" component="h1">{matching ? 'Media matching worklist' : group?.canAssociateRelease ? 'Release reconciliation' : 'Media inventory and Recording links'}</Typography>
     <Link to="/media-libraries">Manage libraries</Link>
+    <Link to="/remote-inventory">Browse device inventory</Link>
     <Link to={matching ? '/media' : '/media-matches'}>{matching ? 'Release reconciliation and advanced media inventory' : 'Match media in bulk — tick and accept'}</Link>
     {!group?.canAssociateRelease && <Alert severity="info">Match using embedded tags and scoped sidecars, not filenames alone. No files are moved or retagged. Preparing and accepting a review reads/verifies audio bytes and may download cloud-only Dropbox files.</Alert>}
     {error && <Alert severity="error">{error}</Alert>}
@@ -262,6 +263,7 @@ export function RecordingMedia({ id }: { id: string }) {
             <AccordionSummary>Location and file details — {location} {file.format}</AccordionSummary>
             <AccordionDetails sx={{ overflowWrap: 'anywhere' }}>
               <Typography>{file.path}</Typography>
+              {file.verifiedAtLink === false && <Typography variant="body2">Matched from uploaded scanner metadata; file bytes were not verified.</Typography>}
               <Typography variant="body2">SHA-256 (whole-file bytes): {file.sha256 ?? 'Not recorded'}</Typography>
               <Typography variant="body2">Linked {file.linkedAt ?? 'Unknown'}. Media identity: {file.id}.</Typography>
               <Typography variant="body2">SHA-256 includes tags, artwork and container encoding. Different hashes between copies are expected and do not indicate an audio mismatch.</Typography>

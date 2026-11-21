@@ -10,6 +10,7 @@ import { PurchaseReleases } from './PurchaseReleases'
 import { BeatportBrowse } from './BeatportBrowse'
 import { MediaInventory, MediaMatching } from './Media'
 import { MediaLibraries } from './MediaLibraries'
+import { RemoteInventory } from './RemoteInventory'
 import TravelExploreIcon from '@mui/icons-material/TravelExplore'
 import { ReleaseList, ReleaseShow } from './Releases'
 import { ArtistList, ArtistShow } from './Artists'
@@ -94,6 +95,7 @@ export default function App() {
       <Resource name="purchase-releases" list={PurchaseReleases} />
       <Resource name="beatport" list={BeatportBrowse} />
       <Resource name="media" list={MediaInventory} />
+      <Resource name="remote-inventory" list={RemoteInventory} />
       <Resource name="media-matches" list={MediaMatching} />
       <Resource name="media-libraries" list={MediaLibraries} />
     </Admin>

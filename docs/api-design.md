@@ -18,7 +18,7 @@ Cookies are host-only, HttpOnly and SameSite=Strict; the trusted HTTPS proxy mod
 
 ### Tick-and-accept matching worklist
 
-`POST /api/v1/media-match-proposals` accepts `{mediaIds:[1,2]}` (1–100 distinct positive scanner identities), returns `{version,files}` with original ETag and no-store, and never reads audio. Each file has metadata, candidates/evidence/blockers, a unique supported suggestion if any, existing link/registration state and `classification=unclassified|unofficial`. Candidate discovery uses valid ISRC, bounded title search, known linked-copy identities and complementary tags from exact stored algorithm/version-matched fingerprints across configured libraries/groups. Known contradictions are never voted away. Composite evidence may fill missing fields but cannot override present contradictory tags or assume Original Mix. An incomplete (>100 results) candidate search blocks acceptance rather than claiming uniqueness. At most 1000 related copy rows are inspected per preview.
+`POST /api/v1/media-match-proposals` accepts `{mediaIds:[1,2]}` (1–100 distinct positive scanner identities), returns `{version,files}` with original ETag and no-store, and never reads audio. Each file has metadata, candidates/evidence/blockers, a unique supported suggestion if any, existing link/registration state and `classification=unclassified|unofficial`. Candidate discovery uses valid ISRC, bounded title search, known linked-copy identities and complementary tags from exact stored algorithm/version-matched fingerprints across configured libraries/groups. Known contradictions are never voted away, including conflicting copy artists, mixes and durations when the Catalog has no corresponding value. Composite evidence identifies which media row supplied each missing field; it does not modify file tags or Catalog metadata. It cannot override present contradictory tags or assume Original Mix. An incomplete (>100 results) candidate search blocks acceptance rather than claiming uniqueness. At most 1000 related copy rows are inspected per preview.
 
 A reviewed accepted/manual linked-copy snapshot with the same exact fingerprint/path provides a distinct **manual linked-audio choice**, even where tagged ISRC/title/mix/Artist/duration differ or corroboration is incomplete. Status is `Needs manual review: matches linked audio`; original tag blockers are retained in evidence as `Metadata warning:` entries, not silently discarded. No unique supported suggestion is made for this exception. Preparation verifies the supporting copy against its accepted Catalog byte hash, stores it as a dependency, and acceptance rechecks the frozen hash and current proposal context. Rejected/unreviewed links, mismatched snapshots, different/missing fingerprints, sidecar conflicts and existing registrations cannot use it. It is explicit human judgement over historical fingerprint evidence, not an automatic tag correction.
 
@@ -743,3 +743,21 @@ Paths above are relative to this document's directory. Existing catalog tests co
 Tests must cover pagination totals/stable sorting, validation, normalization, immutable IDs, create/reapply identity behavior, stale edits, transactional rollback, missing resources, aliases/provider-reference ambiguity, safe deletion, and client error handling. Add relationship direction/cycle and merge-redirect tests with those capabilities. Verify UI and PowerShell behavior, not just repository methods.
 
 Before expanding the host to remote deployment, settle its access policy rather than assuming the local bearer-key policy is sufficient. Planning does not authorize changes to existing catalog data, media files, or running Library jobs.
+
+# Remote scanner inventory
+
+The optional `POST /api/v1/remote-inventory/batches` accepts up to 100 scanner
+metadata records using only the configured device token, with a 1 MiB body
+limit and fingerprints up to 800,000 characters. Track number, disc number
+and BPM tags preserve either scanner text or numeric values. Its credential
+does not authorize ordinary catalog APIs. Transactions
+upsert records by owner, device and scanner-local media ID; older scans cannot
+replace newer ones. Retries are safe, incomplete uploads do not delete records,
+and a pass is not a consistent snapshot. The administrator-only
+`GET /api/v1/remote-inventory` provides paginated browsing and title, artist,
+label or release search. Administrator-only `POST /api/v1/remote-inventory/match-proposals`
+suggests existing Recordings using scan metadata; `POST /api/v1/remote-inventory/matches`
+saves explicit selections atomically, recording their unverified scanner snapshot.
+Neither operation reads remote files or uploads audio. Existing links are not
+overwritten; changed scan snapshots must be reloaded. Owner IDs do not yet
+provide user isolation.

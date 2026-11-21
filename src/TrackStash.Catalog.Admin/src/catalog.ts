@@ -885,6 +885,16 @@ export function createCatalogClient(fetcher: typeof fetch = fetch) {
     credits: async (id: string, tracks: boolean, page: number, signal?: AbortSignal): Promise<GroupPage<ArtistAppearance>> =>
       (await request(`/${encodeURIComponent(id)}/${tracks ? 'tracks' : 'releases'}?page=${page}&pageSize=25`, { signal }, 'artists')).json(),
   }
+  const remoteInventoryClient = {
+    list: async (page: number, search: string, signal?: AbortSignal): Promise<RemoteInventoryPage> =>
+      (await request(`?${new URLSearchParams({ page: String(page), q: search })}`, { signal }, 'remote-inventory')).json(),
+    proposals: async (items: RemoteInventoryKey[], signal?: AbortSignal): Promise<RemoteMatchProposal[]> =>
+      (await request('/match-proposals', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items }), signal }, 'remote-inventory')).json(),
+    match: async (items: RemoteMatchSelection[], signal?: AbortSignal): Promise<{ saved: number; alreadyLinked: number }> =>
+      (await request('/matches', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items }), signal }, 'remote-inventory')).json(),
+  }
   const mediaClient = {
     prepareManual: async (mediaId: number, recordingId: string, signal?: AbortSignal): Promise<ManualMediaReview> => {
       const response = await request('', { method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -942,7 +952,8 @@ export function createCatalogClient(fetcher: typeof fetch = fetch) {
       (await request(`/${encodeURIComponent(review.id)}/apply`, { method: 'POST',
         headers: { 'Content-Type': 'application/json', 'If-Match': review.etag }, body: JSON.stringify({ reason, confirmed }), signal }, 'media-link-reviews')).json(),
     linked: async (id: string, signal?: AbortSignal): Promise<{ id: string; path: string; sha256: string | null; linkedAt: string | null;
-      library?: string | null; libraryName?: string | null; format?: string | null; fingerprintKey?: string | null }[]> =>
+      library?: string | null; libraryName?: string | null; format?: string | null; fingerprintKey?: string | null;
+      verifiedAtLink?: boolean | null }[]> =>
       (await request(`/${encodeURIComponent(id)}/media`, { signal }, 'recordings')).json(),
     releaseSearch: async (q: string, page: number, signal?: AbortSignal): Promise<GroupPage<CatalogRelease>> =>
       (await request(`?${new URLSearchParams({ q, page: String(page) })}`, { signal }, 'releases')).json(),
@@ -994,7 +1005,20 @@ export function createCatalogClient(fetcher: typeof fetch = fetch) {
       return { ...await response.json(), etag }
     },
   }
-  return { dataProvider, authProvider, sessionClient: { status: sessionStatus }, mergeClient, artworkClient, releaseArtworkClient, artistArtworkClient, backupsClient, relationshipsClient, groupClient, beatportClient, purchaseReleaseClient, releaseImportClient, releaseClient, artistClient, trackClient, enrichmentClient, mediaClient }
+  return { dataProvider, authProvider, sessionClient: { status: sessionStatus }, mergeClient, artworkClient, releaseArtworkClient, artistArtworkClient, backupsClient, relationshipsClient, groupClient, beatportClient, purchaseReleaseClient, releaseImportClient, releaseClient, artistClient, trackClient, enrichmentClient, mediaClient, remoteInventoryClient }
 }
 
-export const { dataProvider, authProvider, sessionClient, mergeClient, artworkClient, releaseArtworkClient, artistArtworkClient, backupsClient, relationshipsClient, groupClient, beatportClient, purchaseReleaseClient, releaseImportClient, releaseClient, artistClient, trackClient, enrichmentClient, mediaClient } = createCatalogClient()
+export const { dataProvider, authProvider, sessionClient, mergeClient, artworkClient, releaseArtworkClient, artistArtworkClient, backupsClient, relationshipsClient, groupClient, beatportClient, purchaseReleaseClient, releaseImportClient, releaseClient, artistClient, trackClient, enrichmentClient, mediaClient, remoteInventoryClient } = createCatalogClient()
+
+export type RemoteInventoryPage = {
+  items: { ownerId: string; deviceId: string; mediaFileId: number; path: string; title: string | null; artist: string | null;
+    album: string | null; label: string | null; release: string | null; format: string | null; scannedUtc: string }[]
+  total: number
+  page: number
+  pageSize: number
+}
+export type RemoteInventoryKey = { ownerId: string; deviceId: string; mediaFileId: number }
+export type RemoteMatchProposal = { key: RemoteInventoryKey; version: string; linkedRecordingId: string | null;
+  suggestedRecordingId: string | null; candidates: { recordingId: string; title: string | null; mix: string | null;
+    status: string; evidence: string[]; blockers: string[] }[] }
+export type RemoteMatchSelection = { key: RemoteInventoryKey; version: string; recordingId: string }

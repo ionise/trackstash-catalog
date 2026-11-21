@@ -188,6 +188,96 @@ public sealed partial class LabelApiTests
         Assert.Equal(0, await ImportCount("enrichment_apply_revision"));
     }
 
+    [Fact]
+    public async Task Media_MatchesIdentifyFieldSourcesAcrossFingerprintCopies()
+    {
+        await using var fixture = await StartMedia();
+        await AddBrowseMetadata(fixture);
+        await AddReconciliationCopy(fixture);
+        await AddReconciliationCopy(fixture, 3);
+        await ScannerSql(fixture, """
+            UPDATE metadata SET title=NULL,subtitle=NULL,artist=NULL,isrc=NULL WHERE media_file_id=1;
+            UPDATE media_file SET duration_seconds=NULL WHERE media_file_id=1;
+            UPDATE metadata SET title='Shared tune',subtitle='Original Mix',artist=NULL WHERE media_file_id=2;
+            UPDATE metadata SET title=NULL,subtitle=NULL,artist='Zed Primary' WHERE media_file_id=3;
+            UPDATE media_file SET duration_seconds=400 WHERE media_file_id=3;
+            """);
+        var (plan, tag) = await MatchPlan(fixture, 1);
+        var row = Assert.Single(plan.Files);
+        Assert.Equal("t-shared", row.SuggestedRecordingId);
+        var evidence = Assert.Single(row.Candidates.Single(c => c.RecordingId == "t-shared").Evidence,
+            e => e.StartsWith("Composite tags", StringComparison.Ordinal));
+        Assert.Contains("title from media 2", evidence);
+        Assert.Contains("mix from media 2", evidence);
+        Assert.Contains("artist from media 3", evidence);
+        Assert.Contains("duration from media 3", evidence);
+        var prepared = await PrepareMatches(fixture, plan, tag, new MediaMatchSelection(1, "t-shared", null));
+        Assert.Equal(HttpStatusCode.Created, prepared.StatusCode);
+        var review = (await prepared.Content.ReadFromJsonAsync<MediaMatchReview>())!;
+        Assert.Equal(new long[] { 1, 2, 3 }, review.VerifiedMediaIds);
+    }
+
+    [Fact]
+    public async Task Media_MatchesDoNotBorrowTagsFromDifferentFingerprints()
+    {
+        await using var fixture = await StartMedia();
+        await AddBrowseMetadata(fixture);
+        await AddReconciliationCopy(fixture);
+        await ScannerSql(fixture, """
+            UPDATE metadata SET artist=NULL,isrc=NULL WHERE media_file_id=1;
+            UPDATE media_file SET fingerprint_raw='different-fingerprint' WHERE media_file_id=2;
+            """);
+        var (plan, _) = await MatchPlan(fixture, 1);
+        var row = Assert.Single(plan.Files);
+        Assert.Null(row.SuggestedRecordingId);
+        Assert.NotEmpty(Assert.Single(row.Candidates, c => c.RecordingId == "t-shared").Blockers);
+    }
+
+    [Fact]
+    public async Task Media_MatchesRejectConflictingCopyArtistsWhenCatalogHasNoArtist()
+    {
+        await using var fixture = await StartMedia();
+        await AddBrowseMetadata(fixture);
+        await AddReconciliationCopy(fixture);
+        await AddReconciliationCopy(fixture, 3);
+        await ImportSql("DELETE FROM recording_artist_credit WHERE recording_id='t-shared'");
+        await ScannerSql(fixture, """
+            UPDATE metadata SET artist=NULL,isrc=NULL WHERE media_file_id=1;
+            UPDATE metadata SET artist='Zed Primary',isrc='GBTRK0000001' WHERE media_file_id=2;
+            UPDATE metadata SET artist='Another artist' WHERE media_file_id=3;
+            """);
+        var (plan, tag) = await MatchPlan(fixture, 1);
+        var candidate = Assert.Single(Assert.Single(plan.Files).Candidates, c => c.RecordingId == "t-shared");
+        Assert.Contains(candidate.Blockers, b => b.Contains("conflicting identity tags"));
+        await ProblemAsync(await PrepareMatches(fixture, plan, tag, new MediaMatchSelection(1, "t-shared", null)),
+            409, "media_identity_conflict");
+    }
+
+    [Theory]
+    [InlineData("UPDATE recording SET mix_name=NULL WHERE recording_id='t-shared'",
+        "UPDATE metadata SET subtitle=CASE media_file_id WHEN 2 THEN 'Original Mix' ELSE 'Radio Edit' END WHERE media_file_id IN (2,3)")]
+    [InlineData("UPDATE recording SET duration_ms=NULL WHERE recording_id='t-shared'",
+        "UPDATE media_file SET duration_seconds=CASE media_file_id WHEN 2 THEN 400 ELSE 500 END WHERE media_file_id IN (2,3)")]
+    public async Task Media_MatchesRejectConflictingCopiesWhenCatalogLacksEvidence(string catalogUpdate, string scannerUpdate)
+    {
+        await using var fixture = await StartMedia();
+        await AddBrowseMetadata(fixture);
+        await AddReconciliationCopy(fixture);
+        await AddReconciliationCopy(fixture, 3);
+        await ImportSql(catalogUpdate);
+        await ScannerSql(fixture, """
+            UPDATE metadata SET title='Shared tune',subtitle=NULL,artist=NULL,isrc=NULL WHERE media_file_id=1;
+            UPDATE media_file SET duration_seconds=NULL WHERE media_file_id=1;
+            UPDATE metadata SET isrc='GBTRK0000001' WHERE media_file_id=2;
+            """);
+        await ScannerSql(fixture, scannerUpdate);
+        var (plan, tag) = await MatchPlan(fixture, 1);
+        var candidate = Assert.Single(Assert.Single(plan.Files).Candidates, c => c.RecordingId == "t-shared");
+        Assert.Contains(candidate.Blockers, b => b.Contains("conflicting identity tags"));
+        await ProblemAsync(await PrepareMatches(fixture, plan, tag, new MediaMatchSelection(1, "t-shared", null)),
+            409, "media_identity_conflict");
+    }
+
     [Theory]
     [InlineData("UPDATE metadata SET isrc='USAAA0000002' WHERE media_file_id=2")]
     [InlineData("UPDATE metadata SET subtitle='Radio Edit' WHERE media_file_id=2")]
