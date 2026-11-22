@@ -79,6 +79,51 @@ public sealed partial class LabelApiTests
         Assert.Equal((3, "t-shared"), (paged.Total, Assert.Single(paged.Items).RecordingId));
     }
 
+    [Fact]
+    public async Task CoverageFiltersAndSortsBeforePagingAcrossTracksAndReleases()
+    {
+        await ImportSql(TrackFixture);
+        await ImportSql("""
+            INSERT INTO release(release_id,title) VALUES('t-empty','Empty release');
+            INSERT INTO media_file(media_file_id,path) VALUES('m1','/one'),('m2','/two'),('m3','/three');
+            INSERT INTO media_file_recording_match(media_file_id,recording_id,override_state) VALUES
+              ('m1','t-shared',1),('m2','t-shared',3),('m3','t-second',0);
+            """);
+        var noMedia = await Tracks("q=tune&groupBy=recording&media=none&sort=copies&order=asc&pageSize=1");
+        Assert.Equal(2, noMedia.Total);
+        Assert.Equal("t-second", Assert.Single(noMedia.Items).RecordingId);
+        var linked = await Tracks("releaseId=t-new&media=linked");
+        Assert.Equal("t-shared", Assert.Single(linked.Items).RecordingId);
+        Assert.Equal(2, linked.Items[0].LinkedCopyCount);
+        var sorted = await Tracks("q=tune&groupBy=recording&sort=copies&order=desc");
+        Assert.Equal("t-shared", sorted.Items[0].RecordingId);
+
+        async Task<ReleaseListResponse> Releases(string query) =>
+            (await _client.GetFromJsonAsync<ReleaseListResponse>("/api/v1/releases?" + query))!;
+        var partial = await Releases("media=partial");
+        var item = Assert.Single(partial.Items);
+        Assert.Equal(("t-new", 2, 1), (item.Id, item.PlacementCount, item.CoveredPlacementCount));
+        Assert.Equal("t-old", Assert.Single((await Releases("media=complete")).Items).Id);
+        Assert.Equal("t-undated", Assert.Single((await Releases("media=none")).Items).Id);
+        Assert.Equal("t-empty", Assert.Single((await Releases("media=no-tracks")).Items).Id);
+        var missing = await Releases("sort=missing&order=desc&pageSize=1");
+        Assert.Equal(4, missing.Total);
+        Assert.Equal(1, missing.Items[0].PlacementCount - missing.Items[0].CoveredPlacementCount);
+
+        async Task<ArtistListResponse> Artists(string query) =>
+            (await _client.GetFromJsonAsync<ArtistListResponse>("/api/v1/artists?" + query))!;
+        var partialArtist = Assert.Single((await Artists("media=partial")).Items);
+        Assert.Equal(("t-remix", 2, 1), (partialArtist.Id, partialArtist.RecordingCount, partialArtist.CoveredRecordingCount));
+        Assert.Equal("t-primary", Assert.Single((await Artists("media=complete")).Items).Id);
+        Assert.Equal("t-other", Assert.Single((await Artists("media=none")).Items).Id);
+        var scoped = Assert.Single((await Artists("labelId=t-label&role=remixer&media=complete")).Items);
+        Assert.Equal(("t-remix", 1, 1), (scoped.Id, scoped.RecordingCount, scoped.CoveredRecordingCount));
+        Assert.Equal("t-other", Assert.Single((await Artists("sort=missing&order=desc&pageSize=1")).Items).Id);
+        var labels = (await _client.GetFromJsonAsync<LabelListResponse>("/api/v1/labels?media=partial&sort=missing&order=desc"))!;
+        var label = Assert.Single(labels.Items);
+        Assert.Equal(("t-label", 2, 1), (label.Id, label.RecordingCount, label.CoveredRecordingCount));
+    }
+
     [Theory]
     [InlineData("unknown=1")]
     [InlineData("page=1&page=2")]
@@ -91,6 +136,7 @@ public sealed partial class LabelApiTests
     [InlineData("role=primary")]
     [InlineData("artistId=t-remix&role=producer")]
     [InlineData("releaseId=")]
+    [InlineData("media=unknown")]
     public async Task TrackListRejectsInvalidQueries(string query)
     {
         await ProblemAsync(await _client.GetAsync($"/api/v1/tracks?{query}"), 400, "validation_failed");

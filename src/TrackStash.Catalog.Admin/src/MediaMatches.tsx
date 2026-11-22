@@ -5,6 +5,7 @@ import { Link } from 'react-router-dom'
 import { mediaClient, mediaLibraryName } from './catalog'
 import type { MediaInventoryItem, MediaMatchPlan, MediaMatchReview, MediaMatchRow, MediaMatchSelection } from './catalog'
 import { ManualMedia, manualRecoveryKey } from './ManualMedia'
+import { MediaMetadata } from './MediaMetadata'
 
 const recoveryKey = 'trackstash.mediaMatches.pending'
 function outcomeMessage(review: MediaMatchReview) {
@@ -94,12 +95,13 @@ export function MediaMatches({ items, libraryNames, onBusy, onSaved, onFindRelea
     view === 'supported' && row.suggestedRecordingId || view === 'attention' && !row.alreadyRegistered && !row.suggestedRecordingId) ?? []
   function eligible(row: MediaMatchRow) {
     return row.classification !== classification && !!classification ||
-      !row.alreadyRegistered && row.candidates.some(c => c.blockers.length === 0)
+      !row.alreadyRegistered && (!!onFindRelease || row.candidates.some(c => c.blockers.length === 0))
   }
   const selections: MediaMatchSelection[] = plan?.files.filter(f => Object.hasOwn(selected, f.media.id)).map(f => ({
     mediaId: f.media.id, recordingId: selected[f.media.id] || null, classification: classification || null,
   })) ?? []
   const valid = selections.length > 0 && selections.every(s => s.recordingId || s.classification)
+  const discoveryItems = plan?.files.filter(row => !row.alreadyRegistered && Object.hasOwn(selected, row.media.id)).map(row => row.media) ?? []
   const frozen = !!review && !review.outcome
   const disabled = busy || frozen || !!recoveryId
   return <Stack component="section" aria-label="Bulk media matching" spacing={2} sx={{ minWidth: 0 }}>
@@ -146,9 +148,12 @@ export function MediaMatches({ items, libraryNames, onBusy, onSaved, onFindRelea
         Select supported proposals on this page
       </Button>
       <Button disabled={disabled || !selections.length} onClick={() => setSelected({})}>Clear selection</Button>
+      {onFindRelease && <Button disabled={disabled || !discoveryItems.length}
+        onClick={() => onFindRelease(discoveryItems)}>Find Release for selected media</Button>}
       <Button disabled={disabled || loading} onClick={() => setRevision(value => value + 1)}>Reload proposals</Button>
     </Stack>
-    <Typography>{selections.length} selected files on this page. Changing page, filters or grouping clears selection; no hidden pages are selected.</Typography>
+    <Typography>{selections.length} selected files on this page. {onFindRelease && 'Files without a Recording can be selected for Release discovery. '}
+      Changing page, filters or grouping clears selection; no hidden pages are selected.</Typography>
     <Box sx={{ width: '100%', overflowX: 'auto', contain: 'inline-size' }}>
       <Table size="small" aria-label="Media match proposals">
         <TableHead><TableRow><TableCell>Select</TableCell><TableCell>Media / library</TableCell><TableCell>Proposed Catalog Recording</TableCell><TableCell>Evidence / details</TableCell></TableRow></TableHead>
@@ -201,6 +206,7 @@ export function MediaMatches({ items, libraryNames, onBusy, onSaved, onFindRelea
             <TableCell><Accordion disableGutters>
               <AccordionSummary>Match evidence and location {row.media.id}</AccordionSummary>
               <AccordionDetails>
+                <MediaMetadata item={row.media} />
                 <Typography variant="body2">{row.media.isrc ?? 'No ISRC'}; {row.media.durationSeconds ?? '?'} s</Typography>
                 <Typography variant="body2">{row.media.fingerprintKey ? 'Stored acoustic fingerprint available (exact matches only).' : 'No stored audio fingerprint.'}</Typography>
                 <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>{row.media.path}</Typography>

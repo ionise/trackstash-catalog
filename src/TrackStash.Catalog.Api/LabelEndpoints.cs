@@ -40,7 +40,7 @@ internal static class LabelEndpoints
     {
         var page = await service.QueryAsync(LabelRequests.Query(context.Request), cancellationToken);
         return TypedResults.Ok(new LabelListResponse(
-            page.Items.Select(x => new LabelListItemResponse(x.Id, x.Name, x.SortName, x.Version)).ToArray(),
+            page.Items.Select(x => new LabelListItemResponse(x.Id, x.Name, x.SortName, x.Version, x.RecordingCount, x.CoveredRecordingCount)).ToArray(),
             page.Total, page.Page, page.PageSize));
     }
 

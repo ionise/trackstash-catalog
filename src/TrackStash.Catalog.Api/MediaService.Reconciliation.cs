@@ -273,7 +273,7 @@ public sealed partial class MediaService
         var outcome = new MediaReconciliationOutcome(id, payload.Review.Plan.ReleaseId, outcomes, association, clock.GetUtcNow());
         await unit.Enrichment.SaveAuditAsync(new(id, Json(new[] { "MediaReconciliation" }), reason.Trim(), Json(payload), Json(outcome), outcome.AppliedAt), ct);
         await CheckDependencies(payload.Dependencies, modified, ct);
-        if (Json(await ReleaseGroup(payload.Review.Plan.GroupKey, ct)) != Json(context.Files))
+        if (EvidenceJson(await ReleaseGroup(payload.Review.Plan.GroupKey, ct)) != EvidenceJson(context.Files))
             throw Error(412, "enrichment_state_changed", "Scanner group changed during linking; no batch links were saved.");
         await unit.CommitAsync(ct);
         return outcome;

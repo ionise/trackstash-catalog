@@ -25,7 +25,8 @@ public sealed record EnrichmentApplyOutcome(string ReviewId, string EntityId, Da
 
 public interface IEnrichmentApplyService
 {
-    ValueTask<EnrichmentBatchReview> PrepareBatchAsync(string releaseId, string candidateId, string catalogVersion, CancellationToken ct = default);
+    ValueTask<EnrichmentBatchReview> PrepareBatchAsync(string releaseId, string candidateId, string catalogVersion, CancellationToken ct = default,
+        string providerId = "beatport", string? editionId = null);
     ValueTask<EnrichmentBatchReview> GetBatchAsync(string reviewId, CancellationToken ct = default);
     ValueTask<EnrichmentBatchOutcome> ApplyBatchAsync(string reviewId, string version, IReadOnlyList<EnrichmentBatchSelection> selections,
         string reason, bool confirmed, CancellationToken ct = default);

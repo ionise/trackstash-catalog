@@ -53,11 +53,11 @@ test('browse Beatport releases by name and label with ownership status, tracks a
   expect(requests[0]).toBe('?q=fixture+%26+co&sort=newest&page=1&pageSize=25')
   const owned = results.getByRole('row').filter({ hasText: 'Beatport release 10' })
   await expect(owned.getByRole('link', { name: 'In catalog' })).toHaveAttribute('href', '#/releases/release-fixture/show')
-  await expect(owned.getByText('Purchased')).toBeVisible()
+  await expect(owned.getByText('In purchase source')).toBeVisible()
   await expect(owned.getByRole('button', { name: /Admit/ })).toHaveCount(0)
   await expect(results.getByRole('row').filter({ hasText: 'Beatport release 11' }).getByRole('button', { name: 'Admit Beatport release 11 to catalog' })).toBeVisible()
-  await expect(results.getByRole('row').filter({ hasText: 'Beatport release 12' }).getByText('Not owned')).toBeVisible()
-  await expect(results.getByRole('row').filter({ hasText: 'Beatport release 12' }).getByRole('button', { name: /Admit/ })).toHaveCount(0)
+  await expect(results.getByRole('row').filter({ hasText: 'Beatport release 12' }).getByText('Not in catalog')).toBeVisible()
+  await expect(results.getByRole('row').filter({ hasText: 'Beatport release 12' }).getByRole('button', { name: /Admit/ })).toBeVisible()
   await expect(owned.getByRole('link', { name: 'Open Beatport release 10 on Beatport' })).toHaveAttribute('href', 'https://www.beatport.com/release/r/10')
 
   await owned.getByRole('button', { name: 'Show tracks for Beatport release 10' }).click()
@@ -93,7 +93,7 @@ test('Artist admission fetches missing source in place, clears stale review stat
   let finishPreview: (() => void) | undefined
   let fetchCount = 0
   const finishFetch: { current?: () => void } = {}
-  await page.route('**/api/v1/purchase-release-candidates/901/beatport-backfill', async route => {
+  await page.route('**/api/v1/beatport/releases/901/prepare-import', async route => {
     expect(route.request().method()).toBe('POST')
     fetchCount++
     if (fetchCount === 1) return route.fulfill({ status: 503, json: { detail: 'Test broker unavailable' } })
@@ -111,7 +111,7 @@ test('Artist admission fetches missing source in place, clears stale review stat
   await connect(page, '/artists/release-fixture-artist/show?tab=Beatport')
   await page.getByRole('button', { name: 'Admit Beatport release 901 to catalog' }).click()
   const dialog = page.getByRole('dialog', { name: 'Admit to catalog: Beatport release 901' })
-  await expect(dialog.getByRole('link', { name: 'Inspect or fetch missing purchase data' })).toHaveAttribute('href', '#/purchase-releases?q=901')
+  await expect(dialog.getByRole('link', { name: 'Inspect purchase source' })).toHaveAttribute('href', '#/purchase-releases?q=901')
   await dialog.getByRole('button', { name: 'Create immutable import preview' }).click()
   await expect(dialog.getByRole('button', { name: 'Close admission review' })).toBeDisabled()
   const fetch = dialog.getByRole('button', { name: 'Fetch missing from Beatport' })
@@ -133,18 +133,69 @@ test('Artist admission fetches missing source in place, clears stale review stat
   finishFetch.current?.()
   await expect(dialog.getByRole('alert').filter({ hasText: 'Fetched 1 of 2 tracks (1 no longer on Beatport). Still blocked: track payload missing.' })).toBeVisible()
   await expect(dialog.getByRole('alert').filter({ hasText: 'Purchase source is incomplete. Fetch missing source data first.' })).toHaveCount(0)
-  await expect(dialog.getByText(/Purchase source completeness is not confirmed/)).toBeVisible()
+  await expect(dialog.getByText(/Beatport metadata completeness is not confirmed/)).toBeVisible()
   await fetch.click()
   await expect.poll(() => fetchCount).toBe(3)
   finishFetch.current?.()
   await expect(dialog.getByRole('alert').filter({ hasText: 'the source is now complete' })).toBeVisible()
-  await expect(dialog.getByText(/Purchase source completeness is not confirmed/)).toHaveCount(0)
+  await expect(dialog.getByText(/Beatport metadata completeness is not confirmed/)).toHaveCount(0)
   await expect(dialog.getByRole('button', { name: 'Create immutable import preview' })).toBeEnabled()
   await expect(page).toHaveURL(/#\/artists\/release-fixture-artist\/show\?tab=Beatport$/)
   await dialog.getByRole('button', { name: 'Close admission review' }).click()
   await expect(dialog).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Admit Beatport release 901 to catalog' })).toBeVisible()
   expect(applies).toEqual([])
+})
+
+for (const [kind, path, purchaseStatus] of [
+  ['Label', '/labels/legacy-test/show?tab=Beatport', null],
+  ['Artist', '/artists/release-fixture-artist/show?tab=Beatport', false],
+] as const) {
+  test(`${kind} Beatport tab prepares a non-purchase release for reviewed admission`, async ({ page }) => {
+    let prepared = 0
+    const applies: string[] = []
+    page.on('request', request => { if (request.url().includes('/apply')) applies.push(request.url()) })
+    await page.route('**/api/v1/beatport/releases?*', route => route.fulfill({ json: {
+      items: [release(902, { inPurchaseHistory: purchaseStatus })], total: 1, page: 1, pageSize: 25,
+    } }))
+    await page.route('**/api/v1/beatport/releases/902/prepare-import', route => {
+      prepared++
+      return route.fulfill({ json: {
+        releaseId: 902, sourceCompleteBefore: false, sourceCompleteAfter: true, releaseRefreshed: true,
+        tracksRequested: 2, tracksFetched: 2, tracksNotFound: 0, remainingBlockers: [],
+      } })
+    })
+    await connect(page, path)
+    await page.getByRole('button', { name: 'Admit Beatport release 902 to catalog' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Admit to catalog: Beatport release 902' })
+    await expect(dialog.getByText('Beatport metadata is ready for review.')).toBeVisible()
+    await expect(dialog.getByRole('button', { name: 'Create immutable import preview' })).toBeEnabled()
+    await expect(dialog.getByRole('link', { name: 'Inspect purchase source' })).toHaveCount(0)
+    expect(prepared).toBe(1)
+    expect(applies).toEqual([])
+  })
+}
+
+test('non-purchase preparation errors remain visible and can be retried', async ({ page }) => {
+  let attempts = 0
+  await page.route('**/api/v1/beatport/releases?*', route => route.fulfill({ json: {
+    items: [release(903, { inPurchaseHistory: null })], total: 1, page: 1, pageSize: 25,
+  } }))
+  await page.route('**/api/v1/beatport/releases/903/prepare-import', route => {
+    attempts++
+    return attempts === 1
+      ? route.fulfill({ status: 503, json: { detail: 'Broker unavailable', code: 'beatport_broker_unavailable' } })
+      : route.fulfill({ json: { releaseId: 903, sourceCompleteBefore: false, sourceCompleteAfter: true,
+        releaseRefreshed: true, tracksRequested: 0, tracksFetched: 0, tracksNotFound: 0, remainingBlockers: [] } })
+  })
+  await connect(page, '/labels/legacy-test/show?tab=Beatport')
+  await page.getByRole('button', { name: 'Admit Beatport release 903 to catalog' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Admit to catalog: Beatport release 903' })
+  await expect(dialog.getByRole('alert').filter({ hasText: 'Broker unavailable' })).toBeVisible()
+  await dialog.getByRole('button', { name: 'Fetch missing from Beatport' }).click()
+  await expect(dialog.getByText(/the source is now complete/)).toBeVisible()
+  await expect(dialog.getByRole('alert').filter({ hasText: 'Broker unavailable' })).toHaveCount(0)
+  expect(attempts).toBe(2)
 })
 
 test('label search, sign-in and broker errors are explained, and catalog labels open their embedded Beatport tab', async ({ page }) => {
@@ -203,19 +254,31 @@ test('Label Beatport tab loads lazily, keeps browsing inside the label and prese
   await tab.getByRole('button', { name: 'Show tracks for Beatport release 10' }).click()
   await expect(tab.getByRole('table', { name: 'Tracks on Beatport release 10' })).toBeVisible()
   await tab.getByLabel('Release name').fill('new & old')
+  await tab.getByLabel('Track title').fill('Fort Dew')
+  await tab.getByLabel('Catalog number').fill('CAT 42')
+  await tab.getByLabel('From date').fill('2024-01-01')
+  await tab.getByLabel('To date').fill('2024-12-31')
   await tab.getByRole('button', { name: 'Search', exact: true }).click()
   await expect.poll(() => requests.at(-1)?.searchParams.get('q')).toBe('new & old')
+  expect(requests.at(-1)?.searchParams.get('trackName')).toBe('Fort Dew')
+  expect(requests.at(-1)?.searchParams.get('catalogNumber')).toBe('CAT 42')
+  expect(requests.at(-1)?.searchParams.get('dateFrom')).toBe('2024-01-01')
+  expect(requests.at(-1)?.searchParams.get('dateTo')).toBe('2024-12-31')
   await tab.getByRole('combobox', { name: 'Order' }).click()
   await page.getByRole('option', { name: 'Oldest first' }).click()
   await expect.poll(() => requests.at(-1)?.searchParams.get('sort')).toBe('oldest')
   await tab.getByRole('button', { name: 'Next page' }).click()
   await expect(tab.getByText('Beatport release 20', { exact: true })).toBeVisible()
-  await expect(page).toHaveURL(/#\/labels\/legacy-test\/show\?tab=Beatport&bpQ=new\+%26\+old&bpSort=oldest&bpPage=2$/)
+  await expect(page).toHaveURL(/bpPage=2/)
   await page.reload()
   await page.getByLabel('API key').fill(key)
   await page.getByRole('button', { name: 'Connect', exact: true }).click()
   await expect(tab.getByText('Beatport release 20', { exact: true })).toBeVisible()
   await expect(tab.getByLabel('Release name')).toHaveValue('new & old')
+  await expect(tab.getByLabel('Track title')).toHaveValue('Fort Dew')
+  await expect(tab.getByLabel('Catalog number')).toHaveValue('CAT 42')
+  await expect(tab.getByLabel('From date')).toHaveValue('2024-01-01')
+  await expect(tab.getByLabel('To date')).toHaveValue('2024-12-31')
   await page.getByRole('tab', { name: 'Details', exact: true }).click()
   await page.getByRole('tab', { name: 'Beatport', exact: true }).click()
   await expect(tab.getByText('Page 2 of 2')).toBeVisible()
@@ -245,14 +308,22 @@ test('Artist Beatport tab prefers the primary ID and lets you browse another ide
   const tab = page.getByRole('tabpanel', { name: 'Beatport', exact: true })
   await expect(tab.getByText('Beatport release 1001', { exact: true })).toBeVisible()
   expect(requests[0].search).toBe('?artistId=1001&sort=newest&page=1&pageSize=25')
+  await tab.getByLabel('Catalog number').fill('CAT 1001')
+  await tab.getByLabel('Track title').fill('House')
+  await tab.getByLabel('From date').fill('2023-02-01')
+  await tab.getByRole('button', { name: 'Search', exact: true }).click()
+  await expect.poll(() => requests.at(-1)?.searchParams.get('catalogNumber')).toBe('CAT 1001')
+  expect(requests.at(-1)?.searchParams.get('dateFrom')).toBe('2023-02-01')
+  expect(requests.at(-1)?.searchParams.get('trackName')).toBe('House')
   await expect(page.getByRole('heading', { name: 'Fixture Composer', level: 1 })).toBeVisible()
   await tab.getByRole('button', { name: 'Next page' }).click()
   await expect(tab.getByText('Page 2 of 2')).toBeVisible()
   await tab.getByRole('combobox', { name: 'Beatport identity' }).click()
   await page.getByRole('option', { name: '2002', exact: true }).click()
   await expect(tab.getByText('Beatport release 2002', { exact: true })).toBeVisible()
-  expect(requests.at(-1)?.search).toBe('?artistId=2002&sort=newest&page=1&pageSize=25')
-  await expect(page).toHaveURL(/#\/artists\/release-fixture-artist\/show\?tab=Beatport&releasePage=2&bpIdentity=2002$/)
+  expect(requests.at(-1)?.searchParams.get('artistId')).toBe('2002')
+  expect(requests.at(-1)?.searchParams.get('catalogNumber')).toBe('CAT 1001')
+  await expect(page).toHaveURL(/bpIdentity=2002/)
   await page.reload()
   await page.getByLabel('API key').fill(key)
   await page.getByRole('button', { name: 'Connect', exact: true }).click()

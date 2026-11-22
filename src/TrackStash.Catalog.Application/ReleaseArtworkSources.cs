@@ -77,7 +77,7 @@ public sealed class ReleaseArtworkSourceService(IReleaseService releases, IArtwo
         if (!confirmed || string.IsNullOrWhiteSpace(usageRights) || usageRights.Length > 2000 ||
             string.IsNullOrWhiteSpace(candidateId) || candidateId.Length > 200 || string.IsNullOrWhiteSpace(revision) || revision.Length > 200 ||
             string.IsNullOrWhiteSpace(provider) || provider.Length > 100)
-            throw new ArgumentException("Confirm attachment and record usage rights for a valid source candidate.");
+            throw new ArgumentException("A valid source candidate and usage-rights record are required.");
         var gallery = await artwork.GetReleaseAsync(releaseId, ct).ConfigureAwait(false);
         if (gallery is null) return new(LabelUpdateStatus.NotFound);
         if (gallery.Version != version) return new(LabelUpdateStatus.Stale);

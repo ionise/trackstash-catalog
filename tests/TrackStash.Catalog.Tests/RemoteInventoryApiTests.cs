@@ -60,6 +60,7 @@ public sealed partial class LabelApiTests
             Assert.Equal("owner", result.OwnerId);
             Assert.Equal("mac", result.DeviceId);
             Assert.Equal("Tune", result.Title);
+            Assert.Equal(10, result.SizeBytes);
             Assert.Equal(1, page.Total);
             Assert.DoesNotContain("private-fingerprint", await admin.GetStringAsync("/api/v1/remote-inventory"));
             var older = item with { ScannedUtc = item.ScannedUtc.AddDays(-1), Title = "Old" };
@@ -96,7 +97,8 @@ public sealed partial class LabelApiTests
             var items = new object[] {
                 new { media_file_id = 1, path = "/music/a", format = "flac", size_bytes = 1,
                     scanned_utc = "2026-01-02T00:00:00Z", last_modified_utc = "2026-01-01T00:00:00Z",
-                    track_number = "2/11", disc_number = 1, bpm = "120 BPM", fingerprint_raw = new string('a', 233004) },
+                    track_number = "2/11", disc_number = 1, bpm = "120 BPM", catalog_number = "CAT 42", isrc = "GBTRK0000001",
+                    fingerprint_raw = new string('a', 233004) },
                 new { media_file_id = 2, path = "/music/b", format = "flac", size_bytes = 1,
                     scanned_utc = "2026-01-02T00:00:00Z", last_modified_utc = "2026-01-01T00:00:00Z",
                     track_number = 3, disc_number = "1/2", bpm = 122.5 }
@@ -118,6 +120,15 @@ public sealed partial class LabelApiTests
             Assert.Equal(3, second.RootElement.GetProperty("track_number").GetInt32());
             Assert.Equal("1/2", second.RootElement.GetProperty("disc_number").GetString());
             Assert.Equal(122.5, second.RootElement.GetProperty("bpm").GetDouble());
+            using var admin = app.GetTestClient();
+            admin.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Key);
+            var displayed = (await admin.GetFromJsonAsync<RemoteInventoryPage>("/api/v1/remote-inventory?sort=title"))!;
+            var metadata = displayed.Items.Single(x => x.MediaFileId == 1);
+            Assert.Equal("GBTRK0000001", metadata.Isrc);
+            Assert.Equal(("CAT 42", "2/11", "1", "120 BPM"),
+                (metadata.Tags!.CatalogNumber, metadata.Tags.TrackNumber, metadata.Tags.DiscNumber, metadata.Tags.Bpm));
+            Assert.Equal("122.5", displayed.Items.Single(x => x.MediaFileId == 2).Tags!.Bpm);
+            Assert.DoesNotContain(new string('a', 100), await admin.GetStringAsync("/api/v1/remote-inventory"));
 
             var invalid = new { items = new[] { new { media_file_id = 3, path = "/music/c", format = "flac", size_bytes = 1,
                 scanned_utc = "2026-01-02T00:00:00Z", last_modified_utc = "2026-01-01T00:00:00Z", bpm = new { value = 120 } } } };
@@ -164,6 +175,12 @@ public sealed partial class LabelApiTests
             };
             Assert.Equal(HttpStatusCode.OK, (await device.PostAsJsonAsync("/api/v1/remote-inventory/batches",
                 new RemoteInventoryBatchRequest { Items = items })).StatusCode);
+            var before = (await admin.GetFromJsonAsync<RemoteInventoryPage>("/api/v1/remote-inventory?match=unmatched&device=mac&sort=title&order=desc"))!;
+            Assert.Equal(2, before.Total);
+            Assert.Equal(["mac"], before.Devices);
+            Assert.All(before.Items, item => Assert.Equal(64, item.Version.Length));
+            Assert.Empty((await admin.GetFromJsonAsync<RemoteInventoryPage>("/api/v1/remote-inventory?match=matched"))!.Items);
+            await ProblemAsync(await admin.GetAsync("/api/v1/remote-inventory?match=unknown"), 400, "validation_failed");
             var keys = new[] { new RemoteInventoryKey("owner", "mac", 1), new RemoteInventoryKey("owner", "mac", 2) };
             Assert.Equal(HttpStatusCode.Unauthorized, (await device.PostAsJsonAsync("/api/v1/remote-inventory/match-proposals",
                 new RemoteMatchProposalsRequest(keys))).StatusCode);
@@ -179,6 +196,18 @@ public sealed partial class LabelApiTests
             response = await admin.PostAsJsonAsync("/api/v1/remote-inventory/matches", new RemoteMatchRequest(selections));
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
             Assert.Equal(2, (await response.Content.ReadFromJsonAsync<RemoteMatchResult>())!.Saved);
+            Assert.Equal(2, (await admin.GetFromJsonAsync<RemoteInventoryPage>("/api/v1/remote-inventory?match=matched"))!.Total);
+            Assert.Equal(0, (await admin.GetFromJsonAsync<RemoteInventoryPage>("/api/v1/remote-inventory?match=unmatched"))!.Total);
+            var additional = Enumerable.Range(3, 30).Select(i => items[0] with {
+                MediaFileId = i, Path = $"/offline/{i}.flac", Title = $"Extra {i:D2}"
+            }).ToArray();
+            Assert.Equal(HttpStatusCode.OK, (await device.PostAsJsonAsync("/api/v1/remote-inventory/batches",
+                new RemoteInventoryBatchRequest { Items = additional })).StatusCode);
+            var lastPage = (await admin.GetFromJsonAsync<RemoteInventoryPage>(
+                "/api/v1/remote-inventory?match=unmatched&sort=title&order=desc&page=2"))!;
+            Assert.Equal(30, lastPage.Total);
+            Assert.Equal(new[] { "Extra 07", "Extra 06", "Extra 05", "Extra 04", "Extra 03" },
+                lastPage.Items.Select(item => item.Title).ToArray());
             Assert.Equal(2, (await admin.GetFromJsonAsync<RecordingResponse>("/api/v1/recordings/t-shared"))!.LinkedCopyCount);
             var linked = (await admin.GetFromJsonAsync<LinkedRecordingMedia[]>("/api/v1/recordings/t-shared/media"))!;
             Assert.Equal(2, linked.Length);
@@ -242,9 +271,17 @@ public sealed partial class LabelApiTests
             var proposals = (await response.Content.ReadFromJsonAsync<RemoteMatchProposal[]>())!;
             Assert.All(proposals, proposal => Assert.Null(proposal.SuggestedRecordingId));
             var selections = proposals.Select(proposal => new RemoteMatchSelection(proposal.Key, proposal.Version, "t-second")).ToArray();
-            response = await admin.PostAsJsonAsync("/api/v1/remote-inventory/matches", new RemoteMatchRequest(selections));
+            response = await admin.PostAsJsonAsync("/api/v1/remote-inventory/matches", new RemoteMatchRequest([selections[0]]));
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-            Assert.Equal(3, (await response.Content.ReadFromJsonAsync<RemoteMatchResult>())!.Saved);
+            var unmatchedMac = (await admin.GetFromJsonAsync<RemoteInventoryPage>("/api/v1/remote-inventory?match=unmatched&device=mac"))!;
+            var remainingMac = Assert.Single(unmatchedMac.Items);
+            Assert.Equal("other-owner", remainingMac.OwnerId);
+            Assert.Equal(["mac", "other-device"], unmatchedMac.Devices);
+            Assert.Equal(1, (await admin.GetFromJsonAsync<RemoteInventoryPage>("/api/v1/remote-inventory?match=matched&device=mac"))!.Total);
+            Assert.Equal(1, (await admin.GetFromJsonAsync<RemoteInventoryPage>("/api/v1/remote-inventory?match=unmatched&device=other-device"))!.Total);
+            response = await admin.PostAsJsonAsync("/api/v1/remote-inventory/matches", new RemoteMatchRequest(selections[1..]));
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.Equal(2, (await response.Content.ReadFromJsonAsync<RemoteMatchResult>())!.Saved);
             Assert.Equal(3, await ImportCount("media_file"));
             response = await admin.PostAsJsonAsync("/api/v1/remote-inventory/match-proposals", new RemoteMatchProposalsRequest(keys));
             Assert.All((await response.Content.ReadFromJsonAsync<RemoteMatchProposal[]>())!,

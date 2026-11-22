@@ -24,7 +24,7 @@ public sealed record RecordingResponse(string Id, string? Title, string? MixName
 
 internal static class TrackEndpoints
 {
-    private static readonly string[] Fields = ["page", "pageSize", "q", "releaseId", "labelId", "artistId", "role", "recordingId", "groupBy", "sort", "order"];
+    private static readonly string[] Fields = ["page", "pageSize", "q", "releaseId", "labelId", "artistId", "role", "recordingId", "groupBy", "sort", "order", "media"];
 
     public static void MapTracks(this WebApplication app)
     {
@@ -52,7 +52,7 @@ internal static class TrackEndpoints
         if (order is not (null or "asc" or "desc"))
             throw new ApiRequestException(400, "validation_failed", "Track order must be asc or desc.");
         var query = new TrackQuery(Number("page", 1), Number("pageSize", 25), Text("q"), Text("releaseId"), Text("labelId"),
-            Text("artistId"), Text("role"), Text("recordingId"), groupBy is not null, Text("sort"), order is null ? null : order == "desc");
+            Text("artistId"), Text("role"), Text("recordingId"), groupBy is not null, Text("sort"), order is null ? null : order == "desc", Text("media"));
         query.Validate(); return query;
     }
 

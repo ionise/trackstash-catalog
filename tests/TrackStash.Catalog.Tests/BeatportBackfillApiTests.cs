@@ -12,12 +12,110 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Http;
 using TrackStash.Catalog.Api.Beatport;
 using TrackStash.Catalog.Api;
+using TrackStash.Catalog.Application;
 using TrackStash.Core.Sqlite;
+using TrackStash.Core.Storage;
 
 namespace TrackStash.Catalog.Tests;
 
 public sealed partial class LabelApiTests
 {
+    [Fact]
+    public async Task BeatportCatalogAdmission_WorksWithOnlyBrokerCacheAndNoPurchaseSource()
+    {
+        await ImportSql("""
+            INSERT INTO label(label_id,name) VALUES('source-label','Test label');
+            INSERT INTO label_external_ref(label_id,source,external_id) VALUES('source-label','beatport','42');
+            """);
+        var (app, client, broker) = await StartWithBrokerAsync(purchaseConfigured: false);
+        await using var _ = app;
+        broker.Payloads["release:10"] = ReleasePayload();
+        broker.Payloads["track:101"] = TrackPayload(101);
+        broker.Payloads["track:102"] = TrackPayload(102);
+
+        var response = await client.PostAsync("/api/v1/beatport/releases/10/prepare-import", null);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var prepared = (await response.Content.ReadFromJsonAsync<BeatportBackfillResult>())!;
+        Assert.True(prepared.SourceCompleteAfter, string.Join(",", prepared.RemainingBlockers));
+        Assert.Equal(2, prepared.TracksFetched);
+        await ProblemAsync(await client.GetAsync("/api/v1/purchase-release-candidates"), 503, "purchase_source_unavailable");
+        using var scope = app.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<IReleaseImportService>();
+        var reviewed = await Reviewed((ReleaseImportService)service);
+        Assert.Equal("catalog_cache", reviewed.Plan.Source.SourceKind);
+        var outcome = await service.ApplyAsync(reviewed.Plan.OperationId, reviewed.Plan.Version, "", true);
+        Assert.Equal(2, outcome.CreatedRecordings);
+        Assert.Equal(outcome, await service.ApplyAsync(reviewed.Plan.OperationId, reviewed.Plan.Version, "", true));
+        Assert.Equal(1, await ImportCount("release"));
+        Assert.Equal(0, await ImportCount("media_file"));
+    }
+
+    [Fact]
+    public async Task BeatportCatalogAdmission_RejectsChangedBrokerEvidence()
+    {
+        await ImportSql("""
+            INSERT INTO label(label_id,name) VALUES('source-label','Test label');
+            INSERT INTO label_external_ref(label_id,source,external_id) VALUES('source-label','beatport','42');
+            """);
+        var (app, client, broker) = await StartWithBrokerAsync(purchaseConfigured: false);
+        await using var _ = app;
+        broker.Payloads["release:10"] = ReleasePayload();
+        broker.Payloads["track:101"] = TrackPayload(101);
+        broker.Payloads["track:102"] = TrackPayload(102);
+        Assert.Equal(HttpStatusCode.OK, (await client.PostAsync("/api/v1/beatport/releases/10/prepare-import", null)).StatusCode);
+        using var scope = app.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<IReleaseImportService>();
+        var reviewed = await Reviewed((ReleaseImportService)service);
+        await SourceSql("UPDATE beatport_broker_entity SET payload_json = replace(payload_json, 'CAT001', 'CAT002') WHERE entity_type='release'");
+        var error = await Assert.ThrowsAsync<ReleaseImportException>(() => service.ApplyAsync(reviewed.Plan.OperationId, reviewed.Plan.Version, "", true).AsTask());
+        Assert.Equal(412, error.Status);
+        Assert.Equal(0, await ImportCount("release"));
+    }
+
+    [Fact]
+    public async Task BeatportCatalogAdmission_ReportsBrokerErrorsWithoutPurchaseSource()
+    {
+        var (app, client, broker) = await StartWithBrokerAsync(purchaseConfigured: false);
+        await using var _ = app;
+        await ProblemAsync(await client.PostAsync("/api/v1/beatport/releases/9999/prepare-import", null), 404, "beatport_release_not_found");
+        broker.Unavailable = true;
+        await ProblemAsync(await client.PostAsync("/api/v1/beatport/releases/10/prepare-import", null), 503, "beatport_broker_unavailable");
+    }
+
+    [Fact]
+    public async Task BeatportCatalogAdmission_DoesNotHideUnavailableConfiguredPurchaseSource()
+    {
+        var (app, client, broker) = await StartWithBrokerAsync(brokerPath: _path + ".broker");
+        await using var _ = app;
+        try
+        {
+            broker.Payloads["release:10"] = ReleasePayload();
+            await ProblemAsync(await client.PostAsync("/api/v1/beatport/releases/10/prepare-import", null), 503, "purchase_source_unavailable");
+            Assert.Empty(broker.Requests);
+        }
+        finally { File.Delete(_path + ".broker"); }
+    }
+
+    [Fact]
+    public async Task BeatportCatalogAdmission_UsesSeparateBrokerCacheWithoutChangingPurchaseSource()
+    {
+        await CreatePurchaseSource();
+        await MakeTrack102MissingAsync();
+        var (app, client, broker) = await StartWithBrokerAsync(brokerPath: _path + ".broker");
+        await using var _ = app;
+        try
+        {
+            broker.Payloads["release:10"] = ReleasePayload();
+            broker.Payloads["track:102"] = TrackPayload(102);
+            broker.Payloads["track:101"] = TrackPayload(101);
+            var result = (await (await client.PostAsync("/api/v1/beatport/releases/10/prepare-import", null))
+                .Content.ReadFromJsonAsync<BeatportBackfillResult>())!;
+            Assert.True(result.SourceCompleteAfter, string.Join(",", result.RemainingBlockers));
+            Assert.False((await new SqlitePurchaseReleaseSource(PurchaseSourcePath).InspectAsync(10, new()))!.SourceComplete);
+        }
+        finally { File.Delete(_path + ".broker"); }
+    }
+
     [Fact]
     public async Task BeatportCatalogAdmission_CachesNonPurchaseReleaseWithoutChangingCorpusOrCatalog()
     {
@@ -74,6 +172,7 @@ public sealed partial class LabelApiTests
         public Dictionary<string, string> Pages { get; } = [];
         public List<string> Requests { get; } = [];
         public bool SignedIn { get; set; } = true;
+        public bool Unavailable { get; set; }
         public string? LastSignInBody { get; private set; }
 
         private static HttpResponseMessage Json(HttpStatusCode status, string body, string type = "application/json") =>
@@ -82,7 +181,29 @@ public sealed partial class LabelApiTests
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Assert.Equal("Bearer " + BrokerKey, request.Headers.Authorization?.ToString());
+            if (Unavailable) throw new HttpRequestException("Broker unavailable");
             var path = request.RequestUri!.AbsolutePath;
+            if (request.Headers.Contains("X-Broker-Cache-Only"))
+            {
+                var matchCache = Regex.Match(path, "^/v4/catalog/(tracks|releases)/([0-9]+)/$");
+                Assert.True(matchCache.Success, path);
+                await using var cachedConnection = new SqliteConnection($"Data Source={scannerPath};Pooling=False");
+                await cachedConnection.OpenAsync(cancellationToken);
+                await using var cachedCommand = cachedConnection.CreateCommand();
+                cachedCommand.CommandText = """
+                    CREATE TABLE IF NOT EXISTS beatport_broker_entity (entity_type TEXT NOT NULL, entity_id INTEGER NOT NULL, payload_json TEXT NOT NULL,
+                        fetched_utc TEXT NOT NULL, source_request_key TEXT NOT NULL, PRIMARY KEY (entity_type, entity_id));
+                    SELECT payload_json, fetched_utc FROM beatport_broker_entity WHERE entity_type=@type AND entity_id=@id;
+                    """;
+                cachedCommand.Parameters.AddWithValue("@type", matchCache.Groups[1].Value.TrimEnd('s'));
+                cachedCommand.Parameters.AddWithValue("@id", long.Parse(matchCache.Groups[2].Value));
+                await using var reader = await cachedCommand.ExecuteReaderAsync(cancellationToken);
+                if (!await reader.ReadAsync(cancellationToken))
+                    return Json(HttpStatusCode.GatewayTimeout, """{"code":"not_cached"}""", "application/problem+json");
+                var cachedResponse = Json(HttpStatusCode.OK, reader.GetString(0));
+                cachedResponse.Headers.Add("X-Broker-Fetched-Utc", reader.GetString(1));
+                return cachedResponse;
+            }
             Requests.Add($"{request.Method} {path}{request.RequestUri.Query}{(request.Headers.Contains("X-Broker-Refresh") ? " refresh" : "")}");
             switch (path)
             {
@@ -126,13 +247,13 @@ public sealed partial class LabelApiTests
         }
     }
 
-    private async Task<(WebApplication App, HttpClient Client, FakeBroker Broker)> StartWithBrokerAsync(bool configured = true, TimeProvider? clock = null)
+    private async Task<(WebApplication App, HttpClient Client, FakeBroker Broker)> StartWithBrokerAsync(bool configured = true, TimeProvider? clock = null, HttpMessageHandler? artwork = null, bool purchaseConfigured = true, string? brokerPath = null)
     {
-        var broker = new FakeBroker(PurchaseSourcePath);
+        var broker = new FakeBroker(brokerPath ?? PurchaseSourcePath);
         var app = Build(b =>
         {
             if (clock is not null) b.Services.AddSingleton(clock);
-            var settings = new Dictionary<string, string?> { ["CatalogApi:PurchaseSourceDatabasePath"] = PurchaseSourcePath };
+            var settings = new Dictionary<string, string?> { ["CatalogApi:PurchaseSourceDatabasePath"] = purchaseConfigured ? PurchaseSourcePath : null };
             if (configured)
             {
                 settings["CatalogApi:BeatportBrokerUrl"] = "http://127.0.0.1:5190";
@@ -141,6 +262,9 @@ public sealed partial class LabelApiTests
             b.Configuration.AddInMemoryCollection(settings);
             b.Services.PostConfigure<HttpClientFactoryOptions>(BeatportBrokerClient.HttpClientName,
                 o => o.HttpMessageHandlerBuilderActions.Add(h => h.PrimaryHandler = broker));
+            if (artwork is not null)
+                b.Services.PostConfigure<HttpClientFactoryOptions>(BeatportArtworkProvider.HttpClientName,
+                    o => o.HttpMessageHandlerBuilderActions.Add(h => h.PrimaryHandler = artwork));
         });
         await app.StartAsync();
         var client = app.GetTestClient();

@@ -2,7 +2,36 @@ import { expect, test } from '@playwright/test'
 
 const key = 'test-only-browser-key-not-a-production-secret'
 
-test('Beatport artwork preview is explicit and reviewed attachment preserves preference by default', async ({ page }) => {
+for (const kind of ['artist', 'label'] as const) {
+  test(`Beatport ${kind} artwork attaches and becomes preferred when the gallery is empty`, async ({ page, request }) => {
+    const resource = kind === 'artist' ? 'artists' : 'labels'
+    const id = kind === 'artist' ? 'release-fixture-artist' : (await (await request.post('/api/v1/labels', {
+      headers: { Authorization: `Bearer ${key}` }, data: { name: 'Beatport Artwork Label' },
+    })).json()).id as string
+    let attached = false
+    await page.route(`**/api/v1/${resource}/*/artwork-candidates`, route => route.fulfill({ json: {
+      providers: ['beatport'], items: [{ provider: 'beatport', candidateId: `${id}:10`, revision: 'r1', title: 'Beatport image',
+        sourceUrl: `https://www.beatport.com/${kind}/-/10`, attribution: 'Supplied by Beatport' }],
+    } }))
+    await page.route(`**/api/v1/${resource}/*/artwork-candidates/attach`, async route => {
+      expect(route.request().postDataJSON()).toEqual({ provider: 'beatport', candidateId: `${id}:10`, revision: 'r1', isPreferred: true })
+      expect(route.request().headers()['if-match']).toBeTruthy()
+      attached = true
+      await route.fulfill({ status: 201, headers: { ETag: '"r2"' }, json: { [`${kind}Id`]: id, items: [] } })
+    })
+    await page.goto(`/admin/#/${resource}/${id}/show`)
+    await page.getByLabel('API key').fill(key)
+    await page.getByRole('button', { name: 'Connect', exact: true }).click()
+    await page.getByRole('button', { name: kind === 'artist' ? 'Change Artist artwork' : 'Change label artwork', exact: true }).click()
+    const dialog = page.getByRole('dialog')
+    await dialog.getByRole('button', { name: 'Look up artwork candidates' }).click()
+    await expect(dialog.getByText('Beatport image (beatport)', { exact: true })).toBeVisible()
+    await dialog.getByRole('button', { name: 'Attach candidate', exact: true }).click()
+    await expect.poll(() => attached).toBe(true)
+  })
+}
+
+test('Beatport artwork attaches without extra confirmation and preserves preference by default', async ({ page }) => {
   let previews = 0
   let attached = false
   await page.route('**/api/v1/releases/*/artwork-candidates', route => route.fulfill({ json: {
@@ -17,7 +46,7 @@ test('Beatport artwork preview is explicit and reviewed attachment preserves pre
   })
   await page.route('**/api/v1/releases/*/artwork-candidates/attach', async route => {
     const body = route.request().postDataJSON()
-    expect(body).toMatchObject({ provider: 'beatport', candidateId: 'release-fixture:10', confirmed: true, isPreferred: false })
+    expect(body).toEqual({ provider: 'beatport', candidateId: 'release-fixture:10', revision: 'r1', isPreferred: false })
     expect(route.request().headers()['if-match']).toBeTruthy()
     attached = true
     await route.fulfill({ status: 201, headers: { ETag: '"r2"' }, json: { releaseId: 'release-fixture', items: [] } })
@@ -34,9 +63,7 @@ test('Beatport artwork preview is explicit and reviewed attachment preserves pre
   await expect(dialog.getByRole('img', { name: 'beatport artwork candidate' })).toHaveAttribute('src', /^blob:/)
   expect(previews).toBe(1)
   const attach = dialog.getByRole('button', { name: /Attach candidate/ })
-  await expect(attach).toBeDisabled()
-  await dialog.getByLabel('Candidate usage rights').fill('Reviewed usage permission')
-  await dialog.getByLabel('I confirm the release match and usage rights and request a managed copy').check()
+  await expect(attach).toBeEnabled()
   await expect(dialog.getByLabel('Prefer the attached candidate (otherwise preserve the current preferred cover)')).not.toBeChecked()
   await attach.click()
   await expect.poll(() => attached).toBe(true)

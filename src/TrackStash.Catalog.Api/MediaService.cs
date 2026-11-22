@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using System.Text.RegularExpressions;
 using Microsoft.Data.Sqlite;
 using TrackStash.Catalog.Application;
@@ -12,10 +13,14 @@ namespace TrackStash.Catalog.Api;
 
 /// <summary>Named server-approved library, not a browser-supplied filesystem root.</summary>
 public sealed record MediaLibrary(string Id, string Root, string Name);
+/// <summary>Scanner tags available for a media file; values are historical and may be absent.</summary>
+public sealed record MediaFileTags(string? Artists, string? Remixers, string? Barcode, string? CatalogNumber,
+    string? TrackNumber, string? DiscNumber, string? Bpm, string? MusicalKey, string? Genre, string? Year);
 /// <summary>Historical scanner tags and file identity; existence does not imply verified bytes or backup completeness.</summary>
 public sealed record MediaInventoryItem(long Id, string Library, string RelativePath, string? Title, string? Mix,
     string? Artist, string? Album, string? Isrc, double? DurationSeconds, string? ContentHash, long SizeBytes,
-    string ScannedUtc, string LastModifiedUtc, string Path, string? Label = null, string? Release = null, string? FingerprintKey = null);
+    string ScannedUtc, string LastModifiedUtc, string Path, string? Label = null, string? Release = null, string? FingerprintKey = null,
+    MediaFileTags? Tags = null, string? Format = null);
 /// <summary>A bounded scanner inventory page, with explicit freshness/ownership limitations.</summary>
 public sealed record MediaInventoryPage(IReadOnlyList<MediaInventoryItem> Items, int Total, int Page, int PageSize,
     IReadOnlyList<string> Libraries, IReadOnlyList<string> Warnings, IReadOnlyList<MediaGroup>? Groups = null, int? GroupTotal = null,
@@ -37,6 +42,7 @@ public sealed record LinkedRecordingMedia(string Id, string Path, string? Sha256
 
 public interface IMediaService
 {
+    Task<MediaInventoryItem> LookupItemAsync(long id, CancellationToken ct);
     Task<MediaInventoryPage> QueryAsync(string? library, string? search, int page, CancellationToken ct, MediaBrowseOptions? options = null);
     Task<MediaCandidates> CandidatesAsync(long id, CancellationToken ct);
     Task<MediaLinkReview> PrepareAsync(long id, string recordingId, CancellationToken ct);
@@ -55,6 +61,7 @@ public interface IMediaService
     Task<MediaMatchReview> PrepareMatchesAsync(IReadOnlyList<long> mediaIds, IReadOnlyList<MediaMatchSelection> selections, string version, CancellationToken ct);
     Task<MediaMatchReview> GetMatchesAsync(string id, CancellationToken ct);
     Task<MediaMatchOutcome> ApplyMatchesAsync(string id, string version, bool confirmed, CancellationToken ct);
+    Task<PseudoReleaseOutcome> CreatePseudoReleaseAsync(CreatePseudoReleaseRequest request, CancellationToken ct);
     Task<ManualMediaReview> PrepareManualMediaAsync(long id, string recordingId, CancellationToken ct);
     Task<ManualMediaReview> GetManualMediaAsync(string id, CancellationToken ct);
     Task<MediaLinkOutcome> ApplyManualMediaAsync(string id, string version, bool confirmed, CancellationToken ct);
@@ -70,7 +77,24 @@ public sealed partial class MediaService(IConfiguration configuration, IStorageP
     private sealed record Sidecar(string? Title, string? Mix, string? Isrc, string? TrackId, string? Provider, string Hash);
     private static EnrichmentApplyException Error(int status, string code, string message) => new(status, code, message);
     private static string Json<T>(T value) => JsonSerializer.Serialize(value);
-    private static string Hash<T>(T value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Json(value)))).ToLowerInvariant();
+    // Display-only fields were not part of existing frozen review evidence or version hashes.
+    private static readonly JsonSerializerOptions EvidenceOptions = new()
+    {
+        TypeInfoResolver = new DefaultJsonTypeInfoResolver
+        {
+            Modifiers = { type =>
+            {
+                if (type.Type != typeof(MediaInventoryItem)) return;
+                foreach (var name in new[] { nameof(MediaInventoryItem.Tags), nameof(MediaInventoryItem.Format) })
+                {
+                    var property = type.Properties.First(p => p.Name == name);
+                    type.Properties.Remove(property);
+                }
+            } }
+        }
+    };
+    private static string EvidenceJson<T>(T value) => JsonSerializer.Serialize(value, EvidenceOptions);
+    private static string Hash<T>(T value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(EvidenceJson(value)))).ToLowerInvariant();
     internal static string FingerprintKey(string fingerprintJson) => Hash(fingerprintJson);
     public async Task<IReadOnlyList<LinkedRecordingMedia>> LinkedAsync(string recordingId, CancellationToken ct)
     {
@@ -134,6 +158,10 @@ public sealed partial class MediaService(IConfiguration configuration, IStorageP
         var fileColumns = await Columns(connection, "media_file", ct);
         var labelColumn = metadataColumns.Contains("label") ? "m.label" : "NULL";
         var releaseColumn = metadataColumns.Contains("release") ? "nullif(trim(m.release),'')" : "NULL";
+        string Tag(string name) => metadataColumns.Contains(name) ? $"CAST(m.{name} AS TEXT)" : "NULL";
+        var tags = string.Join(",", new[] { "artists_json", "remixers_json", "barcode", "catalog_number",
+            "track_number", "disc_number", "bpm", "musical_key", "genre", "year" }.Select(Tag));
+        var format = fileColumns.Contains("format") ? "f.format" : "NULL";
         var fingerprintColumn = fileColumns.Contains("fingerprint_raw")
             ? "CASE WHEN length(f.fingerprint_raw)>0 THEN json_object('algorithm','legacy-chromaprint','version','unknown','fingerprint',f.fingerprint_raw) END" : "NULL";
         var fingerprintColumns = await Columns(connection, "acoustic_fingerprint", ct);
@@ -147,7 +175,7 @@ public sealed partial class MediaService(IConfiguration configuration, IStorageP
         await using var command = connection.CreateCommand();
         command.CommandText = $"""
             SELECT f.media_file_id,f.path,m.title,m.subtitle,m.artist,m.album,m.isrc,f.duration_seconds,
-                   f.content_hash,f.size_bytes,f.scanned_utc,f.last_modified_utc,{labelColumn},{releaseColumn},{fingerprintColumn}
+                   f.content_hash,f.size_bytes,f.scanned_utc,f.last_modified_utc,{labelColumn},{releaseColumn},{fingerprintColumn},{tags},{format}
             FROM media_file f LEFT JOIN metadata m USING(media_file_id)
             WHERE @id IS NULL OR f.media_file_id=@id ORDER BY f.media_file_id LIMIT 100001
             """;
@@ -166,7 +194,8 @@ public sealed partial class MediaService(IConfiguration configuration, IStorageP
             rows.Add(new(reader.GetInt64(0), library.Id, System.IO.Path.GetRelativePath(library.Root, path),
                 Text(2), Text(3), Text(4), Text(5), Text(6), reader.IsDBNull(7) ? null : reader.GetDouble(7),
                 Text(8), reader.GetInt64(9), reader.GetString(10), reader.GetString(11), path, Text(12),
-                Text(13) ?? Text(5), string.IsNullOrWhiteSpace(Text(14)) ? null : FingerprintKey(Text(14)!)));
+                Text(13) ?? Text(5), string.IsNullOrWhiteSpace(Text(14)) ? null : FingerprintKey(Text(14)!),
+                new(Text(15), Text(16), Text(17), Text(18), Text(19), Text(20), Text(21), Text(22), Text(23), Text(24)), Text(25)));
         }
         return rows;
     }
@@ -174,7 +203,15 @@ public sealed partial class MediaService(IConfiguration configuration, IStorageP
     {
         if (page < 1 || search?.Length > 200 || library is not null && !Libraries.Any(l => l.Id == library))
             throw Error(400, "validation_failed", "Choose a configured library, page >=1 and search <=200 characters.");
+        if (options?.Match is not (null or "matched" or "unmatched"))
+            throw Error(400, "validation_failed", "Choose matched or unmatched media.");
         var rows = await Inventory(ct);
+        if (options?.Match is { } match)
+        {
+            await using var unit = await storage.BeginUnitOfWorkAsync(ct);
+            var ids = (await unit.Matches.ListMatchedMediaIdsAsync($"scanner-{SourceId}-", ct)).ToHashSet(StringComparer.Ordinal);
+            rows = rows.Where(row => ids.Contains(MediaId(row.Id)) == (match == "matched")).ToList();
+        }
         if (options?.Classification is { } classification)
         {
             if (classification is not ("unofficial" or "unclassified"))
@@ -204,6 +241,7 @@ public sealed partial class MediaService(IConfiguration configuration, IStorageP
     private async Task<MediaInventoryItem> Item(long id, CancellationToken ct) =>
         (await Inventory(ct, id)).SingleOrDefault(r => r.Id == id)
         ?? throw Error(404, "media_not_found", "Scanner media file was not found in approved libraries.");
+    public Task<MediaInventoryItem> LookupItemAsync(long id, CancellationToken ct) => Item(id, ct);
     private static bool Same(string? a, string? b) => !string.IsNullOrWhiteSpace(a) && !string.IsNullOrWhiteSpace(b) &&
         EntityNameNormalizer.NormalizeStrict(a) == EntityNameNormalizer.NormalizeStrict(b);
     internal static bool Isrc(string? value) => value is not null && Regex.IsMatch(value.Trim().ToUpperInvariant(), "^[A-Z]{2}[A-Z0-9]{3}[0-9]{7}$");
@@ -412,7 +450,7 @@ public sealed partial class MediaService(IConfiguration configuration, IStorageP
         if (await unit.Matches.GetBestMatchByMediaFileIdAsync(MediaId(id), ct) is not null) throw Error(409, "media_already_linked", "Media was linked during preparation.");
         if (await unit.MediaFiles.GetByPathAsync(media.Path, ct) is not null)
             throw Error(409, "media_already_linked", "This path is already registered; re-association requires a separate review.");
-        if (Json(await Item(id, ct)) != Json(media)) throw Error(412, "enrichment_state_changed", "Scanner metadata changed during preparation.");
+        if (EvidenceJson(await Item(id, ct)) != EvidenceJson(media)) throw Error(412, "enrichment_state_changed", "Scanner metadata changed during preparation.");
         var review = new MediaLinkReview(Guid.NewGuid().ToString("N"), "", media, candidate, clock.GetUtcNow(), verified.Hash, sidecar?.Title, sidecar?.Mix);
         review = review with { Version = Hash(new LinkPayload("MediaLink", SourceId, review, recording, sidecar?.Hash)) };
         await unit.Enrichment!.SaveReviewAsync(new(review.Id, CatalogEntityKind.Recording, recordingId, review.Version,
@@ -459,14 +497,14 @@ public sealed partial class MediaService(IConfiguration configuration, IStorageP
         if (clock.GetUtcNow() - payload.Review.CreatedAt >= TimeSpan.FromHours(24)) throw Error(410, "enrichment_review_expired", "Media review expired; prepare a fresh review.");
         if (payload.SourceId != SourceId) throw Error(409, "media_source_changed", "Scanner identity/configuration changed; prepare a fresh review.");
         var media = await Item(payload.Review.Media.Id, ct);
-        if (Json(media) != Json(payload.Review.Media)) throw Error(412, "enrichment_state_changed", "Scanner metadata changed; prepare a fresh review.");
+        if (EvidenceJson(media) != EvidenceJson(payload.Review.Media)) throw Error(412, "enrichment_state_changed", "Scanner metadata changed; prepare a fresh review.");
         var verified = await Verify(media, ct, payload.Review.VerifiedSha256);
         var sidecar = await ReadSidecar(media, ct);
         if (sidecar?.Hash != payload.SidecarHash) throw Error(412, "enrichment_state_changed", "Release sidecar changed; prepare a fresh review.");
         await using var unit = await storage.BeginUnitOfWorkAsync(ct);
         var recording = await ReadRecording(unit, payload.Recording.Recording.Id, ct);
         if (Json(recording) != Json(payload.Recording)) throw Error(412, "enrichment_state_changed", "Catalog Recording or Artist evidence changed; nothing linked.");
-        if (Json(await Item(media.Id, ct)) != Json(media))
+        if (EvidenceJson(await Item(media.Id, ct)) != EvidenceJson(media))
             throw Error(412, "enrichment_state_changed", "Scanner evidence changed during verification; nothing linked.");
         var existingAudit = await unit.Enrichment!.GetAuditAsync(id, ct);
         if (existingAudit is not null)
@@ -476,7 +514,7 @@ public sealed partial class MediaService(IConfiguration configuration, IStorageP
         }
         var outcome = await SaveLink(unit, payload, reason, ct);
         CheckVerifiedFile(media, verified.Modified);
-        if ((await ReadSidecar(media, ct))?.Hash != payload.SidecarHash || Json(await Item(media.Id, ct)) != Json(media) || payload.SourceId != SourceId)
+        if ((await ReadSidecar(media, ct))?.Hash != payload.SidecarHash || EvidenceJson(await Item(media.Id, ct)) != EvidenceJson(media) || payload.SourceId != SourceId)
             throw Error(412, "enrichment_state_changed", "File sidecar or scanner evidence changed during linking; nothing was saved.");
         await unit.CommitAsync(ct);
         return outcome;

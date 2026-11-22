@@ -28,10 +28,12 @@ public sealed partial class EnrichmentApplyService
         Regex.IsMatch(value.Trim().ToUpperInvariant(), "^[A-Z]{2}[A-Z0-9]{3}[0-9]{7}$");
 
     public async ValueTask<EnrichmentBatchReview> PrepareBatchAsync(string releaseId, string candidateId,
-        string catalogVersion, CancellationToken ct = default)
+        string catalogVersion, CancellationToken ct = default, string providerId = "beatport", string? editionId = null)
     {
-        if (!long.TryParse(candidateId, NumberStyles.None, CultureInfo.InvariantCulture, out var number) || number <= 0)
-            throw new EnrichmentApplyException(400, "enrichment_invalid_review", "Choose a valid Beatport Release candidate.");
+        if (!long.TryParse(candidateId, NumberStyles.None, CultureInfo.InvariantCulture, out var number) || number <= 0 ||
+            providerId is not ("beatport" or "sonovault") || providerId == "beatport" && editionId is not null ||
+            editionId is not null && (!long.TryParse(editionId, NumberStyles.None, CultureInfo.InvariantCulture, out var edition) || edition <= 0))
+            throw new EnrichmentApplyException(400, "enrichment_invalid_review", "Choose a valid Release candidate and supported edition.");
         await Ready(ct).ConfigureAwait(false);
         Snapshot release;
         var snapshots = new List<Snapshot>();
@@ -44,16 +46,16 @@ public sealed partial class EnrichmentApplyService
             foreach (var id in release.Placements.Select(p => p.RecordingId).Distinct(StringComparer.Ordinal))
                 snapshots.Add(await Read(unit, CatalogEntityKind.Recording, id, ct).ConfigureAwait(false));
         }
-        var lookup = await named.FindAsync(EnrichmentEntityKind.Release, releaseId, "beatport", ct, candidateId).ConfigureAwait(false);
+        var lookup = await named.FindAsync(EnrichmentEntityKind.Release, releaseId, providerId, ct, candidateId, editionId).ConfigureAwait(false);
         if (lookup.Query.CatalogVersion != release.Version) throw Stale();
-        var candidate = lookup.Candidates.SingleOrDefault(c => c.ProviderId == "beatport" &&
+        var candidate = lookup.Candidates.SingleOrDefault(c => c.ProviderId == providerId &&
             c.EntityKind == EnrichmentEntityKind.Release && c.CandidateId == number.ToString(CultureInfo.InvariantCulture))
-            ?? throw new EnrichmentApplyException(409, "enrichment_candidate_unavailable", "The selected Beatport Release is unavailable.");
-        if (release.Entity.ExternalReferences.Any(r => r.Source == "beatport" && !SameProviderId(r.ExternalId, candidate.CandidateId)))
-            throw new EnrichmentApplyException(409, "enrichment_identity_conflict", "The selected Beatport Release conflicts with this Release's accepted identity.");
+            ?? throw new EnrichmentApplyException(409, "enrichment_candidate_unavailable", "The selected provider Release is unavailable.");
+        if (release.Entity.ExternalReferences.Any(r => r.Source == providerId && !SameProviderId(r.ExternalId, candidate.CandidateId)))
+            throw new EnrichmentApplyException(409, "enrichment_identity_conflict", "The selected provider Release conflicts with this Release's accepted identity.");
         var tracks = candidate.Metadata.ReleaseDetails?.Tracks
             ?? throw new EnrichmentApplyException(502, "enrichment_track_evidence_missing", "The provider returned no tracklist evidence.");
-        if (tracks.Count > 100 || tracks.Any(t => t.RecordingCandidate is not { ProviderId: "beatport", EntityKind: EnrichmentEntityKind.Recording } source ||
+        if (tracks.Count > 100 || tracks.Any(t => t.RecordingCandidate is not { EntityKind: EnrichmentEntityKind.Recording } source || source.ProviderId != providerId ||
             !SameProviderId(t.Id, source.CandidateId)))
             throw new EnrichmentApplyException(502, "enrichment_track_evidence_missing", "The provider returned incomplete track metadata evidence.");
         var batchId = Guid.NewGuid().ToString("N");
@@ -63,11 +65,12 @@ public sealed partial class EnrichmentApplyService
         {
             var source = track.RecordingCandidate!;
             var metadata = source.Metadata;
-            var direct = snapshots.Where(s => s.Entity.ExternalReferences.Any(r => r.Source == "beatport" &&
+            var direct = snapshots.Where(s => s.Entity.ExternalReferences.Any(r => r.Source == providerId &&
                 SameProviderId(r.ExternalId, source.CandidateId))).ToArray();
             var possible = direct.Length > 0 ? direct : snapshots.Where(s =>
                 ValidIsrc(metadata.Isrc) && SameText(s.Recording!.Isrc, metadata.Isrc) ||
-                SameText(s.Recording!.Title ?? s.Entity.Name, metadata.Name)).ToArray();
+                SameText(s.Recording!.Title ?? s.Entity.Name, metadata.Name) ||
+                providerId == "sonovault" && SameText($"{s.Recording!.Title ?? s.Entity.Name} ({s.Recording.MixName})", metadata.Name)).ToArray();
             if (possible.Length == 0)
             {
                 rows.Add(new(source.CandidateId, track.Title, "Unmatched", ["No accepted track ID, exact ISRC or title match within this Release."], [], null));
@@ -78,13 +81,18 @@ public sealed partial class EnrichmentApplyService
             foreach (var snapshot in possible)
             {
                 var recording = snapshot.Recording!;
-                if (recording.ExternalReferences.Any(r => r.Source == "beatport" && !SameProviderId(r.ExternalId, source.CandidateId)))
+                if (recording.ExternalReferences.Any(r => r.Source == providerId && !SameProviderId(r.ExternalId, source.CandidateId)))
                 {
-                    reasons.Add($"{recording.Id}: conflicting accepted Beatport track identity.");
+                    reasons.Add($"{recording.Id}: conflicting accepted provider track identity.");
                     continue;
                 }
-                if (!SameText(recording.Title ?? recording.Name, metadata.Name) ||
-                    !SameText(recording.MixName, metadata.MixName))
+                var matchingTitle = SameText(recording.Title ?? recording.Name, metadata.Name);
+                var matchingMix = SameText(recording.MixName, metadata.MixName);
+                if (providerId == "sonovault" && !string.IsNullOrWhiteSpace(recording.MixName))
+                    matchingTitle = matchingMix = SameText($"{recording.Title ?? recording.Name} ({recording.MixName})", metadata.Name);
+                else if (providerId == "sonovault")
+                    matchingMix = string.IsNullOrWhiteSpace(recording.MixName) && string.IsNullOrWhiteSpace(metadata.MixName);
+                if (!matchingTitle || !matchingMix)
                 {
                     reasons.Add($"{recording.Id}: title or mix/version differs or is missing; no version inference.");
                     continue;
@@ -106,19 +114,22 @@ public sealed partial class EnrichmentApplyService
                 }
                 if (!accepted && (!exactIsrc || !artistMatches))
                 {
-                    reasons.Add($"{recording.Id}: needs accepted Beatport track ID or valid ISRC plus complete primary Artist agreement.");
+                    reasons.Add($"{recording.Id}: needs accepted provider track ID or valid ISRC plus complete primary Artist agreement.");
                     continue;
                 }
                 confident.Add(snapshot);
-                reasons.Add($"{recording.Id}: {(accepted ? "accepted Beatport track ID" : "valid ISRC and primary Artists")}, exact title and mix/version agreement.");
+                reasons.Add($"{recording.Id}: {(accepted ? "accepted provider track ID" : "valid ISRC and primary Artists")}, exact title and mix/version agreement.");
             }
-            if (possible.Length != 1 || confident.Count != 1 || tracks.Count(t => t.Id == track.Id) != 1)
+            if (direct.Length > 1 || confident.Count != 1 || tracks.Count(t => t.Id == track.Id) != 1)
             {
                 rows.Add(new(source.CandidateId, track.Title, "Ambiguous", reasons, possible.Select(s => s.Entity.Id).ToArray(), null));
                 continue;
             }
             var matched = confident[0];
-            var recordingCandidate = source with { Match = new(direct.Length > 0 ? EnrichmentMatchBasis.ExternalReference : EnrichmentMatchBasis.Isrc,
+            var matchedSource = providerId == "sonovault" && !string.IsNullOrWhiteSpace(matched.Recording!.MixName)
+                ? source with { Metadata = source.Metadata with { Name = matched.Recording.Title ?? matched.Entity.Name,
+                    MixName = matched.Recording.MixName } } : source;
+            var recordingCandidate = matchedSource with { Match = new(direct.Length > 0 ? EnrichmentMatchBasis.ExternalReference : EnrichmentMatchBasis.Isrc,
                 "Reviewed Release track match; affects every appearance of this Recording.", []) };
             var review = new EnrichmentReview(Guid.NewGuid().ToString("N"), "", EnrichmentEntityKind.Recording, matched.Entity.Id,
                 clock.GetUtcNow(), recordingCandidate, Fields(matched, recordingCandidate),
@@ -139,8 +150,8 @@ public sealed partial class EnrichmentApplyService
                 ["Catalog Recording has no provider track match."], [snapshot.Entity.Id], null));
         var batch = new EnrichmentBatchReview(batchId, "", releaseId, clock.GetUtcNow(), candidate, rows,
             lookup.Warnings.Concat(candidate.Match.Conflicts).Concat([
-                "Confirm the selected provider Release/edition before applying tracks. No Release identity is accepted automatically.",
-                "Only confident unique matches can be selected. Missing fields default on; overwrites and provider identity acceptance require explicit selection.",
+                "Applying this track batch alone does not accept a Release identity.",
+                "Only confident unique matches can be selected. Selected fields can overwrite existing values and accept provider identity.",
                 "All selected Recordings apply in one transaction or none do. Changing a Recording affects all Releases using it."
             ]).ToArray());
         batch = batch with { Version = Hash(new BatchPayload("RecordingBatch", release, snapshots, batch)) };

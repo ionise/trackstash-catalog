@@ -9,6 +9,8 @@ describe('shared track list', () => {
     expect(trackQuery({}, { page: 1, q: ' deep house ', sort: 'date_asc' }, true).toString())
       .toBe('page=1&pageSize=25&q=deep+house&sort=date&order=asc&groupBy=recording')
     expect(trackQuery({ artistId: 'a' }, { page: 1, q: '', sort: 'title' }).toString()).toBe('page=1&pageSize=25&artistId=a&sort=title')
+    expect(trackQuery({}, { page: 2, q: '', sort: 'copies_desc', media: 'none' }, true).toString())
+      .toBe('page=2&pageSize=25&media=none&sort=copies&order=desc&groupBy=recording')
   })
   it('defaults releases to release order and everything else to newest first', () => {
     expect(defaultTrackSort('release')).toBe('order')

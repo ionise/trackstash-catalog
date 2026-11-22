@@ -66,10 +66,10 @@ function CatalogLinks({ ids, kind, text }: { ids: string[]; kind: 'releases' | '
 function ReleaseStatus({ item }: { item: BeatportReleaseItem }) {
   return <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap' }}>
     <CatalogLinks ids={item.catalogReleaseIds} kind="releases" text="In catalog" />
-    {item.inPurchaseHistory && <Tooltip title={item.purchaseSourceComplete ? 'In your Beatport purchase history' : 'In your purchase history; Beatport data still incomplete'}>
-      <Chip size="small" color="info" label="Purchased" />
+    {item.inPurchaseHistory && <Tooltip title={item.purchaseSourceComplete ? 'Present in the shared purchase source; this does not prove ownership of the entire release' : 'Present in the shared purchase source; Beatport data is incomplete and whole-release ownership is not established'}>
+      <Chip size="small" color="info" label="In purchase source" />
     </Tooltip>}
-    {!item.catalogReleaseIds.length && !item.inPurchaseHistory && <Chip size="small" variant="outlined" label="Not owned" />}
+    {!item.catalogReleaseIds.length && !item.inPurchaseHistory && <Chip size="small" variant="outlined" label="Not in catalog" />}
   </Stack>
 }
 
@@ -119,7 +119,22 @@ function ReleaseResults({ data, onLabel, onPage }: { data: BeatportReleasePage; 
   const [fetching, setFetching] = useState(false)
   const [fetches, setFetches] = useState(0)
   const [fetched, setFetched] = useState('')
+  const [prepareError, setPrepareError] = useState<unknown>()
   const [admitted, setAdmitted] = useState<Record<number, string>>({})
+  async function openAdmission(item: BeatportReleaseItem) {
+    setFetched(''); setPrepareError(undefined); setFetches(0); setAdmission(item)
+    if (item.inPurchaseHistory === true) return
+    setFetching(true)
+    try {
+      const outcome = await beatportClient.prepareImport(item.id)
+      setAdmission(current => current?.id === item.id ? { ...current, purchaseSourceComplete: outcome.sourceCompleteAfter } : current)
+      setFetched(outcome.sourceCompleteAfter
+        ? 'Beatport metadata is ready for review.'
+        : `Beatport metadata remains incomplete: ${outcome.remainingBlockers.join(', ').replaceAll('_', ' ')}.`)
+    } catch (failure) {
+      setPrepareError(failure)
+    } finally { setFetching(false) }
+  }
   return <>
     <Typography>{data.total} Beatport releases</Typography>
     {!data.items.length && <Typography>No matching releases.</Typography>}
@@ -153,10 +168,8 @@ function ReleaseResults({ data, onLabel, onPage }: { data: BeatportReleasePage; 
               <TableCell><Typography variant="body2">{item.catalogNumber ?? ''}</Typography><Typography variant="body2" color="text.secondary">{item.publishDate ?? ''}</Typography></TableCell>
               <TableCell><Stack spacing={1} sx={{ alignItems: 'flex-start' }}>
                 <ReleaseStatus item={{ ...item, catalogReleaseIds }} />
-                {item.inPurchaseHistory === true && !catalogReleaseIds.length && <Button size="small"
-                  aria-label={`Admit ${item.name} to catalog`} onClick={() => {
-                    setFetched(''); setFetches(0); setAdmission(item)
-                  }}>Admit to catalog</Button>}
+                {!catalogReleaseIds.length && <Button size="small"
+                  aria-label={`Admit ${item.name} to catalog`} onClick={() => void openAdmission(item)}>Admit to catalog</Button>}
               </Stack></TableCell>
               <TableCell padding="checkbox"><BeatportLink url={item.beatportUrl} label={`Open ${item.name} on Beatport`} /></TableCell>
             </TableRow>
@@ -172,15 +185,16 @@ function ReleaseResults({ data, onLabel, onPage }: { data: BeatportReleasePage; 
       <DialogContent dividers sx={{ minWidth: 0, overflowWrap: 'anywhere' }}>
         <Alert severity="info">This uses the same reviewed import as Purchase releases. Nothing is admitted until you review the identities and explicitly confirm the catalog operation. It does not copy or link media files.</Alert>
         {admission?.purchaseSourceComplete !== true && <Alert severity="warning" sx={{ mt: 1 }}>
-          Purchase source completeness is not confirmed. The preview will check it and explain any blockers.
-          {' '}<RouterLink to={`/purchase-releases?q=${admission?.id}`}>Inspect or fetch missing purchase data</RouterLink>.
+          Beatport metadata completeness is not confirmed. Fetch missing metadata before creating a preview.
+          {admission?.inPurchaseHistory === true && <> <RouterLink to={`/purchase-releases?q=${admission.id}`}>Inspect purchase source</RouterLink>.</>}
         </Alert>}
-        {admission && !admitted[admission.id] && <BeatportFetchButton key={admission.id} releaseId={admission.id} disabled={busy}
+        {prepareError !== undefined && <Alert severity="error">{problem(prepareError, 'Beatport metadata could not be prepared.')} Retry fetching below.</Alert>}
+        {admission && !admitted[admission.id] && <BeatportFetchButton key={admission.id} releaseId={admission.id} disabled={busy || fetching} catalogAdmission
           onBusyChange={setFetching} onFetched={(summary, outcome) => {
-            setFetched(summary); setFetches(value => value + 1)
+            setPrepareError(undefined); setFetched(summary); setFetches(value => value + 1)
             setAdmission(current => current && { ...current, purchaseSourceComplete: outcome.sourceCompleteAfter })
           }} />}
-        {fetched && <Alert severity="info" sx={{ mt: 1 }}>{fetched} Create a fresh preview to review the updated source; previous preview decisions have been cleared.</Alert>}
+        {fetched && <Alert severity="info" sx={{ mt: 1 }}>{fetched}{fetches > 0 && ' Create a fresh preview to review the updated source; previous preview decisions have been cleared.'}</Alert>}
         {admission && <ReleaseImportReview key={`${admission.id}:${fetches}`} releaseId={admission.id} onBusyChange={setBusy} disabled={fetching}
           onApplied={id => setAdmitted(current => ({ ...current, [admission.id]: id }))} />}
       </DialogContent>
@@ -225,6 +239,28 @@ function SearchBox({ initial, label, onSearch }: { initial: string; label: strin
   </Stack>
 }
 
+function EntityReleaseFilters({ q, trackName, catalogNumber, dateFrom, dateTo, onSearch }: {
+  q: string; trackName: string; catalogNumber: string; dateFrom: string; dateTo: string
+  onSearch: (filters: { bpQ: string; bpTrackName: string; bpCatalogNumber: string; bpDateFrom: string; bpDateTo: string }) => void
+}) {
+  const [values, setValues] = useState({ bpQ: q, bpTrackName: trackName, bpCatalogNumber: catalogNumber, bpDateFrom: dateFrom, bpDateTo: dateTo })
+  const invalidRange = !!values.bpDateFrom && !!values.bpDateTo && values.bpDateFrom > values.bpDateTo
+  return <Stack component="form" direction="row" spacing={1} useFlexGap sx={{ alignItems: 'center', flexWrap: 'wrap', minWidth: 0 }}
+    aria-label="Filter Beatport releases" onSubmit={(event: FormEvent) => {
+      event.preventDefault()
+      if (!invalidRange) onSearch({ ...values, bpQ: values.bpQ.trim(), bpTrackName: values.bpTrackName.trim(), bpCatalogNumber: values.bpCatalogNumber.trim() })
+    }}>
+    <TextField label="Release name" value={values.bpQ} onChange={event => setValues({ ...values, bpQ: event.target.value })} slotProps={{ htmlInput: { maxLength: 200 } }} />
+    <TextField label="Track title" value={values.bpTrackName} onChange={event => setValues({ ...values, bpTrackName: event.target.value })} slotProps={{ htmlInput: { maxLength: 200 } }} />
+    <TextField label="Catalog number" value={values.bpCatalogNumber} onChange={event => setValues({ ...values, bpCatalogNumber: event.target.value })} slotProps={{ htmlInput: { maxLength: 200 } }} />
+    <TextField label="From date" type="date" value={values.bpDateFrom} onChange={event => setValues({ ...values, bpDateFrom: event.target.value })}
+      slotProps={{ inputLabel: { shrink: true } }} />
+    <TextField label="To date" type="date" value={values.bpDateTo} onChange={event => setValues({ ...values, bpDateTo: event.target.value })}
+      error={invalidRange} helperText={invalidRange ? 'End date must not precede start date.' : undefined} slotProps={{ inputLabel: { shrink: true } }} />
+    <Button type="submit" variant="contained" disabled={invalidRange}>Search</Button>
+  </Stack>
+}
+
 export function EntityBeatportBrowse({ kind, name, externalReferences }: {
   kind: 'label' | 'artist'; name: string | null | undefined
   externalReferences?: readonly { source: string; externalId: string; isPrimary: boolean }[]
@@ -233,6 +269,10 @@ export function EntityBeatportBrowse({ kind, name, externalReferences }: {
   const identities = beatportIdentities(externalReferences)
   const id = identities.find(ref => String(ref.id) === params.get('bpIdentity'))?.id ?? identities[0]?.id
   const q = params.get('bpQ')?.trim() ?? ''
+  const trackName = params.get('bpTrackName')?.trim() ?? ''
+  const catalogNumber = params.get('bpCatalogNumber')?.trim() ?? ''
+  const dateFrom = params.get('bpDateFrom') ?? ''
+  const dateTo = params.get('bpDateTo') ?? ''
   const sort = sorts.find(option => option.value === params.get('bpSort'))?.value ?? 'newest'
   const pageNumber = Number(params.get('bpPage') ?? 1)
   const page = Number.isSafeInteger(pageNumber) && pageNumber >= 1 && pageNumber <= 10000 ? pageNumber : 1
@@ -245,7 +285,8 @@ export function EntityBeatportBrowse({ kind, name, externalReferences }: {
     return next
   })
   const { data, error, loading } = useLoad<BeatportReleaseSearch, BeatportReleasePage>(id === undefined ? undefined
-    : { [kind === 'label' ? 'labelId' : 'artistId']: id, q: q || undefined, sort, page, pageSize: 25 }, loadReleases)
+    : { [kind === 'label' ? 'labelId' : 'artistId']: id, q: q || undefined, sort, page, pageSize: 25,
+      catalogNumber: catalogNumber || undefined, dateFrom: dateFrom || undefined, dateTo: dateTo || undefined, trackName: trackName || undefined }, loadReleases)
 
   if (id === undefined) return <Alert severity="info">
     This {kind} has no usable Beatport ID recorded. Add a verified Beatport external reference before browsing its releases; a name alone does not establish identity.
@@ -265,7 +306,8 @@ export function EntityBeatportBrowse({ kind, name, externalReferences }: {
         endIcon={<OpenInNew fontSize="small" />}>Open {kind} on Beatport</Button>
     </Stack>
     <Stack direction="row" spacing={2} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
-      <SearchBox key={q} initial={q} label="Release name" onSearch={value => update({ bpQ: value, bpPage: undefined })} />
+      <EntityReleaseFilters key={JSON.stringify([q, trackName, catalogNumber, dateFrom, dateTo])} q={q} trackName={trackName} catalogNumber={catalogNumber} dateFrom={dateFrom} dateTo={dateTo}
+        onSearch={filters => update({ ...filters, bpPage: undefined })} />
       <TextField select size="small" label="Order" value={sort}
         onChange={event => update({ bpSort: event.target.value === 'newest' ? undefined : event.target.value, bpPage: undefined })} sx={{ minWidth: 150 }}>
         {sorts.map(option => <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>)}
@@ -309,7 +351,7 @@ function BeatportBrowsePage() {
   return <Box sx={{ p: 2, minWidth: 0 }}>
     <Title title="Beatport" />
     <Typography variant="h4" component="h1">Beatport</Typography>
-    <Alert severity="info" sx={{ my: 2 }}>Browsing is read-only: results come through the local Beatport broker, which caches them. Use Admit to catalog on purchased releases to start a separate reviewed import.</Alert>
+    <Alert severity="info" sx={{ my: 2 }}>Results come through the local Beatport broker. Use Admit to catalog to review a release; no Beatport purchase is required or inferred.</Alert>
     <Stack direction="row" spacing={2} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
       <ToggleButtonGroup exclusive size="small" value={mode} aria-label="Search for"
         onChange={(_, value: string | null) => { if (value) update({ mode: value === 'labels' ? 'labels' : undefined, page: undefined, labelId: undefined }) }}>

@@ -102,7 +102,7 @@ public sealed partial class LabelApiTests
     private sealed class EnrichmentHttpFactory : IHttpClientFactory
     {
         public HttpStatusCode Status { get; init; } = HttpStatusCode.OK;
-        public string? ResponseJson { get; init; }
+        public string? ResponseJson { get; set; }
         public Func<Task>? BeforeResponseAsync { get; init; }
         public Uri? LastUri { get; set; }
         public int Count { get; set; }

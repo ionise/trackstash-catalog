@@ -73,15 +73,16 @@ public static class CatalogApiHost
         builder.Services.TryAddScoped<ILabelMergeService, LabelMergeService>();
         builder.Services.TryAddScoped<ILabelRelationshipService, LabelRelationshipService>();
         builder.Services.TryAddScoped<ILabelGroupService, LabelGroupService>();
-        builder.Services.TryAddSingleton<IPurchaseReleaseSource>(_ =>
+        builder.Services.TryAddSingleton<IPurchaseReleaseSource>(services =>
         {
             var path = builder.Configuration["CatalogApi:PurchaseSourceDatabasePath"];
             if (string.IsNullOrWhiteSpace(path))
                 path = builder.Configuration["CatalogApi:ScannerDatabasePath"] ?? Environment.GetEnvironmentVariable("TRACKSTASH_SCAN_DATABASE_PATH");
-            if (string.IsNullOrWhiteSpace(path)) return new UnconfiguredPurchaseReleaseSource();
-            if (!Path.IsPathFullyQualified(path) || Path.GetFullPath(path) == Path.GetFullPath(builder.Configuration["CatalogApi:DatabasePath"]!))
+            if (!string.IsNullOrWhiteSpace(path) &&
+                (!Path.IsPathFullyQualified(path) || Path.GetFullPath(path) == Path.GetFullPath(builder.Configuration["CatalogApi:DatabasePath"]!)))
                 throw new InvalidOperationException("Purchase source must be an absolute scanner inventory path, separate from the catalog.");
-            return new SqlitePurchaseReleaseSource(path);
+            return new BrokerCatalogReleaseSource(string.IsNullOrWhiteSpace(path) ? null : new SqlitePurchaseReleaseSource(path),
+                services.GetRequiredService<BeatportBrokerClient>());
         });
         builder.Services.TryAddSingleton<PurchaseReadinessCache>();
         builder.Services.TryAddScoped<IPurchaseReleaseInspector, PurchaseReleaseInspector>();
@@ -92,10 +93,12 @@ public static class CatalogApiHost
         builder.Services.TryAddScoped<IRecordingEnrichmentService, RecordingEnrichmentService>();
         builder.Services.TryAddScoped<INamedEntityEnrichmentService, NamedEntityEnrichmentService>();
         builder.Services.TryAddScoped<IEnrichmentApplyService, EnrichmentApplyService>();
+        builder.Services.TryAddScoped<ISonoVaultImportService, SonoVaultImportService>();
         builder.Services.TryAddScoped<IMediaService, MediaService>();
         builder.Services.TryAddSingleton<IMediaLibrarySettings, MediaLibrarySettings>();
         builder.Services.TryAddScoped<IArtistService, ArtistService>();
         builder.Services.TryAddScoped<IReleaseArtworkSourceService, ReleaseArtworkSourceService>();
+        builder.Services.TryAddScoped<INamedArtworkSources, NamedArtworkSources>();
         builder.Services.AddHttpClient(BeatportArtworkProvider.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(30))
             .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
         if (!string.IsNullOrWhiteSpace(builder.Configuration["CatalogApi:BeatportBrokerUrl"]))
@@ -117,7 +120,8 @@ public static class CatalogApiHost
         builder.Services.AddScoped<IEnrichmentProvider>(services => new SonoVaultEnrichmentProvider(
             services.GetRequiredService<IHttpClientFactory>().CreateClient(SonoVaultEnrichmentProvider.HttpClientName),
             builder.Configuration["CatalogApi:SonoVaultApiKey"]));
-        builder.Services.TryAddSingleton<IBeatportBrokerClient, BeatportBrokerClient>();
+        builder.Services.TryAddSingleton<BeatportBrokerClient>();
+        builder.Services.TryAddSingleton<IBeatportBrokerClient>(services => services.GetRequiredService<BeatportBrokerClient>());
         builder.Services.TryAddScoped<IBeatportBackfillService, BeatportBackfillService>();
         builder.Services.TryAddScoped<IBeatportBrowseService, BeatportBrowseService>();
         builder.Services.AddSingleton<BeatportBackfillJobs>();
@@ -243,6 +247,8 @@ public static class CatalogApiHost
         app.MapTracks();
         app.MapEnrichment();
         app.MapMedia();
+        app.MapMediaProviderLookup();
+        app.MapSonoVaultImports();
         app.MapRemoteInventory();
         app.MapMediaLibrarySettings();
         app.MapArtists();

@@ -8,7 +8,8 @@ for (const stale of [false, true]) {
     const media = { id: 42, library: 'JetDrive', relativePath: 'AIFF/Test Label/Test release/tune.aiff',
       path: '/test-library/AIFF/Test Label/Test release/tune.aiff', title: 'Catalog Track 1 (Fixture Remix)',
       mix: null, artist: 'Fixture Composer', album: 'Fixture release', isrc: 'RELTEST0', durationSeconds: 123.456,
-      contentHash: 'a'.repeat(64), sizeBytes: 4, scannedUtc: '2026-11-07T00:00:00Z' }
+      contentHash: 'a'.repeat(64), sizeBytes: 4, scannedUtc: '2026-11-07T00:00:00Z',
+      tags: { catalogNumber: 'LOCAL CAT', trackNumber: '2/11', bpm: '123 BPM' } }
     const candidate = { recordingId: 'release-recording-0', title: 'Catalog Track 1', mix: 'Fixture Remix',
       status: 'Supported', evidence: ['Tagged title, mix, Artist and duration agree.'], blockers: [] }
     await page.route('**/api/v1/media?*', route => route.fulfill({ json: {
@@ -38,6 +39,10 @@ for (const stale of [false, true]) {
     await page.getByLabel('API key').fill('test-only-browser-key-not-a-production-secret')
     await page.getByRole('button', { name: 'Connect', exact: true }).click()
     await expect(page.getByRole('table', { name: 'Media inventory' })).toBeVisible()
+    await page.getByRole('button', { name: 'File metadata 42' }).click()
+    await expect(page.getByText('LOCAL CAT', { exact: true })).toBeVisible()
+    await expect(page.getByText('2/11')).toBeVisible()
+    await page.getByRole('button', { name: 'File metadata 42' }).click()
     expect(prepares).toBe(0)
     await page.getByRole('button', { name: 'Review media 42' }).click()
     await expect(page.getByRole('button', { name: 'Verify file and prepare link to blocked', exact: true })).toBeDisabled()

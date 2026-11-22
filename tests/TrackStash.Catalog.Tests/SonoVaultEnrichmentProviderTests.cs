@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using System.Text.Json;
 using TrackStash.Catalog.Application;
 
 namespace TrackStash.Catalog.Tests;
@@ -24,6 +25,42 @@ public sealed class SonoVaultEnrichmentProviderTests
          "tracks":[{"id":7,"title":"Example (Remix)","isrc":"GBTEST000001","disc_number":1,"track_number":2,
            "artists":[{"id":42,"name":"Act","is_primary":true}]}]}
         """;
+
+    [Fact]
+    public async Task Recording_reports_representative_release_without_assigning_release_identity()
+    {
+        var json = Track.Replace("""{"label":{"name":"Not a recording label"}}""",
+            """{"id":8,"title":"Representative Release","label":{"name":"Label"}}""");
+        var handler = new Handler(_ => new(HttpStatusCode.OK) { Content = Json(json) });
+        using var http = new HttpClient(handler);
+        var candidate = Assert.Single((await new SonoVaultEnrichmentProvider(http, "test-key").FindAsync(Query())).Candidates);
+        Assert.Equal(new EnrichmentReportedRelease("sonovault", "8", "Representative Release"), candidate.ReportedRelease);
+        Assert.DoesNotContain(candidate.Metadata.ExternalReferences!, reference => reference.ExternalId == "8");
+    }
+
+    [Theory]
+    [InlineData("""[{"id":8,"title":"First"},{"id":9,"title":"Second"}]""")]
+    [InlineData("""[{"id":8,"title":"First"},{"label":{"name":"Unknown"}}]""")]
+    public async Task Recording_does_not_choose_one_of_multiple_reported_releases(string releases)
+    {
+        var json = Track.Replace("""[{"label":{"name":"Not a recording label"}}]""", releases);
+        using var http = new HttpClient(new Handler(_ => new(HttpStatusCode.OK) { Content = Json(json) }));
+        var result = await new SonoVaultEnrichmentProvider(http, "test-key").FindAsync(Query());
+        Assert.Null(Assert.Single(result.Candidates).ReportedRelease);
+        Assert.Contains(result.Warnings, warning => warning.Contains("multiple Releases"));
+    }
+
+    [Fact]
+    public async Task Candidate_without_reported_release_preserves_older_serialized_shape()
+    {
+        using var http = new HttpClient(new Handler(_ => new(HttpStatusCode.OK) { Content = Json(Track) }));
+        var candidate = Assert.Single((await new SonoVaultEnrichmentProvider(http, "test-key").FindAsync(Query())).Candidates);
+        var json = JsonSerializer.Serialize(candidate);
+        Assert.DoesNotContain("ReportedRelease", json);
+        var restored = JsonSerializer.Deserialize<EnrichmentCandidate>(json)!;
+        Assert.Null(restored.ReportedRelease);
+        Assert.Equal(json, JsonSerializer.Serialize(restored));
+    }
 
     [Theory]
     [InlineData(true, false)]
@@ -78,6 +115,28 @@ public sealed class SonoVaultEnrichmentProviderTests
         Assert.Equal(2, details.Tracks[0].TrackNumber);
         Assert.All(candidate.Evidence, e => Assert.Equal("sonovault", e.Source));
         Assert.Equal(1, handler.Count);
+    }
+
+    [Theory]
+    [InlineData("2", "reports 2 tracks but returned 1")]
+    [InlineData("null", "does not report a track count")]
+    public async Task Release_edition_warns_when_tracklist_completeness_is_unverified(string count, string warning)
+    {
+        var json = ReleaseResponse.Replace("\"edition\":null", "\"edition\":12").Replace("\"track_count\":2", $"\"track_count\":{count}");
+        using var http = new HttpClient(new Handler(_ => new(HttpStatusCode.OK) { Content = Json(json) }));
+        var result = await new SonoVaultEnrichmentProvider(http, "test-key").FindAsync(Query() with
+        { EntityKind = EnrichmentEntityKind.Release, LookupCandidateId = "8", LookupEditionId = "12" });
+        Assert.Contains(result.Warnings, item => item.Contains(warning));
+    }
+
+    [Fact]
+    public async Task Release_edition_with_matching_track_count_does_not_report_incomplete_tracklist()
+    {
+        var json = ReleaseResponse.Replace("\"edition\":null", "\"edition\":12").Replace("\"track_count\":2", "\"track_count\":1");
+        using var http = new HttpClient(new Handler(_ => new(HttpStatusCode.OK) { Content = Json(json) }));
+        var result = await new SonoVaultEnrichmentProvider(http, "test-key").FindAsync(Query() with
+        { EntityKind = EnrichmentEntityKind.Release, LookupCandidateId = "8", LookupEditionId = "12" });
+        Assert.DoesNotContain(result.Warnings, item => item.Contains("tracklist is incomplete") || item.Contains("track count"));
     }
 
     [Theory]

@@ -34,8 +34,8 @@ function Pager({ page, total, onPage }: { page: number; total: number; onPage: (
     <Button disabled={page * 25 >= total} onClick={() => onPage(page + 1)}>Next page</Button>
   </Stack>
 }
-function ArtistPage({ page, search, role, labelId, onPage }: {
-  page: number; search: string; role: string; labelId?: string; onPage: (page: number) => void
+function ArtistPage({ page, search, role, labelId, media, sort, onPage }: {
+  page: number; search: string; role: string; labelId?: string; media: string; sort: string; onPage: (page: number) => void
 }) {
   const [data, setData] = useState<GroupPage<CatalogArtist>>()
   const [error, setError] = useState('')
@@ -45,22 +45,27 @@ function ArtistPage({ page, search, role, labelId, onPage }: {
     const query = new URLSearchParams({ page: String(page), pageSize: '25', q: search })
     if (labelId) query.set('labelId', labelId)
     if (role) query.set('role', role)
+    if (media) query.set('media', media)
+    const [sortField, order] = sort.split('_')
+    if (sortField) query.set('sort', sortField)
+    if (order) query.set('order', order)
     void artistClient.list(query, controller.signal).then(result => { if (!controller.signal.aborted) setData(result) }).catch(failure => {
       if (!controller.signal.aborted) { setError(failure instanceof Error ? failure.message : 'Artists could not be loaded.'); void logout(failure) }
     })
     return () => controller.abort()
-  }, [page, search, role, labelId, logout])
+  }, [page, search, role, labelId, media, sort, logout])
   if (error) return <Alert severity="error">{error}</Alert>
   if (!data) return <LinearProgress aria-label="Loading catalog Artists" />
   return <>
     {!data.total && <Typography>No catalog Artists match this view.</Typography>}
     <Box sx={{ overflowX: 'auto', width: '100%', minWidth: 0, contain: 'inline-size' }}><Table aria-label={labelId ? 'Label artists' : 'Catalog artists'}>
-      <TableHead><TableRow><TableCell>Artist</TableCell><TableCell>Kind</TableCell><TableCell>Identity status</TableCell><TableCell>Credited roles</TableCell></TableRow></TableHead>
+      <TableHead><TableRow><TableCell>Artist</TableCell><TableCell>Kind</TableCell><TableCell>Identity status</TableCell><TableCell>Credited roles</TableCell><TableCell>Linked recordings</TableCell></TableRow></TableHead>
       <TableBody>{data.items.map(artist => <TableRow key={artist.id} hover>
         <TableCell><Link to={`/artists/${encodeURIComponent(artist.id)}/show`}>{artist.name ?? 'Unnamed Artist'}</Link></TableCell>
         <TableCell>{artist.kind.replaceAll('_', ' ')}</TableCell>
         <TableCell>{artist.identityStatus.replaceAll('_', ' ')}</TableCell>
         <TableCell>{artist.roles.join(', ') || 'No credits recorded'}</TableCell>
+        <TableCell>{artist.recordingCount ? `${artist.coveredRecordingCount} / ${artist.recordingCount}` : 'No recordings'}</TableCell>
       </TableRow>)}</TableBody>
     </Table></Box>
     <Pager page={page} total={data.total} onPage={onPage} />
@@ -75,6 +80,8 @@ export function LabelArtists({ labelId }: { labelId: string }) {
   const [search, setSearch] = useState('')
   const [role, setRole] = useState('')
   const [page, setPage] = useState(1)
+  const [media, setMedia] = useState('')
+  const [sort, setSort] = useState('name')
   return <Stack spacing={2}>
     <Typography color="text.secondary">Artists credited on releases linked to this Label, including placement and Recording credits. Credits do not establish that an Artist is signed to the Label.</Typography>
     <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
@@ -82,14 +89,35 @@ export function LabelArtists({ labelId }: { labelId: string }) {
         slotProps={{ htmlInput: { maxLength: 200 } }} sx={{ flex: 1 }} />
       <RoleFilter value={role} onChange={value => { setRole(value); setPage(1) }} />
     </Stack>
-    <ArtistPage key={`${labelId}:${page}:${search}:${role}`} {...{ labelId, page, search, role }} onPage={setPage} />
+    <ArtistCoverageControls media={media} sort={sort} onMedia={value => { setMedia(value); setPage(1) }} onSort={value => { setSort(value); setPage(1) }} />
+    <ArtistPage key={`${labelId}:${page}:${search}:${role}:${media}:${sort}`} {...{ labelId, page, search, role, media, sort }} onPage={setPage} />
   </Stack>
+}
+function ArtistCoverageControls({ media, sort, onMedia, onSort }: { media: string; sort: string; onMedia: (value: string) => void; onSort: (value: string) => void }) {
+  return <>
+    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+      <TextField select label="Media coverage" value={media} onChange={event => onMedia(event.target.value)}>
+        <MenuItem value="">All artists</MenuItem><MenuItem value="none">No recordings linked</MenuItem>
+        <MenuItem value="partial">Some recordings linked</MenuItem><MenuItem value="complete">All recordings linked</MenuItem>
+        <MenuItem value="no-tracks">No catalog recordings</MenuItem>
+      </TextField>
+      <TextField select label="Sort artists" value={sort} onChange={event => onSort(event.target.value)}>
+        <MenuItem value="name">Name A–Z</MenuItem><MenuItem value="name_desc">Name Z–A</MenuItem>
+        <MenuItem value="missing_desc">Most missing recordings first</MenuItem><MenuItem value="missing_asc">Fewest missing recordings first</MenuItem>
+      </TextField>
+    </Stack>
+    <Typography variant="caption" color="text.secondary">Coverage counts distinct recordings in the selected credit scope. Historical scanner links do not verify current file availability.</Typography>
+  </>
 }
 export function ArtistList() {
   const { isPending } = useAuthenticated()
   const [params, setParams] = useSearchParams()
   const search = params.get('q') ?? ''
   const role = params.get('role') ?? ''
+  const mediaValue = params.get('media') ?? ''
+  const media = ['', 'none', 'partial', 'complete', 'no-tracks'].includes(mediaValue) ? mediaValue : ''
+  const sortValue = params.get('sort') ?? 'name'
+  const sort = ['name', 'name_desc', 'missing_asc', 'missing_desc'].includes(sortValue) ? sortValue : 'name'
   const value = Number(params.get('page') ?? 1)
   const page = Number.isSafeInteger(value) && value > 0 ? value : 1
   function change(field: string, value: string) {
@@ -103,7 +131,8 @@ export function ArtistList() {
       <TextField label="Search artists" value={search} onChange={e => change('q', e.target.value)} slotProps={{ htmlInput: { maxLength: 200 } }} sx={{ flex: 1 }} />
       <RoleFilter value={role} onChange={value => change('role', value)} />
     </Stack>
-    {!isPending && <ArtistPage key={`${page}:${search}:${role}`} {...{ page, search, role }} onPage={p => change('page', String(p))} />}
+    <ArtistCoverageControls media={media} sort={sort} onMedia={value => change('media', value)} onSort={value => change('sort', value)} />
+    {!isPending && <ArtistPage key={`${page}:${search}:${role}:${media}:${sort}`} {...{ page, search, role, media, sort }} onPage={p => change('page', String(p))} />}
   </Stack>
 }
 function Appearances({ artist, tracks, page, onPage }: { artist: ArtistDetail; tracks: boolean; page: number; onPage: (page: number) => void }) {

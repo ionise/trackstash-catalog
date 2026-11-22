@@ -10,27 +10,29 @@ public sealed record CreateEnrichmentReviewRequest(string CandidateId, string? E
 public sealed record ApplyEnrichmentReviewRequest(IReadOnlyList<string> Fields, string? PreferredGenre, string Reason, bool Confirmed);
 /// <summary>Explicit per-Recording field intent for atomic batch apply.</summary>
 public sealed record ApplyEnrichmentBatchRequest(IReadOnlyList<EnrichmentBatchSelection> Selections, string Reason, bool Confirmed);
-/// <summary>Fetch a selected Beatport Release for track matching against the original catalog snapshot.</summary>
-public sealed record CreateEnrichmentBatchRequest(string CandidateId, string CatalogVersion);
+/// <summary>Fetch a selected Release and optional SonoVault edition for track matching against the original catalog snapshot.</summary>
+public sealed record CreateEnrichmentBatchRequest(string CandidateId, string CatalogVersion, string? EditionId = null);
 
 internal static class EnrichmentEndpoints
 {
     private static void MapReviews(WebApplication app)
     {
-        app.MapPost("/api/v1/releases/{id}/enrichment/beatport/track-reviews",
+        foreach (var provider in new[] { "beatport", "sonovault" })
+        app.MapPost($"/api/v1/releases/{{id}}/enrichment/{provider}/track-reviews",
             async (string id, HttpContext context, IEnrichmentApplyService service, CancellationToken ct) =>
             {
-                var fields = await LabelRequests.FieldsAsync(context.Request, "application/json", ct, ["candidateId", "catalogVersion"]);
+                var fields = await LabelRequests.FieldsAsync(context.Request, "application/json", ct, ["candidateId", "catalogVersion", "editionId"]);
                 if (!fields.TryGetValue("candidateId", out var candidate) || candidate.ValueKind != JsonValueKind.String ||
                     !fields.TryGetValue("catalogVersion", out var version) || version.ValueKind != JsonValueKind.String)
                     throw new ApiRequestException(400, "validation_failed", "candidateId and original catalogVersion are required.");
-                var review = await service.PrepareBatchAsync(id, candidate.GetString()!, version.GetString()!, ct);
+                var edition = fields.TryGetValue("editionId", out var editionValue) ? LabelRequests.NullableString(editionValue, "editionId") : null;
+                var review = await service.PrepareBatchAsync(id, candidate.GetString()!, version.GetString()!, ct, provider, edition);
                 context.Response.Headers.CacheControl = "no-store";
                 context.Response.Headers.ETag = LabelRequests.ETag(review.Version);
                 return TypedResults.Created($"/api/v1/enrichment-track-reviews/{review.Id}", review);
-            }).WithName("CreateBeatportTrackReview").WithTags("Enrichment")
-            .WithSummary("Fetch Beatport Release and track evidence and freeze conservative Recording matches")
-            .WithDescription("Two broker calls, at most 100 tracks. No canonical writes. Ambiguous/unmatched tracks are not writable. Requires original Release catalogVersion and schema 13.")
+            }).WithName(provider == "beatport" ? "CreateBeatportTrackReview" : "CreateSonoVaultTrackReview").WithTags("Enrichment")
+            .WithSummary($"Fetch {provider} Release and track evidence and freeze conservative Recording matches")
+            .WithDescription("At most 100 tracks. No canonical writes. Ambiguous/unmatched tracks are not writable. Requires original Release catalogVersion and schema 13.")
             .Accepts<CreateEnrichmentBatchRequest>("application/json").Produces<EnrichmentBatchReview>(201)
             .ProducesProblem(400).ProducesProblem(404).ProducesProblem(409).ProducesProblem(412)
             .ProducesProblem(429).ProducesProblem(502).ProducesProblem(503).ProducesProblem(504);

@@ -20,7 +20,7 @@ public interface IBeatportBackfillService
     Task<IReadOnlyList<long>> IncompleteReleaseIdsAsync(CancellationToken ct);
 }
 
-/// <summary>Fetches missing release/track payloads by ID through the broker, which stores them where the purchase source reads them.</summary>
+/// <summary>Fetches missing release/track payloads by ID through the broker.</summary>
 public sealed class BeatportBackfillService(IPurchaseReleaseSource source, IBeatportBrokerClient broker) : IBeatportBackfillService
 {
     private const int PageSize = 100;
@@ -37,7 +37,8 @@ public sealed class BeatportBackfillService(IPurchaseReleaseSource source, IBeat
         for (var page = 2; tracks.Count < first.Tracks.Total; page++)
         {
             var next = await source.InspectAsync(releaseId, new PurchaseReleaseQuery(page, PageSize) { AllowCachedRelease = allowCachedRelease }, ct);
-            if (next is null || next.Tracks.Items.Count == 0) break;
+            if (next is null || next.BundleDigest != first.BundleDigest || next.Tracks.Total != first.Tracks.Total || next.Tracks.Items.Count == 0)
+                throw new ApiRequestException(412, "import_source_changed", "Source changed while assembling the bundle. Inspect again.");
             tracks.AddRange(next.Tracks.Items);
         }
         return (first, tracks);
@@ -73,15 +74,32 @@ public sealed class BeatportBackfillService(IPurchaseReleaseSource source, IBeat
             (_, tracks) = await InspectAsync(releaseId, ct, allowCachedRelease);
         }
         int requested = 0, fetched = 0, notFound = 0;
-        foreach (var track in tracks.Where(t => t.Status != "cached" && t.ProviderId is > 0))
+        var attempted = new HashSet<long>();
+        async Task FetchMissingAsync(List<SourceReleaseTrack> pending)
         {
-            ct.ThrowIfCancellationRequested();
-            requested++;
-            // An invalid payload may itself be a stale broker copy, so bypass the broker cache for those.
-            var outcome = await broker.FetchAsync("tracks", track.ProviderId!.Value, refresh: track.Status == "invalid", ct);
-            if (outcome == BrokerFetchOutcome.Fetched) fetched++; else notFound++;
+            foreach (var track in pending.Where(t => t.Status != "cached" && t.ProviderId is > 0))
+            {
+                ct.ThrowIfCancellationRequested();
+                if (!attempted.Add(track.ProviderId!.Value)) continue;
+                requested++;
+                // An invalid payload may itself be a stale broker copy, so bypass the broker cache for those.
+                var outcome = await broker.FetchAsync("tracks", track.ProviderId.Value, refresh: track.Status == "invalid", ct);
+                if (outcome == BrokerFetchOutcome.Fetched) fetched++; else notFound++;
+            }
         }
+        await FetchMissingAsync(tracks);
         var (after, _) = requested > 0 || refreshed ? await InspectAsync(releaseId, ct, allowCachedRelease) : (before, tracks);
+        // A separate purchase database cannot see the fetched broker tracks until its release is also in the broker cache.
+        if (allowCachedRelease && !after.SourceComplete && fetched > 0 && !refreshed)
+        {
+            if (await broker.FetchAsync("releases", releaseId, refresh: false, ct) == BrokerFetchOutcome.NotFound)
+                throw new ApiRequestException(404, "beatport_release_not_found", "Beatport no longer lists this release.");
+            refreshed = true;
+            (after, tracks) = await InspectAsync(releaseId, ct, allowCachedRelease);
+            var previousCount = requested;
+            await FetchMissingAsync(tracks);
+            if (requested > previousCount) (after, _) = await InspectAsync(releaseId, ct, allowCachedRelease);
+        }
         return new(releaseId, !sourceWasMissing && before.SourceComplete, after.SourceComplete, refreshed, requested, fetched, notFound,
             after.Diagnostics.Where(d => d.Severity == "blocker").Select(d => d.Code).Distinct().Order(StringComparer.Ordinal).ToArray());
     }

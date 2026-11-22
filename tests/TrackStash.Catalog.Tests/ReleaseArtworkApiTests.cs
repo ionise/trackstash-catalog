@@ -182,4 +182,25 @@ public sealed partial class LabelApiTests
         var reads = provider.Reads;
         await ProblemAsync(await Attach(id + "-cover", "revision-2"), 412, "stale_version"); Assert.Equal(reads, provider.Reads);
     }
+
+    [Fact]
+    public async Task ReleaseArtwork_CandidateCanBeAttachedWithoutRightsOrExtraConfirmation()
+    {
+        var id = await ArtworkRelease();
+        var provider = new FakeReleaseArtworkProvider();
+        await using var app = Build(b => b.Services.AddSingleton<IReleaseArtworkProvider>(provider));
+        await app.StartAsync(); using var client = app.GetTestClient(); client.DefaultRequestHeaders.Authorization = new("Bearer", Key);
+        var token = (await client.GetAsync($"/api/v1/releases/{id}/artwork")).Headers.ETag!.ToString();
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/releases/{id}/artwork-candidates/attach")
+        {
+            Content = JsonContent.Create(new { provider = provider.Name, candidateId = id + "-cover", revision = "revision-1", isPreferred = false }),
+        };
+        request.Headers.TryAddWithoutValidation("If-Match", token);
+        var response = await client.SendAsync(request);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var item = Assert.Single((await response.Content.ReadFromJsonAsync<ReleaseArtworkResponse>())!.Items);
+        Assert.Equal("Not recorded", item.UsageRights);
+        Assert.Equal("Test creator", item.Attribution);
+        Assert.False(item.IsPreferred);
+    }
 }

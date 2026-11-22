@@ -87,7 +87,7 @@ export interface ImportOutcome {
 }
 export interface CatalogRelease {
   id: string; title: string | null; catalogNumber: string | null; publishDate: string | null
-  labelId: string | null; labelName: string | null; placementCount: number
+  labelId: string | null; labelName: string | null; placementCount: number; coveredPlacementCount: number
   primaryArtists: ReleaseCredit[]; coverAssetId: string | null
 }
 export interface ReleaseCredit {
@@ -96,8 +96,9 @@ export interface ReleaseCredit {
 }
 export interface CatalogArtist {
   id: string; name: string | null; kind: string; identityStatus: string; roles: string[]
+  recordingCount: number; coveredRecordingCount: number
 }
-export interface ArtistDetail extends Omit<CatalogArtist, 'roles'> {
+export interface ArtistDetail extends Omit<CatalogArtist, 'roles' | 'recordingCount' | 'coveredRecordingCount'> {
   sortName: string | null; version: string; aliases: string[]
   externalReferences: { source: string; externalId: string; isPrimary: boolean }[]
 }
@@ -287,7 +288,7 @@ export interface EnrichmentMetadata {
   credits: { name: string; role: string; reference: { source: string; externalId: string } | null }[] | null
 }
 export interface EnrichmentLookup {
-  providerId: string; retrievedAt: string
+  providerId: string; retrievedAt: string; sourceVersion?: string | null
   query: { catalogId: string; catalogVersion: string; name: string | null; mixName: string | null
     isrc: string | null; durationMs: number | null; artistNames: string[]
     labelNames?: string[] | null; labelName?: string | null; catalogNumber?: string | null
@@ -296,9 +297,25 @@ export interface EnrichmentLookup {
     externalReferences?: { source: string; externalId: string }[] }
   candidates: { providerId: string; candidateId: string; editionId: string | null; revision: string | null
     match: { basis: string; explanation: string; conflicts: string[] }; metadata: EnrichmentMetadata
+    reportedRelease?: { source: string; id: string; title: string | null } | null
     evidence: { field: string; source: string; sourceRecordId: string | null; sourceUrl: string | null; retrievedAt: string; attribution: string | null }[] }[]
   warnings: string[]
 }
+export interface SonoImportIdentity {
+  id: string; name: string; ownerId: string | null
+  candidates: { id: string; name: string | null; mixName: string | null; isrc: string | null }[]
+}
+export interface SonoImportPreview {
+  id: string; version: string; etag: string; candidate: EnrichmentLookup['candidates'][number]
+  labels: RelatedLabel[]; artists: SonoImportIdentity[]; recordings: SonoImportIdentity[]
+  existingReleaseId: string | null; releaseCandidates: { id: string; name: string | null }[]
+  blockers: string[]; warnings: string[]
+}
+export interface SonoImportIntent {
+  labelId: string | null; artists: { providerId: string; canonicalId: string | null }[]
+  recordings: { providerId: string; canonicalId: string | null }[]; allowIncomplete: boolean; confirmDistinctRelease: boolean
+}
+export interface SonoImportOutcome { reviewId: string; releaseId: string; recordings: number; placements: number }
 export interface EnrichmentBatchSelection { reviewId: string; fields: string[]; preferredGenre: string | null }
 export interface EnrichmentBatchOutcome {
   reviewId: string; releaseId: string; appliedAt: string; recordings: EnrichmentApplyOutcome[]
@@ -310,10 +327,15 @@ export interface EnrichmentBatchReview {
     review: Omit<EnrichmentReview, 'etag'> | null }[]
   outcome: EnrichmentBatchOutcome | null
 }
+export interface MediaFileTags {
+  artists: string | null; remixers: string | null; barcode: string | null; catalogNumber: string | null
+  trackNumber: string | null; discNumber: string | null; bpm: string | null; musicalKey: string | null; genre: string | null; year: string | null
+}
 export interface MediaInventoryItem {
   id: number; library: string; relativePath: string; title: string | null; mix: string | null; artist: string | null
   album: string | null; isrc: string | null; durationSeconds: number | null; contentHash: string | null
-  sizeBytes: number; scannedUtc: string; path: string; label?: string | null; release?: string | null; fingerprintKey?: string | null
+  sizeBytes: number; scannedUtc: string; lastModifiedUtc?: string; path: string; label?: string | null; release?: string | null; fingerprintKey?: string | null
+  tags?: MediaFileTags | null; format?: string | null
 }
 export interface MediaGroup {
   key: string; name: string; label: string | null; release: string | null; fileCount: number
@@ -350,6 +372,14 @@ export interface MediaTrackSelection { mediaId: number; recordingId: string }
 export interface MediaMatchSelection { mediaId: number; recordingId: string | null; classification: string | null }
 export interface MediaMatchRow extends MediaReconciliationFile { classification: string }
 export interface MediaMatchPlan { version: string; etag: string; files: MediaMatchRow[] }
+export interface PseudoMediaChoice {
+  mediaId: number; recordingId: string | null; copyOfMediaId: number | null
+  title: string | null; mix: string | null; artistId: string | null; newArtist: string | null
+}
+export interface PseudoReleaseRequest {
+  operationId: string; planVersion: string; title: string; catalogNumber: string | null; items: PseudoMediaChoice[]
+}
+export interface PseudoReleaseOutcome { operationId: string; releaseId: string; recordings: number; mediaFiles: number }
 export interface MediaMatchOutcome {
   reviewId: string; links: MediaLinkOutcome[]; classifications: MediaMatchSelection[]; appliedAt: string
 }
@@ -387,7 +417,10 @@ export interface BeatportReleaseDetail { release: BeatportReleaseItem; tracks: B
 export interface BeatportLabelItem { id: number; name: string; imageUrl: string | null; beatportUrl: string; catalogLabelIds: string[] }
 export interface BeatportLabelPage { items: BeatportLabelItem[]; total: number; page: number; pageSize: number }
 export type BeatportReleaseSort = 'newest' | 'oldest' | 'name'
-export interface BeatportReleaseSearch { q?: string; labelId?: number; artistId?: number; sort?: BeatportReleaseSort; page?: number; pageSize?: number }
+export interface BeatportReleaseSearch {
+  q?: string; labelId?: number; artistId?: number; sort?: BeatportReleaseSort; page?: number; pageSize?: number
+  catalogNumber?: string; dateFrom?: string; dateTo?: string; trackName?: string
+}
 
 export function beatportIdentities(references: readonly { source: string; externalId: string; isPrimary: boolean }[] = []) {
   return references.filter(ref => ref.source === 'beatport' && /^[1-9][0-9]*$/.test(ref.externalId) && Number.isSafeInteger(Number(ref.externalId)))
@@ -512,7 +545,7 @@ export function createCatalogClient(fetcher: typeof fetch = fetch) {
         sort: params.sort?.field ?? 'name',
         order: (params.sort?.order ?? 'ASC').toLowerCase(),
       })
-      for (const field of ['q', 'normalizedName', 'source', 'externalId']) {
+      for (const field of ['q', 'normalizedName', 'source', 'externalId', 'media']) {
         const value: unknown = params.filter?.[field]
         if (typeof value === 'string' && value.trim()) query.set(field, value)
       }
@@ -669,23 +702,21 @@ export function createCatalogClient(fetcher: typeof fetch = fetch) {
       }, resource)),
     image: async (assetId: string, original = false, signal?: AbortSignal) =>
       (await request(`/${encodeURIComponent(assetId)}/${original ? 'original' : 'thumbnail'}`, { signal }, 'artwork-assets')).blob(),
-  } }
-  const artworkClient = artworkFor('labels')
-  const artistArtworkClient = artworkFor('artists')
-  const releaseArtworkClient = {
-    ...artworkFor('releases'),
     candidates: async (id: string, signal?: AbortSignal): Promise<ArtworkCandidates> =>
-      (await request(`/${encodeURIComponent(id)}/artwork-candidates`, { signal }, 'releases')).json(),
+      (await request(`/${encodeURIComponent(id)}/artwork-candidates`, { signal }, resource)).json(),
     preview: async (id: string, candidate: ArtworkCandidate, signal?: AbortSignal): Promise<Blob> =>
       (await request(`/${encodeURIComponent(id)}/artwork-candidates/preview?${new URLSearchParams({
         provider: candidate.provider, candidateId: candidate.candidateId, revision: candidate.revision,
-      })}`, { signal }, 'releases')).blob(),
-    attach: async (id: string, etag: string, candidate: ArtworkCandidate, usageRights: string, confirmed: boolean, isPreferred = true) =>
+      })}`, { signal }, resource)).blob(),
+    attach: async (id: string, etag: string, candidate: ArtworkCandidate, isPreferred = true, signal?: AbortSignal) =>
       gallery(await request(`/${encodeURIComponent(id)}/artwork-candidates/attach`, {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'If-Match': etag },
-        body: JSON.stringify({ provider: candidate.provider, candidateId: candidate.candidateId, revision: candidate.revision, usageRights, confirmed, isPreferred }),
-      }, 'releases')),
-  }
+        body: JSON.stringify({ provider: candidate.provider, candidateId: candidate.candidateId, revision: candidate.revision, isPreferred }), signal,
+      }, resource)),
+  } }
+  const artworkClient = artworkFor('labels')
+  const artistArtworkClient = artworkFor('artists')
+  const releaseArtworkClient = artworkFor('releases')
   async function relationships(response: Response): Promise<LabelRelationships> {
     const etag = response.headers.get('ETag')
     if (!etag) throw new Error('Relationships response is missing its ETag; editing is unavailable.')
@@ -773,6 +804,8 @@ export function createCatalogClient(fetcher: typeof fetch = fetch) {
     },
     release: async (id: number, signal?: AbortSignal): Promise<BeatportReleaseDetail> =>
       (await request(`/releases/${id}`, { signal }, 'beatport')).json(),
+    trackRelease: async (id: string, signal?: AbortSignal): Promise<BeatportReleaseDetail> =>
+      (await request(`/tracks/${encodeURIComponent(id)}/release`, { signal }, 'beatport')).json(),
     labels: async (q: string, page: number, signal?: AbortSignal): Promise<BeatportLabelPage> =>
       (await request(`/labels?${new URLSearchParams({ q, page: String(page), pageSize: '25' })}`, { signal }, 'beatport')).json(),
     label: async (id: number, signal?: AbortSignal): Promise<BeatportLabelItem> =>
@@ -815,9 +848,10 @@ export function createCatalogClient(fetcher: typeof fetch = fetch) {
       (await request(`/${encodeURIComponent(id)}/tracks?page=${page}&pageSize=25`, { signal }, 'releases')).json(),
   }
   const enrichmentClient = {
-    prepareBatch: async (id: string, candidateId: string, catalogVersion: string, signal?: AbortSignal): Promise<EnrichmentBatchReview> => {
-      const response = await request(`/${encodeURIComponent(id)}/enrichment/beatport/track-reviews`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ candidateId, catalogVersion }), signal,
+    prepareBatch: async (id: string, candidateId: string, catalogVersion: string, signal?: AbortSignal,
+      provider: 'sonovault' | 'beatport' = 'beatport', editionId: string | null = null): Promise<EnrichmentBatchReview> => {
+      const response = await request(`/${encodeURIComponent(id)}/enrichment/${provider}/track-reviews`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ candidateId, catalogVersion, editionId }), signal,
       }, 'releases')
       const etag = response.headers.get('ETag')
       if (!etag) throw new Error('Track batch review is missing its ETag; applying is unavailable.')
@@ -886,8 +920,17 @@ export function createCatalogClient(fetcher: typeof fetch = fetch) {
       (await request(`/${encodeURIComponent(id)}/${tracks ? 'tracks' : 'releases'}?page=${page}&pageSize=25`, { signal }, 'artists')).json(),
   }
   const remoteInventoryClient = {
-    list: async (page: number, search: string, signal?: AbortSignal): Promise<RemoteInventoryPage> =>
-      (await request(`?${new URLSearchParams({ page: String(page), q: search })}`, { signal }, 'remote-inventory')).json(),
+    createPseudoRelease: async (body: RemotePseudoRequest, signal?: AbortSignal): Promise<PseudoReleaseOutcome> =>
+      (await request('/pseudo-releases', { method: 'POST', headers: json, body: JSON.stringify(body), signal }, 'remote-inventory')).json(),
+    providerLookup: async (key: RemoteInventoryKey, version: string, provider: 'beatport' | 'sonovault',
+      searchByMetadata: boolean, signal?: AbortSignal): Promise<EnrichmentLookup> =>
+      (await request(`/provider-lookup/${provider}`, { method: 'POST', headers: json,
+        body: JSON.stringify({ key, version, searchByMetadata }), signal }, 'remote-inventory')).json(),
+    list: async (page: number, search: string, signal?: AbortSignal, options?: { device?: string; match?: string; sort?: string; order?: string }): Promise<RemoteInventoryPage> => {
+      const query = new URLSearchParams({ page: String(page), q: search })
+      for (const [field, value] of Object.entries(options ?? {})) if (value) query.set(field, value)
+      return (await request(`?${query}`, { signal }, 'remote-inventory')).json()
+    },
     proposals: async (items: RemoteInventoryKey[], signal?: AbortSignal): Promise<RemoteMatchProposal[]> =>
       (await request('/match-proposals', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ items }), signal }, 'remote-inventory')).json(),
@@ -896,6 +939,27 @@ export function createCatalogClient(fetcher: typeof fetch = fetch) {
         body: JSON.stringify({ items }), signal }, 'remote-inventory')).json(),
   }
   const mediaClient = {
+    prepareSonoImport: async (releaseId: string, editionId: string | null, sourceVersion: string, signal?: AbortSignal): Promise<SonoImportPreview> => {
+      const response = await request('', { method: 'POST', headers: json,
+        body: JSON.stringify({ releaseId, editionId, sourceVersion }), signal }, 'sonovault-imports')
+      const etag = response.headers.get('ETag')
+      if (!etag) throw new Error('SonoVault review is missing its ETag; no import was attempted.')
+      return { ...await response.json(), etag }
+    },
+    applySonoImport: async (id: string, etag: string, intent: SonoImportIntent, signal?: AbortSignal): Promise<SonoImportOutcome> =>
+      (await request(`/${encodeURIComponent(id)}/apply`, { method: 'POST',
+        headers: { ...json, 'If-Match': etag }, body: JSON.stringify(intent), signal }, 'sonovault-imports')).json(),
+    createPseudoRelease: async (body: PseudoReleaseRequest, signal?: AbortSignal): Promise<PseudoReleaseOutcome> =>
+      (await request('/pseudo-releases', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body), signal }, 'media')).json(),
+    providerRelease: async (id: string, edition?: string, signal?: AbortSignal): Promise<EnrichmentLookup> => {
+      const query = edition ? `?${new URLSearchParams({ editionId: edition })}` : ''
+      return (await request(`/provider-release/sonovault/${encodeURIComponent(id)}${query}`, { signal }, 'media')).json()
+    },
+    providerLookup: async (id: number, provider: 'beatport' | 'sonovault', searchByMetadata: boolean,
+      signal?: AbortSignal): Promise<EnrichmentLookup> =>
+      (await request(`/${id}/provider-lookup/${provider}`, { method: 'POST', headers: json,
+        body: JSON.stringify({ searchByMetadata }), signal }, 'media')).json(),
     prepareManual: async (mediaId: number, recordingId: string, signal?: AbortSignal): Promise<ManualMediaReview> => {
       const response = await request('', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mediaId, recordingId }), signal }, 'manual-media-reviews')
@@ -1012,13 +1076,20 @@ export const { dataProvider, authProvider, sessionClient, mergeClient, artworkCl
 
 export type RemoteInventoryPage = {
   items: { ownerId: string; deviceId: string; mediaFileId: number; path: string; title: string | null; artist: string | null;
-    album: string | null; label: string | null; release: string | null; format: string | null; scannedUtc: string }[]
+    album: string | null; label: string | null; release: string | null; format: string | null; scannedUtc: string; version: string;
+    mix?: string | null; isrc?: string | null; durationSeconds?: number | null; sizeBytes?: number; lastModifiedUtc?: string | null; tags?: MediaFileTags | null }[]
   total: number
   page: number
   pageSize: number
+  devices: string[]
 }
 export type RemoteInventoryKey = { ownerId: string; deviceId: string; mediaFileId: number }
 export type RemoteMatchProposal = { key: RemoteInventoryKey; version: string; linkedRecordingId: string | null;
   suggestedRecordingId: string | null; candidates: { recordingId: string; title: string | null; mix: string | null;
     status: string; evidence: string[]; blockers: string[] }[] }
 export type RemoteMatchSelection = { key: RemoteInventoryKey; version: string; recordingId: string }
+export interface RemotePseudoRequest {
+  operationId: string; title: string; catalogNumber: string | null
+  items: { key: RemoteInventoryKey; version: string; recordingId: string | null; copyOfIndex: number | null
+    title: string | null; mix: string | null; artistId: string | null; newArtist: string | null }[]
+}

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Http.Features;
+using TrackStash.Catalog.Api.Beatport;
 using TrackStash.Catalog.Api.Middleware;
 using TrackStash.Catalog.Application;
 using TrackStash.Core.Storage;
@@ -22,8 +23,10 @@ public sealed record ArtistArtworkResponse(string ArtistId, IReadOnlyList<Artwor
 public sealed record ReleaseArtworkCandidateResponse(string Provider, string CandidateId, string Revision, string Title, string SourceUrl, string? Attribution);
 /// <summary>Configured artwork providers and their explicitly requested candidates.</summary>
 public sealed record ReleaseArtworkCandidatesResponse(IReadOnlyList<string> Providers, IReadOnlyList<ReleaseArtworkCandidateResponse> Items);
-/// <summary>Explicit attachment of an opaque, release-scoped provider candidate with original version and usage rights.</summary>
-public sealed record AttachReleaseArtworkRequest(string Provider, string CandidateId, string Revision, string UsageRights, bool Confirmed);
+/// <summary>Attach an opaque, release-scoped provider candidate using the original gallery version. Rights may be recorded optionally.</summary>
+public sealed record AttachReleaseArtworkRequest(string Provider, string CandidateId, string Revision, string? UsageRights = null, bool? Confirmed = null, bool? IsPreferred = null);
+/// <summary>Attach an artist or label artwork candidate, optionally making it preferred.</summary>
+public sealed record AttachNamedArtworkRequest(string Provider, string CandidateId, string Revision, bool? IsPreferred = null);
 /// <summary>Full ordered replacement of existing gallery entries; omission detaches an entry without deleting its asset.</summary>
 public sealed record ReplaceLabelArtworkRequest(IReadOnlyList<ArtworkEntryRequest> Items);
 /// <summary>Full ordered replacement of existing Release gallery entries; omission retains the asset and permanent history.</summary>
@@ -51,6 +54,8 @@ internal static class ArtworkEndpoints
             .WithSummary("Conditionally edit, order, prefer or detach existing Artist artwork")
             .Accepts<ReplaceArtistArtworkRequest>("application/json").Produces<ArtistArtworkResponse>()
             .ProducesProblem(400).ProducesProblem(404).ProducesProblem(409).ProducesProblem(412).ProducesProblem(428);
+        MapNamedCandidates(app, "artists", "artist");
+        MapNamedCandidates(app, "labels", "label");
         app.MapGet("/api/v1/releases/{id}/artwork", GetReleaseAsync).WithTags("Artwork").WithName("GetReleaseArtwork")
             .WithSummary("Read managed release covers and gallery").Produces<ReleaseArtworkResponse>().ProducesProblem(404).ProducesProblem(409);
         app.MapPost("/api/v1/releases/{id}/artwork", UploadReleaseAsync).WithTags("Artwork").WithName("UploadReleaseArtwork")
@@ -81,7 +86,8 @@ internal static class ArtworkEndpoints
             .WithSummary("Explicitly download and validate a thumbnail of a release-scoped artwork candidate")
             .Produces(200, contentType: "image/jpeg").ProducesProblem(400).ProducesProblem(404).ProducesProblem(409);
         app.MapPost("/api/v1/releases/{id}/artwork-candidates/attach", AttachAsync).WithTags("Artwork").WithName("AttachReleaseArtworkCandidate")
-            .WithSummary("Explicitly materialize a provider candidate as managed artwork after rights confirmation")
+            .WithSummary("Attach a provider candidate as managed artwork")
+            .WithDescription("Requires the original gallery ETag. Omitted usage rights are recorded as not provided; attachment does not establish permission to reuse the image.")
             .Accepts<AttachReleaseArtworkRequest>("application/json").Produces<ReleaseArtworkResponse>(201)
             .ProducesProblem(400).ProducesProblem(404).ProducesProblem(409).ProducesProblem(412).ProducesProblem(428);
         app.MapGet("/api/v1/labels/{id}/artwork", GetAsync).WithTags("Artwork")
@@ -103,6 +109,60 @@ internal static class ArtworkEndpoints
         app.MapGet("/api/v1/artwork-assets/{assetId}/thumbnail", ThumbnailAsync).WithTags("Artwork")
             .WithName("GetArtworkThumbnail").WithSummary("Read an authenticated JPEG thumbnail (maximum 512 pixels)")
             .Produces(200, contentType: "image/jpeg").ProducesProblem(404).ProducesProblem(409);
+    }
+
+    private static void MapNamedCandidates(WebApplication app, string resource, string kind)
+    {
+        app.MapGet($"/api/v1/{resource}/{{id}}/artwork-candidates",
+            (string id, HttpContext context, INamedArtworkSources sources, CancellationToken ct) => NamedCandidates(id, kind, context, sources, ct))
+            .WithTags("Artwork").WithName($"Find{kind}ArtworkCandidates")
+            .WithSummary($"Find artwork for an explicitly linked Beatport {kind}")
+            .Produces<ReleaseArtworkCandidatesResponse>().ProducesProblem(404).ProducesProblem(409);
+        app.MapGet($"/api/v1/{resource}/{{id}}/artwork-candidates/preview",
+            (string id, string provider, string candidateId, string revision, HttpContext context,
+                INamedArtworkSources sources, IArtworkImageProcessor images, CancellationToken ct)
+                => NamedPreview(id, kind, provider, candidateId, revision, context, sources, images, ct))
+            .WithTags("Artwork").WithName($"Preview{kind}ArtworkCandidate")
+            .WithSummary($"Download a validated thumbnail of a {kind} artwork candidate")
+            .Produces(200, contentType: "image/jpeg").ProducesProblem(400).ProducesProblem(404).ProducesProblem(409);
+        app.MapPost($"/api/v1/{resource}/{{id}}/artwork-candidates/attach",
+            (string id, HttpContext context, INamedArtworkSources sources, CancellationToken ct)
+                => AttachNamed(id, kind, context, sources, ct))
+            .WithTags("Artwork").WithName($"Attach{kind}ArtworkCandidate")
+            .WithSummary($"Attach a Beatport {kind} artwork candidate with the original gallery ETag")
+            .Accepts<AttachNamedArtworkRequest>("application/json").Produces(201)
+            .ProducesProblem(400).ProducesProblem(404).ProducesProblem(409).ProducesProblem(412).ProducesProblem(428);
+    }
+
+    private static async Task<IResult> NamedCandidates(string id, string kind, HttpContext context, INamedArtworkSources sources, CancellationToken ct)
+    {
+        context.Response.Headers.CacheControl = "no-store";
+        var result = await sources.FindAsync(kind, id, ct);
+        return TypedResults.Ok(new ReleaseArtworkCandidatesResponse(result.Providers, result.Items.Select(c =>
+            new ReleaseArtworkCandidateResponse(c.Provider, c.CandidateId, c.Revision, c.Title, c.SourceUrl, c.Attribution)).ToArray()));
+    }
+
+    private static async Task<IResult> NamedPreview(string id, string kind, string provider, string candidateId, string revision,
+        HttpContext context, INamedArtworkSources sources, IArtworkImageProcessor images, CancellationToken ct)
+    {
+        var content = await sources.PreviewAsync(kind, id, provider, candidateId, revision, ct);
+        var processed = await images.ProcessAsync(content.Bytes, ct);
+        context.Response.Headers.CacheControl = "no-store";
+        context.Response.Headers.XContentTypeOptions = "nosniff";
+        context.Response.Headers.ContentSecurityPolicy = "default-src 'none'; sandbox";
+        return TypedResults.Bytes(processed.Thumbnail, "image/jpeg");
+    }
+
+    private static async Task<IResult> AttachNamed(string id, string kind, HttpContext context, INamedArtworkSources sources, CancellationToken ct)
+    {
+        var version = LabelRequests.ExpectedVersion(context.Request);
+        var fields = await LabelRequests.FieldsAsync(context.Request, "application/json", ct, ["provider", "candidateId", "revision", "isPreferred"]);
+        if (fields.TryGetValue("isPreferred", out var preferred) && preferred.ValueKind is not (JsonValueKind.True or JsonValueKind.False or JsonValueKind.Null))
+            throw new ArgumentException("isPreferred must be a boolean.");
+        var result = await sources.AttachAsync(kind, id, version, LabelRequests.RequiredString(fields, "provider"),
+            LabelRequests.RequiredString(fields, "candidateId"), LabelRequests.RequiredString(fields, "revision"),
+            !fields.TryGetValue("isPreferred", out var value) || value.ValueKind != JsonValueKind.False, ct);
+        return WriteResult(context, result, true, artist: kind == "artist");
     }
 
     private static async Task<IResult> GetAsync(string id, HttpContext context, IArtworkService service, ILabelMergeService merges, CancellationToken ct)
@@ -287,12 +347,16 @@ internal static class ArtworkEndpoints
     {
         var version = LabelRequests.ExpectedVersion(context.Request);
         var fields = await LabelRequests.FieldsAsync(context.Request, "application/json", ct, ["provider", "candidateId", "revision", "usageRights", "confirmed", "isPreferred"]);
-        if (fields.TryGetValue("isPreferred", out var selection) && selection.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+        if (fields.TryGetValue("isPreferred", out var selection) && selection.ValueKind is not (JsonValueKind.True or JsonValueKind.False or JsonValueKind.Null))
             throw new ArgumentException("isPreferred must be a boolean.");
+        if (fields.TryGetValue("confirmed", out var confirmation) && confirmation.ValueKind is not (JsonValueKind.True or JsonValueKind.False or JsonValueKind.Null))
+            throw new ArgumentException("confirmed must be a boolean.");
         var result = await service.AttachAsync(id, version, LabelRequests.RequiredString(fields, "provider"),
             LabelRequests.RequiredString(fields, "candidateId"), LabelRequests.RequiredString(fields, "revision"),
-            LabelRequests.RequiredString(fields, "usageRights"), fields.TryGetValue("confirmed", out var value) && value.ValueKind == JsonValueKind.True, ct,
-            !fields.TryGetValue("isPreferred", out var preferred) || preferred.ValueKind == JsonValueKind.True);
+            fields.TryGetValue("usageRights", out var rights) && rights.ValueKind != JsonValueKind.Null
+                ? LabelRequests.RequiredString(fields, "usageRights") : "Not recorded",
+            !fields.TryGetValue("confirmed", out var value) || value.ValueKind != JsonValueKind.False, ct,
+            !fields.TryGetValue("isPreferred", out var preferred) || preferred.ValueKind != JsonValueKind.False);
         return WriteResult(context, result, true, true);
     }
     private static async Task<IResult> ReplaceReleaseAsync(string id, HttpContext context, IArtworkService service, CancellationToken ct)

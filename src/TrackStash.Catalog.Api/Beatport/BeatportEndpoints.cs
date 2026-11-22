@@ -29,7 +29,7 @@ internal static class BeatportEndpoints
                 : throw new ApiRequestException(400, "validation_failed", $"{name} is required.", name);
             return TypedResults.Ok(await broker.SignInAsync(Field("username"), Field("password"), ct));
         }).WithName("SignInToBeatport").WithSummary("Sign the broker in to Beatport")
-            .WithDescription("The password is forwarded to the local broker only; the broker keeps a refresh token in the macOS Keychain.")
+            .WithDescription("The password is forwarded to the local broker only; the broker stores the refresh token in its configured private session store.")
             .Accepts<BeatportSignInRequest>("application/json").Produces<BeatportConnectionResponse>()
             .ProducesProblem(400).ProducesProblem(409).ProducesProblem(503);
 
@@ -45,10 +45,15 @@ internal static class BeatportEndpoints
             var sort = Text(context, "sort", 20) ?? "newest";
             if (!BeatportBrowseService.Sorts.ContainsKey(sort))
                 throw new ApiRequestException(400, "validation_failed", "sort must be newest, oldest or name.", "sort");
+            var from = Date(context, "dateFrom");
+            var to = Date(context, "dateTo");
+            if (from > to)
+                throw new ApiRequestException(400, "validation_failed", "dateFrom must not be after dateTo.", "dateFrom");
             return TypedResults.Ok(await browse.SearchReleasesAsync(new(Text(context, "q", 200), Id(context, "labelId"), Id(context, "artistId"), sort,
-                Number(context, "page", 1, 1, 10_000), Number(context, "pageSize", 25, 1, 50)), ct));
+                Number(context, "page", 1, 1, 10_000), Number(context, "pageSize", 25, 1, 50),
+                Text(context, "catalogNumber", 200), from, to, Text(context, "trackName", 200)), ct));
         }).WithName("SearchBeatportReleases").WithSummary("Search or browse Beatport releases through the broker")
-            .WithDescription("Query: q (release name), labelId, artistId, sort (newest|oldest|name), page, pageSize (1-50). Each release reports catalog Releases and Labels that already reference it and whether it is in the purchase history. Read-only; responses come from the broker's cache when fresh.")
+            .WithDescription("Query: q (release name), trackName, labelId, artistId, catalogNumber, dateFrom and dateTo (inclusive YYYY-MM-DD publish dates), sort (newest|oldest|name), page, pageSize (1-50). Track searches are bounded to 1000 releases and 1000 matching tracks; narrow overly broad searches. Each release reports catalog references and purchase-source membership, not personal ownership. Read-only; responses come from the broker's cache when fresh.")
             .Produces<BeatportReleasePage>().ProducesProblem(400).ProducesProblem(409).ProducesProblem(429).ProducesProblem(502).ProducesProblem(503);
 
         group.MapGet("/releases/{id}", async (string id, HttpContext context, IBeatportBrowseService browse, CancellationToken ct) =>
@@ -57,6 +62,14 @@ internal static class BeatportEndpoints
             return TypedResults.Ok(await browse.GetReleaseAsync(PositiveId(id, "Release ID"), ct));
         }).WithName("GetBeatportRelease").WithSummary("A Beatport release with its tracks and catalog status")
             .Produces<BeatportReleaseDetail>().ProducesProblem(400).ProducesProblem(404).ProducesProblem(409).ProducesProblem(502).ProducesProblem(503);
+
+        group.MapGet("/tracks/{id}/release", async (string id, HttpContext context, IBeatportBrowseService browse, CancellationToken ct) =>
+        {
+            context.Response.Headers.CacheControl = "no-store";
+            return TypedResults.Ok(await browse.GetTrackReleaseAsync(PositiveId(id, "Track ID"), ct));
+        }).WithName("GetBeatportTrackRelease").WithSummary("Find the Release reported for a Beatport track")
+            .WithDescription("Fetches the track and its reported Release and tracklist. The user must review the Release before import.")
+            .Produces<BeatportReleaseDetail>().ProducesProblem(400).ProducesProblem(404).ProducesProblem(502).ProducesProblem(503);
 
         group.MapPost("/releases/{id}/prepare-import", async (string id, HttpContext context, IBeatportBackfillService service, CancellationToken ct) =>
         {
@@ -132,6 +145,11 @@ internal static class BeatportEndpoints
     private static long PositiveId(string? value, string name) =>
         long.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var id) && id > 0 ? id
             : throw new ApiRequestException(400, "validation_failed", $"{name} must be a positive Beatport ID.");
+
+    private static DateOnly? Date(HttpContext context, string name) => Raw(context, name) is { Length: > 0 } value
+        ? DateOnly.TryParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date) ? date
+            : throw new ApiRequestException(400, "validation_failed", $"{name} must be a date in YYYY-MM-DD format.", name)
+        : null;
 
     private static long? Id(HttpContext context, string name) => Raw(context, name) is { Length: > 0 } value
         ? long.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var id) && id > 0 ? id

@@ -140,9 +140,22 @@ public sealed class SonoVaultEnrichmentProvider(HttpClient http, string? apiKey)
                 candidates = candidates.OrderBy(c => c.Match.Conflicts.Count).ToArray();
                 warnings.Add("Candidates are ordered by known title, primary Artist and Label conflicts; none are discarded. SonoVault search accepts title and Artist, not Label. Name agreement is not proof of identity.");
                 warnings.Add("SonoVault may group different editions under one Release ID. Group dates and consensus tracklists are evidence only; no tracks, identities or ownership are added. Search does not fetch details automatically.");
+                if (query.LookupEditionId is not null && candidates.SingleOrDefault()?.Metadata.ReleaseDetails is { } details)
+                {
+                    var edition = details.Editions.Single(e => e.Id == details.SelectedEditionId);
+                    if (edition.TrackCount is null)
+                        warnings.Add("The selected edition does not report a track count; tracklist completeness cannot be verified.");
+                    else if (edition.TrackCount != details.Tracks.Count)
+                        warnings.Add($"The selected edition reports {edition.TrackCount} tracks but returned {details.Tracks.Count}; the tracklist is incomplete or inconsistent.");
+                }
             }
             if (query.EntityKind == EnrichmentEntityKind.Recording)
+            {
                 warnings.Add("Duration units are not verified and release-specific metadata is not proposed. Mix names are only separated when a trailing parenthesized suffix matches the catalog title and recorded mix.");
+                if (tracks.Any(track => track.TryGetProperty("releases", out var releases) &&
+                    releases.ValueKind == JsonValueKind.Array && releases.GetArrayLength() > 1))
+                    warnings.Add("A track reported multiple Releases; no single representative Release was selected.");
+            }
             else if (query.EntityKind != EnrichmentEntityKind.Release)
                 warnings.Add(query.EntityKind == EnrichmentEntityKind.Label
                     ? "SonoVault's documented Label metadata supplies name and identity only. Releases and artists are not fetched."
@@ -206,7 +219,9 @@ public sealed class SonoVaultEnrichmentProvider(HttpClient http, string? apiKey)
                     a.TryGetProperty("is_remixer", out var remix) && remix.GetBoolean() ? "remixer"
                         : a.TryGetProperty("is_primary", out var primary) && primary.GetBoolean() ? "primary" : "artist")).ToArray();
                 tracks.Add(new(PositiveId(row.GetProperty("id")), trackTitle, Text(row, "isrc"),
-                    OptionalPositiveNumber(row, "disc_number"), OptionalPositiveNumber(row, "track_number"), trackCredits));
+                    OptionalPositiveNumber(row, "disc_number"), OptionalPositiveNumber(row, "track_number"), trackCredits,
+                    Map(row, query with { EntityKind = EnrichmentEntityKind.Recording, Name = null, MixName = null,
+                        Isrc = null, LookupCandidateId = null, LookupEditionId = null }, basis, retrieved)));
             }
         var label = selectedId is null ? ProviderLabel(release) : selected!.LabelName;
         var conflicts = new List<string>();
@@ -398,12 +413,24 @@ public sealed class SonoVaultEnrichmentProvider(HttpClient http, string? apiKey)
         if (genres.Length > 0) fields.Add(EnrichmentField.Genre);
         if (subgenres.Length > 0) fields.Add(EnrichmentField.Subgenre);
         if (credits.Length > 0) fields.Add(EnrichmentField.Credits);
+        EnrichmentReportedRelease? reportedRelease = null;
+        if (track.TryGetProperty("releases", out var releases) && releases.ValueKind == JsonValueKind.Array)
+        {
+            if (releases.GetArrayLength() == 1)
+            {
+                var reported = releases[0];
+                if (reported.ValueKind == JsonValueKind.Object &&
+                    reported.TryGetProperty("id", out var releaseId) && releaseId.ValueKind == JsonValueKind.Number &&
+                    releaseId.TryGetInt64(out var number) && number > 0)
+                    reportedRelease = new("sonovault", number.ToString(CultureInfo.InvariantCulture), Text(reported, "title"));
+            }
+        }
         return new("sonovault", reference.ExternalId, null, null, EnrichmentEntityKind.Recording,
             new(basis, "SonoVault lookup candidate; the lookup basis is not proof of canonical identity.", conflicts),
             metadata, fields.Select(field => new EnrichmentFieldEvidence(field, "sonovault", reference.ExternalId,
                 null, retrieved, mixName is not null && (field is EnrichmentField.Name or EnrichmentField.MixName)
                     ? $"Separated from SonoVault title \"{rawTitle}\" using the catalog's matching title and mix suffix; not an independent mix-name field."
-                    : null)).ToArray());
+                    : null)).ToArray(), reportedRelease);
     }
 
     private static string? Text(JsonElement value, string property) =>

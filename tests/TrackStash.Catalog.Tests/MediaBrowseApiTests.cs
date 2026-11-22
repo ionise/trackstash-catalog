@@ -18,6 +18,59 @@ public sealed partial class LabelApiTests
             """);
     }
     [Fact]
+    public async Task Media_BrowseExposesAvailableTagsAndPreservesTextualNumbers()
+    {
+        await using var fixture = await StartMedia();
+        await ScannerSql(fixture, """
+            ALTER TABLE metadata ADD COLUMN catalog_number TEXT;
+            ALTER TABLE metadata ADD COLUMN track_number TEXT;
+            ALTER TABLE metadata ADD COLUMN disc_number INTEGER;
+            ALTER TABLE metadata ADD COLUMN bpm TEXT;
+            UPDATE metadata SET catalog_number='CAT 42',track_number='2/11',disc_number=1,bpm='120 BPM';
+            """);
+        var page = (await fixture.Client.GetFromJsonAsync<MediaInventoryPage>("/api/v1/media"))!;
+        var tags = Assert.Single(page.Items).Tags!;
+        Assert.Equal(("CAT 42", "2/11", "1", "120 BPM"), (tags.CatalogNumber, tags.TrackNumber, tags.DiscNumber, tags.Bpm));
+        Assert.Null(tags.Genre);
+    }
+    [Fact]
+    public async Task Media_OlderFrozenReviewRemainsValidWithAdditionalDisplayTags()
+    {
+        await using var fixture = await StartMedia();
+        await ScannerSql(fixture, "ALTER TABLE metadata ADD COLUMN catalog_number TEXT; UPDATE metadata SET catalog_number='CAT 42';");
+        var (review, tag) = await PrepareMedia(fixture);
+        await ImportSql($"""
+            DROP TRIGGER enrichment_review_no_update;
+            UPDATE enrichment_review
+            SET payload_json=json_remove(payload_json,'$.Review.Media.Tags','$.Review.Media.Format')
+            WHERE review_id='{review.Id}';
+            CREATE TRIGGER enrichment_review_no_update BEFORE UPDATE ON enrichment_review
+            BEGIN SELECT RAISE(ABORT,'Enrichment history is immutable'); END;
+            """);
+        Assert.Equal(HttpStatusCode.OK, (await AcceptMedia(fixture, review, tag)).StatusCode);
+    }
+    [Fact]
+    public async Task Media_FiltersMatchStatusBeforeGroupingAndPaging()
+    {
+        await using var fixture = await StartMedia();
+        await AddBrowseMetadata(fixture);
+        for (var i = 2; i <= 28; i++)
+            await ScannerSql(fixture, $"""
+                INSERT INTO media_file SELECT {i},path||'{i}',content_hash,duration_seconds,size_bytes,scanned_utc,last_modified_utc,fingerprint_raw FROM media_file WHERE media_file_id=1;
+                INSERT INTO metadata SELECT {i},title,subtitle,artist,album,isrc,label,release FROM metadata WHERE media_file_id=1;
+                """);
+        var (review, tag) = await PrepareMedia(fixture);
+        Assert.Equal(HttpStatusCode.OK, (await AcceptMedia(fixture, review, tag)).StatusCode);
+        var matched = (await fixture.Client.GetFromJsonAsync<MediaInventoryPage>("/api/v1/media?match=matched&groupBy=release"))!;
+        Assert.Equal(1, matched.Total);
+        Assert.Equal(1, Assert.Single(matched.Groups!).FileCount);
+        var unmatched = (await fixture.Client.GetFromJsonAsync<MediaInventoryPage>("/api/v1/media?match=unmatched&page=2"))!;
+        Assert.Equal(27, unmatched.Total);
+        Assert.Equal(2, unmatched.Items.Count);
+        Assert.DoesNotContain(unmatched.Items, item => item.Id == 1);
+        await ProblemAsync(await fixture.Client.GetAsync("/api/v1/media?match=invalid"), 400, "validation_failed");
+    }
+    [Fact]
     public async Task Media_BrowseGroupsWholeInventoryBeforePagingAndKeepsReleaseLabelsDistinct()
     {
         await using var fixture = await StartMedia();

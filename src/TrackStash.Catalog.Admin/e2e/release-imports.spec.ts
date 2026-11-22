@@ -60,7 +60,7 @@ test('admit a purchased Beatport release from its Label tab with reviewed identi
       inPurchaseHistory: true, purchaseSourceComplete: true,
     }], total: 1, page: 1, pageSize: 25,
   } }))
-  await page.route('**/api/v1/purchase-release-candidates/900/beatport-backfill', route => route.fulfill({ json: {
+  await page.route('**/api/v1/beatport/releases/900/prepare-import', route => route.fulfill({ json: {
     releaseId: 900, sourceCompleteBefore: true, sourceCompleteAfter: true, releaseRefreshed: false,
     tracksRequested: 0, tracksFetched: 0, tracksNotFound: 0, remainingBlockers: [],
   } }))

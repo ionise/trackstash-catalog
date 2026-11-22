@@ -1,13 +1,17 @@
 import {
   Create, Datagrid, Edit, EditButton,
-  List, Pagination, required, Show, ShowButton, SimpleForm,
+  FunctionField, List, Pagination, required, SelectInput, Show, ShowButton, SimpleForm,
   TextField, TextInput, Toolbar, SaveButton,
 } from 'react-admin'
 import { LabelProfileFields } from './LabelProfile'
 import { LabelDetail } from './LabelDetail'
 
 const nameValidators = [required(), (value: string) => value?.trim() ? undefined : 'A nonblank name is required.']
-const filters = [<TextInput key="q" source="q" label="Search names and aliases" alwaysOn />]
+const filters = [<TextInput key="q" source="q" label="Search names and aliases" alwaysOn />,
+  <SelectInput key="media" source="media" label="Media coverage" alwaysOn choices={[
+    { id: 'none', name: 'No recordings linked' }, { id: 'partial', name: 'Some recordings linked' },
+    { id: 'complete', name: 'All recordings linked' }, { id: 'no-tracks', name: 'No catalog recordings' },
+  ]} />]
 const LabelPagination = () => <Pagination rowsPerPageOptions={[10, 25, 50, 100]} />
 const LabelToolbar = () => <Toolbar><SaveButton /></Toolbar>
 
@@ -17,6 +21,8 @@ export function LabelList() {
       <Datagrid rowClick="show" bulkActionButtons={false}>
         <TextField source="name" />
         <TextField source="sortName" />
+        <FunctionField label="Linked recordings (sort by missing)" sortBy="missing" render={(record: { recordingCount?: number; coveredRecordingCount?: number }) =>
+          record.recordingCount ? `${record.coveredRecordingCount ?? 0} / ${record.recordingCount}` : 'No recordings'} />
         <TextField source="id" label="Catalog ID" />
         <ShowButton />
         <EditButton />

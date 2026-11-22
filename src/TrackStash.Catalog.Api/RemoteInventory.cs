@@ -51,9 +51,11 @@ public sealed record RemoteInventoryBatchRequest
 public sealed record RemoteInventoryBatchResponse(int Saved, int Older);
 /// <summary>A browsable historical record from a remote scanner.</summary>
 public sealed record RemoteInventoryItem(string OwnerId, string DeviceId, long MediaFileId, string Path, string? Title,
-    string? Artist, string? Album, string? Label, string? Release, string? Format, DateTimeOffset ScannedUtc);
+    string? Artist, string? Album, string? Label, string? Release, string? Format, DateTimeOffset ScannedUtc, string Version,
+    string? Mix = null, string? Isrc = null, double? DurationSeconds = null, long SizeBytes = 0,
+    DateTimeOffset? LastModifiedUtc = null, MediaFileTags? Tags = null);
 /// <summary>A page of remote inventory records.</summary>
-public sealed record RemoteInventoryPage(IReadOnlyList<RemoteInventoryItem> Items, int Total, int Page, int PageSize);
+public sealed record RemoteInventoryPage(IReadOnlyList<RemoteInventoryItem> Items, int Total, int Page, int PageSize, IReadOnlyList<string> Devices);
 /// <summary>Scanner identity used to select a remote inventory record.</summary>
 public sealed record RemoteInventoryKey(string OwnerId, string DeviceId, long MediaFileId);
 /// <summary>Remote inventory records for which matching suggestions are requested.</summary>
@@ -67,6 +69,12 @@ public sealed record RemoteMatchSelection(RemoteInventoryKey Key, string Version
 public sealed record RemoteMatchRequest(IReadOnlyList<RemoteMatchSelection> Items);
 /// <summary>Number of newly saved and already existing links.</summary>
 public sealed record RemoteMatchResult(int Saved, int AlreadyLinked);
+/// <summary>One remote scanner snapshot and its explicit pseudo-track choice.</summary>
+public sealed record RemotePseudoChoice(RemoteInventoryKey Key, string Version, string? RecordingId, long? CopyOfIndex,
+    string? Title, string? Mix, string? ArtistId, string? NewArtist);
+/// <summary>Creates a pseudo release from uploaded scanner snapshots without reading device files.</summary>
+public sealed record CreateRemotePseudoRequest(string OperationId, string Title, string? CatalogNumber,
+    IReadOnlyList<RemotePseudoChoice> Items);
 
 internal sealed class RemoteInventorySettings
 {
@@ -110,10 +118,12 @@ internal sealed class RemoteInventorySettings
 
 internal interface IRemoteInventoryService
 {
+    Task<(RemoteInventoryRecord Record, string Version)> LookupItemAsync(RemoteInventoryKey key, CancellationToken ct);
     Task<RemoteInventoryBatchResponse> SaveAsync(RemoteInventoryBatchRequest batch, CancellationToken ct);
-    Task<RemoteInventoryPage> BrowseAsync(int page, string? search, CancellationToken ct);
+    Task<RemoteInventoryPage> BrowseAsync(int page, string? search, string? device, string? match, string? sort, bool descending, CancellationToken ct);
     Task<IReadOnlyList<RemoteMatchProposal>> ProposalsAsync(RemoteMatchProposalsRequest request, CancellationToken ct);
     Task<RemoteMatchResult> MatchAsync(RemoteMatchRequest request, CancellationToken ct);
+    Task<PseudoReleaseOutcome> CreatePseudoAsync(CreateRemotePseudoRequest request, CancellationToken ct);
 }
 
 internal sealed partial class RemoteInventoryService(RemoteInventorySettings settings, IStorageProvider storage, TimeProvider clock) : IRemoteInventoryService
@@ -236,41 +246,80 @@ internal sealed partial class RemoteInventoryService(RemoteInventorySettings set
         return new(saved, items.Count - saved);
     }
 
-    public async Task<RemoteInventoryPage> BrowseAsync(int page, string? search, CancellationToken ct)
+    public async Task<RemoteInventoryPage> BrowseAsync(int page, string? search, string? device, string? match, string? sort, bool descending, CancellationToken ct)
     {
-        if (page < 1 || search?.Length > 200)
-            throw new ApiRequestException(400, "validation_failed", "Choose page >= 1 and search <= 200 characters.");
+        if (page < 1 || search?.Length > 200 || device?.Length > 100 || device is not null && string.IsNullOrWhiteSpace(device) ||
+            match is not (null or "matched" or "unmatched") || sort is not (null or "release" or "title" or "artist" or "label" or "device"))
+            throw new ApiRequestException(400, "validation_failed", "Invalid inventory page, search, device, match status or sort.");
         var path = DatabasePath;
-        if (!File.Exists(path)) return new([], 0, page, PageSize);
+        if (!File.Exists(path)) return new([], 0, page, PageSize, []);
         await using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
         {
             DataSource = path, Mode = SqliteOpenMode.ReadOnly, Pooling = false
         }.ToString());
         await connection.OpenAsync(ct);
+        if (match is not null)
+        {
+            await using var unit = await storage.BeginUnitOfWorkAsync(ct);
+            var linked = await unit.Matches.ListMatchedMediaIdsAsync("remote-", ct);
+            await using var temp = connection.CreateCommand();
+            temp.CommandText = "CREATE TEMP TABLE linked_remote(media_id TEXT PRIMARY KEY) WITHOUT ROWID";
+            await temp.ExecuteNonQueryAsync(ct);
+            temp.CommandText = "INSERT INTO linked_remote(media_id) VALUES(@id)";
+            var parameter = temp.Parameters.Add("@id", SqliteType.Text);
+            foreach (var id in linked)
+            {
+                parameter.Value = id;
+                await temp.ExecuteNonQueryAsync(ct);
+            }
+            connection.CreateFunction<string, string, long, string>("remote_media_id",
+                (owner, deviceId, mediaId) => RemoteMediaId(new(owner, deviceId, mediaId)), isDeterministic: true);
+        }
         const string filter = """
             (@query = '' OR instr(lower(coalesce(json_extract(item_json,'$.title'),'')),lower(@query)) > 0
              OR instr(lower(coalesce(json_extract(item_json,'$.artist'),'')),lower(@query)) > 0
              OR instr(lower(coalesce(json_extract(item_json,'$.label'),'')),lower(@query)) > 0
              OR instr(lower(coalesce(json_extract(item_json,'$.release'),'')),lower(@query)) > 0
              OR instr(lower(coalesce(json_extract(item_json,'$.album'),'')),lower(@query)) > 0)
+            AND (@device IS NULL OR device_id=@device)
             """;
         await using var transaction = connection.BeginTransaction(deferred: true);
         await CheckStore(connection, transaction, false, ct);
+        await using var devicesCommand = connection.CreateCommand();
+        devicesCommand.Transaction = transaction;
+        devicesCommand.CommandText = "SELECT DISTINCT device_id FROM remote_inventory ORDER BY device_id";
+        var devices = new List<string>();
+        await using (var devicesReader = await devicesCommand.ExecuteReaderAsync(ct))
+            while (await devicesReader.ReadAsync(ct)) devices.Add(devicesReader.GetString(0));
+        var matchFilter = match is null ? "" : match == "matched"
+            ? " AND EXISTS(SELECT 1 FROM linked_remote WHERE media_id=remote_media_id(owner_id,device_id,media_file_id))"
+            : " AND NOT EXISTS(SELECT 1 FROM linked_remote WHERE media_id=remote_media_id(owner_id,device_id,media_file_id))";
         await using var count = connection.CreateCommand();
         count.Transaction = (SqliteTransaction)transaction;
-        count.CommandText = $"SELECT count(*) FROM remote_inventory WHERE {filter}";
+        count.CommandText = $"SELECT count(*) FROM remote_inventory WHERE {filter} {matchFilter}";
         count.Parameters.AddWithValue("@query", search?.Trim() ?? "");
+        count.Parameters.AddWithValue("@device", device ?? (object)DBNull.Value);
         var total = Convert.ToInt32(await count.ExecuteScalarAsync(ct));
         await using var command = connection.CreateCommand();
         command.Transaction = (SqliteTransaction)transaction;
+        var sortExpression = sort switch
+        {
+            "title" => "lower(coalesce(json_extract(item_json,'$.title'),''))",
+            "artist" => "lower(coalesce(json_extract(item_json,'$.artist'),''))",
+            "label" => "lower(coalesce(json_extract(item_json,'$.label'),''))",
+            "device" => "lower(device_id)",
+            _ => "lower(coalesce(json_extract(item_json,'$.release'),json_extract(item_json,'$.album'),''))",
+        };
+        var direction = descending ? "DESC" : "ASC";
         command.CommandText = $"""
-            SELECT owner_id,device_id,item_json FROM remote_inventory WHERE {filter}
-            ORDER BY lower(coalesce(json_extract(item_json,'$.release'),json_extract(item_json,'$.album'),'')),
+            SELECT owner_id,device_id,item_json FROM remote_inventory WHERE {filter} {matchFilter}
+            ORDER BY {sortExpression} {direction},
                      lower(coalesce(json_extract(item_json,'$.artist'),'')),
                      lower(coalesce(json_extract(item_json,'$.title'),'')),owner_id,device_id,media_file_id
             LIMIT @limit OFFSET @offset
             """;
         command.Parameters.AddWithValue("@query", search?.Trim() ?? "");
+        command.Parameters.AddWithValue("@device", device ?? (object)DBNull.Value);
         command.Parameters.AddWithValue("@limit", PageSize);
         command.Parameters.AddWithValue("@offset", (long)(page - 1) * PageSize);
         var result = new List<RemoteInventoryItem>();
@@ -280,10 +329,17 @@ internal sealed partial class RemoteInventoryService(RemoteInventorySettings set
             var item = JsonSerializer.Deserialize<RemoteInventoryRecord>(reader.GetString(2))
                 ?? throw new InvalidOperationException("Stored remote inventory record is invalid.");
             result.Add(new(reader.GetString(0), reader.GetString(1), item.MediaFileId, item.Path!, item.Title, item.Artist, item.Album,
-                item.Label, item.Release, item.Format, item.ScannedUtc));
+                item.Label, item.Release, item.Format, item.ScannedUtc, Digest(reader.GetString(2)),
+                item.Subtitle, item.Isrc, item.DurationSeconds, item.SizeBytes, item.LastModifiedUtc,
+                new(item.ArtistsJson, item.RemixersJson, item.Barcode, item.CatalogNumber,
+                    TagValue(item.TrackNumber), TagValue(item.DiscNumber), TagValue(item.Bpm), item.MusicalKey, item.Genre,
+                    item.Year?.ToString(System.Globalization.CultureInfo.InvariantCulture))));
         }
-        return new(result, total, page, PageSize);
+        return new(result, total, page, PageSize, devices);
     }
+
+    private static string? TagValue(JsonElement? value) => value is not { } element || element.ValueKind == JsonValueKind.Null
+        ? null : element.ValueKind == JsonValueKind.String ? element.GetString() : element.GetRawText();
 }
 
 internal sealed class DeviceInventoryEndpoint;
@@ -292,6 +348,15 @@ internal static class RemoteInventoryEndpoints
 {
     internal static void MapRemoteInventory(this WebApplication app)
     {
+        app.MapPost("/api/v1/remote-inventory/pseudo-releases", async (CreateRemotePseudoRequest request,
+            IRemoteInventoryService service, CancellationToken ct) =>
+        {
+            var result = await service.CreatePseudoAsync(request, ct);
+            return TypedResults.Created($"/api/v1/releases/{result.ReleaseId}", result);
+        }).WithName("CreateRemotePseudoRelease").WithTags("Remote inventory")
+          .WithSummary("Create a pseudo release and link selected uploaded device records")
+          .WithDescription("Snapshot versions and Catalog identities are checked atomically. Device file bytes are not verified; identical retries return the saved outcome.")
+          .Produces<PseudoReleaseOutcome>(201).ProducesProblem(400).ProducesProblem(409).ProducesProblem(412);
         app.MapPost("/api/v1/remote-inventory/batches", async (RemoteInventoryBatchRequest request,
             IRemoteInventoryService service, CancellationToken ct) =>
             TypedResults.Ok(await service.SaveAsync(request, ct)))
@@ -299,8 +364,12 @@ internal static class RemoteInventoryEndpoints
             .WithName("UploadRemoteInventoryBatch").WithTags("Remote inventory")
             .WithSummary("Upsert a bounded batch of scanner metadata using the device credential")
             .Produces<RemoteInventoryBatchResponse>().ProducesProblem(400).ProducesProblem(401).ProducesProblem(409);
-        app.MapGet("/api/v1/remote-inventory", async (int? page, string? q, IRemoteInventoryService service, CancellationToken ct) =>
-            TypedResults.Ok(await service.BrowseAsync(page ?? 1, q, ct)))
+        app.MapGet("/api/v1/remote-inventory", async (int? page, string? q, string? device, string? match, string? sort, string? order, IRemoteInventoryService service, CancellationToken ct) =>
+        {
+            if (order is not (null or "asc" or "desc"))
+                throw new ApiRequestException(400, "validation_failed", "Inventory order must be asc or desc.");
+            return TypedResults.Ok(await service.BrowseAsync(page ?? 1, q, device, match, sort, order == "desc", ct));
+        })
             .WithName("BrowseRemoteInventory").WithTags("Remote inventory")
             .WithSummary("Browse historical remote scanner records with administrator authentication")
             .Produces<RemoteInventoryPage>().ProducesProblem(400).ProducesProblem(401).ProducesProblem(409);

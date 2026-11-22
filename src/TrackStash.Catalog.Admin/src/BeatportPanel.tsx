@@ -104,7 +104,7 @@ export function BeatportPanel({ onSourceChanged }: { onSourceChanged: () => void
       <Button size="small" onClick={() => load()}>Check again</Button>
     </Stack>}
     {connection.reachable && !connection.signedIn && <>
-      <Typography variant="body2" sx={{ mt: 1 }}>Sign in once to fill in missing release and track details. Your password goes only to the local broker; it keeps a renewable sign-in token in the macOS Keychain.</Typography>
+      <Typography variant="body2" sx={{ mt: 1 }}>Sign in once to fill in missing release and track details. Your password goes only to the broker; it keeps a renewable sign-in token in its private session store.</Typography>
       <SignInForm onSignedIn={setConnection} />
     </>}
     {connection.reachable && connection.signedIn && <>
@@ -121,16 +121,16 @@ export function BeatportPanel({ onSourceChanged }: { onSourceChanged: () => void
 }
 
 /** Fetches one release's missing or invalid Beatport data; the summary is handed to the parent because the inspection reloads afterwards. */
-export function BeatportFetchButton({ releaseId, onFetched, disabled = false, onBusyChange }: {
+export function BeatportFetchButton({ releaseId, onFetched, disabled = false, onBusyChange, catalogAdmission = false }: {
   releaseId: number; onFetched: (summary: string, outcome: BeatportBackfillResult) => void
-  disabled?: boolean; onBusyChange?: (busy: boolean) => void
+  disabled?: boolean; onBusyChange?: (busy: boolean) => void; catalogAdmission?: boolean
 }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   return <Box sx={{ my: 1 }}>
     <Button variant="contained" size="small" startIcon={<CloudDownload />} disabled={busy || disabled} onClick={() => {
       setBusy(true); onBusyChange?.(true); setError('')
-      void beatportClient.backfillRelease(releaseId).then(outcome => {
+      void (catalogAdmission ? beatportClient.prepareImport(releaseId) : beatportClient.backfillRelease(releaseId)).then(outcome => {
         onFetched(outcome.sourceCompleteAfter
           ? `Fetched ${outcome.tracksFetched} track${outcome.tracksFetched === 1 ? '' : 's'}${outcome.releaseRefreshed ? ' and the release' : ''}; the source is now complete.`
           : `Fetched ${outcome.tracksFetched} of ${outcome.tracksRequested} tracks${outcome.tracksNotFound ? ` (${outcome.tracksNotFound} no longer on Beatport)` : ''}. Still blocked: ${outcome.remainingBlockers.join(', ').replaceAll('_', ' ')}.`, outcome)

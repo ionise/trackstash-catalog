@@ -6,7 +6,7 @@ export const trackPageSize = 25
 /** Where a track list is shown; each context is the same list with a different filter and default columns. */
 export type TrackContext = 'all' | 'release' | 'label' | 'artist' | 'recording'
 export interface TrackFilter { releaseId?: string; labelId?: string; artistId?: string; recordingId?: string }
-export interface TrackView { page: number; q: string; sort: string }
+export interface TrackView { page: number; q: string; sort: string; media?: string }
 
 export const trackSorts = [
   { value: 'date_desc', label: 'Newest release first' },
@@ -15,6 +15,8 @@ export const trackSorts = [
   { value: 'artist', label: 'Artist A–Z' },
   { value: 'release', label: 'Release A–Z' },
   { value: 'order', label: 'Release order' },
+  { value: 'copies_asc', label: 'Fewest linked copies first' },
+  { value: 'copies_desc', label: 'Most linked copies first' },
 ] as const
 
 export function defaultTrackSort(context: TrackContext) { return context === 'release' ? 'order' : 'date_desc' }
@@ -23,6 +25,7 @@ export function trackQuery(filter: TrackFilter, view: TrackView, groupByRecordin
   const query = new URLSearchParams({ page: String(view.page), pageSize: String(trackPageSize) })
   for (const [key, value] of Object.entries(filter)) if (value) query.set(key, value)
   if (view.q.trim()) query.set('q', view.q.trim())
+  if (view.media) query.set('media', view.media)
   const [sort, order] = view.sort.split('_')
   if (sort) query.set('sort', sort)
   if (order) query.set('order', order)
@@ -45,11 +48,12 @@ export function useUrlTrackView(prefix = '', fallbackSort = defaultTrackSort('al
     page: Number.isSafeInteger(number) && number > 0 ? number : 1,
     q: params.get(paramName(prefix, 'q')) ?? '',
     sort: trackSorts.some(s => s.value === sort) ? sort : fallbackSort,
+    media: ['none', 'linked'].includes(params.get(paramName(prefix, 'media')) ?? '') ? params.get(paramName(prefix, 'media')) ?? '' : '',
   }
   const change = useCallback((next: TrackView) => setParams(current => {
     const updated = new URLSearchParams(current)
     updated.set(paramName(prefix, 'page'), String(next.page))
-    for (const [key, value, empty] of [['q', next.q, ''], ['sort', next.sort, fallbackSort]] as const)
+    for (const [key, value, empty] of [['q', next.q, ''], ['sort', next.sort, fallbackSort], ['media', next.media ?? '', '']] as const)
       if (value === empty) updated.delete(paramName(prefix, key)); else updated.set(paramName(prefix, key), value)
     return updated
   }, { replace: true }), [setParams, prefix, fallbackSort])

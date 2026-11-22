@@ -7,7 +7,8 @@ using TrackStash.Core.Storage;
 namespace TrackStash.Catalog.Api;
 
 /// <summary>A canonical Artist with roles drawn from actual credits, optionally within a Label's releases.</summary>
-public sealed record ArtistSummaryResponse(string Id, string? Name, string Kind, string IdentityStatus, IReadOnlyList<string> Roles);
+public sealed record ArtistSummaryResponse(string Id, string? Name, string Kind, string IdentityStatus, IReadOnlyList<string> Roles,
+    int RecordingCount = 0, int CoveredRecordingCount = 0);
 /// <summary>A stable name/ID ordered Artist page.</summary>
 public sealed record ArtistListResponse(IReadOnlyList<ArtistSummaryResponse> Items, int Total, int Page, int PageSize);
 /// <summary>Safe Artist metadata and identities, excluding private source payloads.</summary>
@@ -71,20 +72,24 @@ internal static class ArtistEndpoints
     private static ArtistQuery Query(HttpRequest request, bool credits = false)
     {
         foreach (var field in request.Query)
-            if (field.Value.Count != 1 || !(field.Key is "page" or "pageSize" || !credits && (field.Key is "q" or "labelId" or "role")))
+            if (field.Value.Count != 1 || !(field.Key is "page" or "pageSize" || !credits && (field.Key is "q" or "labelId" or "role" or "media" or "sort" or "order")))
                 throw new ApiRequestException(400, "validation_failed", "Unknown or repeated Artist query field.");
         int Number(string key, int fallback) => !request.Query.TryGetValue(key, out var value) ? fallback :
             int.TryParse(value[0], NumberStyles.None, CultureInfo.InvariantCulture, out var number) ? number :
             throw new ApiRequestException(400, "validation_failed", "Invalid Artist pagination.");
+        var order = request.Query["order"].FirstOrDefault();
+        if (order is not (null or "asc" or "desc"))
+            throw new ApiRequestException(400, "validation_failed", "Artist order must be asc or desc.");
         var query = new ArtistQuery(Number("page", 1), Number("pageSize", 25),
-            request.Query["q"].FirstOrDefault(), request.Query["labelId"].FirstOrDefault(), request.Query["role"].FirstOrDefault());
+            request.Query["q"].FirstOrDefault(), request.Query["labelId"].FirstOrDefault(), request.Query["role"].FirstOrDefault(),
+            request.Query["media"].FirstOrDefault(), request.Query["sort"].FirstOrDefault(), order == "desc");
         query.Validate(); return query;
     }
     private static async Task<IResult> List(HttpContext context, IArtistService service, CancellationToken ct)
     {
         var result = await service.QueryAsync(Query(context.Request), ct);
         context.Response.Headers.CacheControl = "no-store";
-        return TypedResults.Ok(new ArtistListResponse(result.Items.Select(a => new ArtistSummaryResponse(a.Id, a.Name, a.Kind, a.IdentityStatus, a.Roles)).ToArray(),
+        return TypedResults.Ok(new ArtistListResponse(result.Items.Select(a => new ArtistSummaryResponse(a.Id, a.Name, a.Kind, a.IdentityStatus, a.Roles, a.RecordingCount, a.CoveredRecordingCount)).ToArray(),
             result.Total, result.Page, result.PageSize));
     }
     private static async Task<IResult> Get(string id, HttpContext context, IArtistService service, CancellationToken ct)

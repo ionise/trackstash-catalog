@@ -65,7 +65,7 @@ public sealed partial class MediaService
         review = review with { Version = Hash(new ReleasePayload("MediaReleaseGroup", SourceId, review, catalog)) };
         await unit.Enrichment!.SaveReviewAsync(new(review.Id, CatalogEntityKind.Release, releaseId, review.Version,
             Json(new ReleasePayload("MediaReleaseGroup", SourceId, review, catalog)), review.CreatedAt), ct);
-        if (Json(await ReleaseGroup(groupKey, ct)) != Json(files)) throw Error(412, "enrichment_state_changed", "Scanner group changed during preparation.");
+        if (EvidenceJson(await ReleaseGroup(groupKey, ct)) != EvidenceJson(files)) throw Error(412, "enrichment_state_changed", "Scanner group changed during preparation.");
         await unit.CommitAsync(ct);
         return review;
     }
@@ -102,13 +102,13 @@ public sealed partial class MediaService
         if (clock.GetUtcNow() - payload.Review.CreatedAt >= TimeSpan.FromHours(24)) throw Error(410, "enrichment_review_expired", "Release review expired.");
         if (payload.SourceId != SourceId) throw Error(412, "enrichment_state_changed", "Scanner source changed.");
         var files = await ReleaseGroup(payload.Review.GroupKey, ct);
-        if (Json(files) != Json(payload.Review.Files) || Json(await ReadRelease(unit, payload.Review.ReleaseId, ct)) != Json(payload.Catalog))
+        if (EvidenceJson(files) != EvidenceJson(payload.Review.Files) || Json(await ReadRelease(unit, payload.Review.ReleaseId, ct)) != Json(payload.Catalog))
             throw Error(412, "enrichment_state_changed", "Scanner group or Catalog Release context changed; prepare a fresh review.");
         CheckReleaseOwnership(await AppliedReleaseGroups(unit, ct), SourceId, files);
         var outcome = new MediaReleaseAssociation(id, payload.Review.GroupKey, payload.Review.ReleaseId, payload.Review.CatalogTitle,
             payload.Review.Label, payload.Review.ReleaseTitle, files.Length, files.Select(f => f.Library).Distinct().ToArray(), clock.GetUtcNow());
         await unit.Enrichment.SaveAuditAsync(new(id, Json(new[] { "MediaReleaseAssociation" }), reason.Trim(), Json(payload), Json(outcome), outcome.AppliedAt), ct);
-        if (Json(await ReleaseGroup(payload.Review.GroupKey, ct)) != Json(files)) throw Error(412, "enrichment_state_changed", "Scanner changed during apply.");
+        if (EvidenceJson(await ReleaseGroup(payload.Review.GroupKey, ct)) != EvidenceJson(files)) throw Error(412, "enrichment_state_changed", "Scanner changed during apply.");
         await unit.CommitAsync(ct);
         return outcome;
     }

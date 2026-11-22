@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Alert, Box, Button, Checkbox, FormControlLabel, LinearProgress, MenuItem, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material'
 import { useLogoutIfAccessDenied } from 'react-admin'
-import { enrichmentClient } from './catalog'
+import { enrichmentClient, releaseArtworkClient } from './catalog'
 import type { EnrichmentBatchReview, EnrichmentBatchSelection, EnrichmentLookup, EnrichmentReview } from './catalog'
 import { EnrichmentTrackReview } from './EnrichmentTrackReview'
 
@@ -19,6 +19,9 @@ function EntityEnrichment({ id, resource, onApplied }: { id: string; resource: '
   const providerName = provider === 'beatport' ? 'Beatport' : 'SonoVault'
   const [result, setResult] = useState<EnrichmentLookup>()
   const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
+  const [unmatchedTracks, setUnmatchedTracks] = useState<EnrichmentBatchReview['tracks']>([])
+  const [batchWarnings, setBatchWarnings] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
   const [review, setReview] = useState<EnrichmentReview>()
   const [batch, setBatch] = useState<EnrichmentBatchReview>()
@@ -30,7 +33,7 @@ function EntityEnrichment({ id, resource, onApplied }: { id: string; resource: '
     if (pending.current) return
     const controller = new AbortController()
     pending.current = controller
-    setBusy(true); setError('')
+    setBusy(true); setError(''); setSuccess(''); setUnmatchedTracks([]); setBatchWarnings([])
     setReview(undefined)
     setBatch(undefined)
     if (candidateId === undefined) setResult(undefined)
@@ -58,6 +61,73 @@ function EntityEnrichment({ id, resource, onApplied }: { id: string; resource: '
       if (!controller.signal.aborted) setReview(data)
     } catch (failure) {
       if (!controller.signal.aborted) { setError(failure instanceof Error ? failure.message : 'Review preparation failed.'); void logout(failure) }
+    } finally {
+      if (!controller.signal.aborted) { pending.current = undefined; setBusy(false) }
+    }
+  }
+  async function applyCandidate(candidateId: string, editionId: string | null) {
+    if (pending.current || !result || (resource !== 'recordings' && resource !== 'releases')) return
+    const controller = new AbortController()
+    pending.current = controller; setBusy(true); setError(''); setSuccess(''); setUnmatchedTracks([]); setBatchWarnings([]); setReview(undefined); setBatch(undefined)
+    let tracksSaved = false
+    let releaseSaved = false
+    let writeAttempted = false
+    try {
+      const frozen = await enrichmentClient.prepare(resource, id, candidateId, editionId, result.query.catalogVersion, controller.signal, provider)
+      const fields = frozen.fields.filter(field => field.field !== 'PreferredGenre').map(field => field.field)
+      if (!fields.length) throw new Error('This candidate has no available metadata to apply.')
+      const trackBatch = resource === 'releases'
+        ? await enrichmentClient.prepareBatch(id, candidateId, result.query.catalogVersion, controller.signal, provider, editionId) : undefined
+      const sourceSnapshot = (value: unknown) => JSON.stringify(value, (key, item) => key === 'retrievedAt' ? undefined : item)
+      if (trackBatch && sourceSnapshot(trackBatch.candidate.metadata) !== sourceSnapshot(frozen.candidate.metadata))
+        throw new Error('Provider release details changed while preparing tracks; look up the candidate again.')
+      if (trackBatch) {
+        setUnmatchedTracks(trackBatch.tracks.filter(track => track.status !== 'Confident'))
+        setBatchWarnings(trackBatch.warnings)
+      }
+      const selections = trackBatch?.tracks.flatMap(track => track.review ? [{
+        reviewId: track.review.id,
+        fields: track.review.fields.filter(field => field.field !== 'PreferredGenre').map(field => field.field),
+        preferredGenre: null,
+      }] : []).filter(selection => selection.fields.length) ?? []
+      if (trackBatch && selections.length) {
+        writeAttempted = true
+        await enrichmentClient.applyBatch(trackBatch, selections, `Selected ${providerName} release candidate in the catalog.`, true, controller.signal)
+        tracksSaved = true
+      }
+      writeAttempted = true
+      const outcome = await enrichmentClient.apply(frozen, fields, null, `Selected ${providerName} candidate in the catalog.`, true, controller.signal)
+      releaseSaved = true
+      let artworkMessage = ''
+      if (resource === 'releases' && provider === 'beatport') {
+        const [gallery, candidates] = await Promise.all([
+          releaseArtworkClient.get(id, controller.signal), releaseArtworkClient.candidates(id, controller.signal),
+        ])
+        const candidate = candidates.items.find(item => item.provider === 'beatport')
+        if (!candidate) artworkMessage = ' No Beatport artwork was available.'
+        else if (gallery.items.some(item => item.sourceUrl === candidate.sourceUrl))
+          artworkMessage = ' This Beatport artwork is already attached.'
+        else {
+          await releaseArtworkClient.attach(id, gallery.etag, candidate, !gallery.items.some(item => item.isPreferred), controller.signal)
+          artworkMessage = ' Beatport artwork attached.'
+        }
+      } else if (resource === 'releases') artworkMessage = ' SonoVault does not supply artwork.'
+      if (!controller.signal.aborted) {
+        const skipped = trackBatch?.tracks.filter(track => track.status !== 'Confident').length ?? 0
+        setSuccess(`Applied ${outcome.fields.join(', ')} from ${providerName}.${trackBatch
+          ? ` Updated ${selections.length} matched recordings; ${skipped} track entries need attention.` : ''}${artworkMessage}`)
+        setResult(undefined)
+        onApplied?.()
+      }
+    } catch (failure) {
+      if (!controller.signal.aborted) {
+        const message = failure instanceof Error ? failure.message : 'The candidate could not be applied.'
+        setError(`${message}${releaseSaved ? ' Release metadata was saved; artwork may not have been attached.'
+          : tracksSaved ? ' Track metadata was saved; release metadata was not confirmed. Reload before retrying.'
+          : writeAttempted ? ' A write may have completed if the connection failed; reload before retrying.' : ''}`)
+        if (tracksSaved || releaseSaved) onApplied?.()
+        void logout(failure)
+      }
     } finally {
       if (!controller.signal.aborted) { pending.current = undefined; setBusy(false) }
     }
@@ -106,18 +176,25 @@ function EntityEnrichment({ id, resource, onApplied }: { id: string; resource: '
     <Typography component="h2" variant="h6">Metadata enrichment</Typography>
     {(resource === 'releases' || resource === 'recordings') && <TextField select label="Enrichment provider" value={provider} disabled={busy} onChange={event => {
       if (event.target.value !== 'beatport' && event.target.value !== 'sonovault') return
-      setProvider(event.target.value); setResult(undefined); setError(''); setReview(undefined); setBatch(undefined)
+      setProvider(event.target.value); setResult(undefined); setError(''); setSuccess(''); setUnmatchedTracks([]); setBatchWarnings([]); setReview(undefined); setBatch(undefined)
     }} sx={{ maxWidth: 300 }}>
       <MenuItem value="sonovault">SonoVault</MenuItem><MenuItem value="beatport">Beatport</MenuItem>
     </TextField>}
     <Alert severity="info">{(resource === 'recordings' || resource === 'releases')
-      ? `Lookups do not change this ${entityName}. Prepare a review to select fields and explicitly confirm an update. Preparing a review fetches the chosen candidate once more and freezes its values; apply uses no provider requests.`
+      ? `Lookups do not change this ${entityName}. Applying a candidate fetches its latest details and updates available fields and provider identity, including replacing existing values; preferred classification is unchanged.${resource === 'releases' ? ` Confidently matched recordings are also updated, including on other releases. Ambiguous tracks are skipped. ${provider === 'beatport' ? 'Available Beatport artwork is attached without replacing the preferred image.' : 'SonoVault does not provide artwork.'}` : ''} Choose detailed review to select individual fields instead.`
       : `Read-only pilot: compare ${providerName} candidates with this ${entityName}. Nothing is saved or applied.`} {provider === 'sonovault' ? 'Each lookup/review click may use one API request; there are no automatic retries.' : resource === 'recordings'
         ? 'Beatport uses one caching-broker call per Recording lookup/review. Duration is evidence only; no automatic retries.'
         : 'Beatport uses the caching broker: one search call or two detail/review calls (Release and tracks). Artwork is attached separately using the artwork manager.'}</Alert>
     <Button variant="outlined" disabled={busy} onClick={() => void lookup()} sx={{ alignSelf: 'flex-start' }}>Find enrichment on {providerName}</Button>
     {busy && <LinearProgress aria-label={`Looking up ${providerName} metadata`} />}
     {error && <Alert severity="error">{error}</Alert>}
+    {success && <Alert severity="success">{success}</Alert>}
+    {batchWarnings.map((warning, index) => <Alert key={index} severity="warning">Track review: {warning}</Alert>)}
+    {!!unmatchedTracks.length && <Alert severity="warning">These tracks were not enriched:
+      <ul>{unmatchedTracks.map((track, index) => <li key={`${track.candidateId}:${index}`}>
+        {track.title}: {track.reasons.join(' ')}
+      </li>)}</ul>
+    </Alert>}
     {result && <>
       <Typography variant="body2">Lookup {result.retrievedAt}; catalog snapshot {result.query.catalogVersion}. Comparison is against the snapshot used for this lookup.</Typography>
       {result.warnings.map((warning, index) => <Alert key={index} severity="warning">{warning}</Alert>)}
@@ -160,6 +237,10 @@ function EntityEnrichment({ id, resource, onApplied }: { id: string; resource: '
           <Typography component="h3" variant="h6">{providerName} candidate {candidate.candidateId}{candidate.editionId ? ` / edition ${candidate.editionId}` : ''}</Typography>
           <Typography>Match basis: {candidate.match.basis}. {candidate.match.explanation}</Typography>
           {candidate.match.conflicts.map((conflict, index) => <Alert severity="warning" key={index}>{conflict}</Alert>)}
+          {(resource === 'recordings' || resource === 'releases') && <Button variant="contained"
+            disabled={busy} onClick={() => void applyCandidate(candidate.candidateId, candidate.editionId)} sx={{ alignSelf: 'flex-start' }}>
+            Apply candidate {candidate.candidateId}{candidate.editionId ? ` edition ${candidate.editionId}` : ''}
+          </Button>}
           {(resource === 'recordings' || resource === 'releases') && <Button variant="outlined"
             disabled={busy} onClick={() => void prepare(candidate.candidateId, candidate.editionId)} sx={{ alignSelf: 'flex-start' }}>
             Prepare review for candidate {candidate.candidateId}{candidate.editionId ? ` edition ${candidate.editionId}` : ''}

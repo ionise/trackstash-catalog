@@ -27,7 +27,7 @@ public sealed record LabelProfileResponse(
     string? Notes, bool Favourite, string ReviewStatus, IReadOnlyList<LabelWebLinkResponse> Links);
 
 /// <summary>A lightweight label with its opaque aggregate version.</summary>
-public sealed record LabelListItemResponse(string Id, string? Name, string? SortName, string Version);
+public sealed record LabelListItemResponse(string Id, string? Name, string? SortName, string Version, int RecordingCount = 0, int CoveredRecordingCount = 0);
 
 /// <summary>A page of labels and the matching count before pagination.</summary>
 public sealed record LabelListResponse(IReadOnlyList<LabelListItemResponse> Items, int Total, int Page, int PageSize);

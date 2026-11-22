@@ -11,6 +11,96 @@ namespace TrackStash.Catalog.Tests;
 
 public sealed partial class LabelApiTests
 {
+    private sealed class NamedArtworkImages(byte[] image) : HttpMessageHandler
+    {
+        public int Calls { get; private set; }
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            Calls++;
+            Assert.Equal("geo-media.beatport.com", request.RequestUri!.Host);
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(image) });
+        }
+    }
+
+    [Theory]
+    [InlineData("artists", "artist", "t-primary", "portrait")]
+    [InlineData("labels", "label", "t-label", "logo")]
+    public async Task BeatportNamedArtwork_CandidatesPreviewAttachAndStaleChecks(string resource, string kind, string id, string role)
+    {
+        await CreatePurchaseSource();
+        await ImportSql(TrackFixture);
+        await ImportSql($"INSERT INTO {kind}_external_ref({kind}_id,source,external_id) VALUES('{id}','beatport','10')");
+        var images = new NamedArtworkImages(ImageBytes());
+        var (app, client, broker) = await StartWithBrokerAsync(artwork: images);
+        await using var _ = app;
+        var path = $"/api/v1/{resource}/{id}/artwork";
+        broker.Pages[$"/v4/catalog/{resource}/10/"] = """{"id":10,"name":"Provider name","image":{"uri":"https://geo-media.beatport.com/image.png"}}""";
+        var initial = await client.GetAsync(path);
+        using var form = new MultipartFormDataContent();
+        form.Add(new ByteArrayContent(ImageBytes()), "file", "existing.png");
+        form.Add(new StringContent("Not recorded"), "usageRights");
+        form.Add(new StringContent(role), "role");
+        form.Add(new StringContent("true"), "isPreferred");
+        using var upload = new HttpRequestMessage(HttpMethod.Post, path) { Content = form };
+        upload.Headers.TryAddWithoutValidation("If-Match", initial.Headers.ETag!.ToString());
+        var existing = await client.SendAsync(upload);
+        Assert.Equal(HttpStatusCode.Created, existing.StatusCode);
+        var originalTag = existing.Headers.ETag!.ToString();
+        var page = await client.GetFromJsonAsync<TrackStash.Catalog.Api.ReleaseArtworkCandidatesResponse>(path + "-candidates");
+        var candidate = Assert.Single(page!.Items);
+        Assert.Equal($"{id}:10", candidate.CandidateId);
+        Assert.Equal(0, images.Calls);
+        var query = $"?provider=beatport&candidateId={Uri.EscapeDataString(candidate.CandidateId)}&revision={candidate.Revision}";
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync(path + "-candidates/preview" + query)).StatusCode);
+        Assert.Equal(1, images.Calls);
+        async Task<HttpResponseMessage> Attach(string tag, string revision)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, path + "-candidates/attach")
+            { Content = JsonContent.Create(new { provider = "beatport", candidate.CandidateId, revision, isPreferred = false }) };
+            request.Headers.TryAddWithoutValidation("If-Match", tag);
+            return await client.SendAsync(request);
+        }
+        await ProblemAsync(await Attach(originalTag, "changed"), 409, "release_artwork_unavailable");
+        var result = await Attach(originalTag, candidate.Revision);
+        Assert.Equal(HttpStatusCode.Created, result.StatusCode);
+        var gallery = await result.Content.ReadFromJsonAsync<JsonElement>();
+        var items = gallery.GetProperty("items").EnumerateArray().ToArray();
+        Assert.Equal(2, items.Length);
+        Assert.True(items[0].GetProperty("isPreferred").GetBoolean());
+        Assert.False(items[1].GetProperty("isPreferred").GetBoolean());
+        Assert.Equal(role, items[1].GetProperty("role").GetString());
+        Assert.Equal($"https://www.beatport.com/{kind}/-/10", items[1].GetProperty("sourceUrl").GetString());
+        await ProblemAsync(await Attach(originalTag, candidate.Revision), 412, "stale_version");
+        Assert.Equal(2, images.Calls);
+        broker.Pages[$"/v4/catalog/{resource}/10/"] = """{"id":10,"name":"Provider name","image":{"uri":"https://evil.example/image.png"}}""";
+        await ProblemAsync(await client.GetAsync(path + "-candidates"), 409, "release_artwork_unavailable");
+        Assert.Equal(2, images.Calls);
+    }
+
+    [Theory]
+    [InlineData("artists", "artist", "t-primary")]
+    [InlineData("labels", "label", "t-label")]
+    public async Task BeatportNamedArtwork_RequiresOneLinkedIdentityAndChecksProviderResponse(string resource, string kind, string id)
+    {
+        await CreatePurchaseSource();
+        await ImportSql(TrackFixture);
+        var (app, client, broker) = await StartWithBrokerAsync();
+        await using var _ = app;
+        var path = $"/api/v1/{resource}/{id}/artwork-candidates";
+        var empty = await client.GetFromJsonAsync<TrackStash.Catalog.Api.ReleaseArtworkCandidatesResponse>(path);
+        Assert.Empty(empty!.Items);
+        Assert.Empty(broker.Requests);
+        await ImportSql($"INSERT INTO {kind}_external_ref({kind}_id,source,external_id) VALUES('{id}','beatport','10')");
+        broker.Pages[$"/v4/catalog/{resource}/10/"] = """{"id":10,"name":"Provider name","image":null}""";
+        Assert.Empty((await client.GetFromJsonAsync<TrackStash.Catalog.Api.ReleaseArtworkCandidatesResponse>(path))!.Items);
+        broker.Pages[$"/v4/catalog/{resource}/10/"] = """{"id":11,"name":"Wrong identity","image":{"uri":"https://geo-media.beatport.com/image.jpg"}}""";
+        await ProblemAsync(await client.GetAsync(path), 409, "release_artwork_unavailable");
+        await ImportSql($"INSERT INTO {kind}_external_ref({kind}_id,source,external_id) VALUES('{id}','beatport','11')");
+        var calls = broker.Requests.Count;
+        await ProblemAsync(await client.GetAsync(path), 409, "release_artwork_unavailable");
+        Assert.Equal(calls, broker.Requests.Count);
+    }
+
     [Fact]
     public async Task BeatportEnrichment_RecordingSearchUsesIsrcOrTitleArtistMixAndLinkedIdFirst()
     {

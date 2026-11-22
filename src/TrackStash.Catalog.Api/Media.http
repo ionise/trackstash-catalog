@@ -5,6 +5,53 @@
 @reviewId = replace-with-created-review-id
 @reviewETag = "replace-with-original-response-etag"
 
+### Inspect SonoVault Release evidence (edition is optional)
+GET {{baseUrl}}/media/provider-release/sonovault/800?editionId=12
+Authorization: Bearer {{apiKey}}
+
+### Freeze review using sourceVersion from inspection
+POST {{baseUrl}}/sonovault-imports
+Authorization: Bearer {{apiKey}}
+Content-Type: application/json
+
+{ "releaseId": "800", "editionId": "12", "sourceVersion": "replace-with-inspection-sourceVersion" }
+
+### Read the review and recover any saved outcome
+@sonoReviewId = replace-with-created-review-id
+@sonoETag = "replace-with-review-etag"
+GET {{baseUrl}}/sonovault-imports/{{sonoReviewId}}
+Authorization: Bearer {{apiKey}}
+
+### Use actual provider identities and explicitly reviewed Catalog choices from that review
+POST {{baseUrl}}/sonovault-imports/{{sonoReviewId}}/apply
+Authorization: Bearer {{apiKey}}
+Content-Type: application/json
+If-Match: {{sonoETag}}
+
+{ "labelId": null, "artists": [{ "providerId": "701", "canonicalId": null }],
+  "recordings": [{ "providerId": "707", "canonicalId": null }],
+  "allowIncomplete": false, "confirmDistinctRelease": false }
+
+### Create local pseudo release using a fresh media-match-proposals version; audio is verified
+POST {{baseUrl}}/media/pseudo-releases
+Authorization: Bearer {{apiKey}}
+Content-Type: application/json
+
+{ "operationId": "00000000000000000000000000000001", "planVersion": "replace-with-proposal-version",
+  "title": "My edits", "catalogNumber": "NO CAT",
+  "items": [{ "mediaId": 1, "recordingId": null, "copyOfMediaId": null, "title": "My edit",
+    "mix": null, "artistId": null, "newArtist": "Artist" }] }
+
+### Create a pseudo release from uploaded device metadata; device audio is not verified
+POST {{baseUrl}}/remote-inventory/pseudo-releases
+Authorization: Bearer {{apiKey}}
+Content-Type: application/json
+
+{ "operationId": "00000000000000000000000000000002", "title": "My edits", "catalogNumber": "NO CAT",
+  "items": [{ "key": { "ownerId": "owner", "deviceId": "mac", "mediaFileId": 1 },
+    "version": "replace-with-current-device-snapshot-version", "recordingId": null, "copyOfIndex": null,
+    "title": "My edit", "mix": null, "artistId": null, "newArtist": "Artist" }] }
+
 ### Media-led admission: explicit Beatport Release search seeded from media tags
 GET {{baseUrl}}/beatport/releases?q=Absurd&page=1&pageSize=10
 Authorization: Bearer {{apiKey}}

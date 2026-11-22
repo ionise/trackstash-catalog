@@ -5,7 +5,7 @@ namespace TrackStash.Catalog.Api;
 /// <summary>Literal embedded-metadata filters, deterministic sorting and selectable grouping.</summary>
 public sealed record MediaBrowseOptions(string? Label = null, string? Release = null, string? Artist = null,
     string? Track = null, string Sort = "title", string Direction = "asc", string GroupBy = "none", string? GroupKey = null,
-    string? Classification = null, int PageSize = 25);
+    string? Classification = null, int PageSize = 25, string? Match = null);
 /// <summary>A whole-inventory metadata group and recorded locations, not verified backup coverage.</summary>
 public sealed record MediaGroup(string Key, string Name, string? Label, string? Release, int FileCount,
     IReadOnlyList<string> Libraries, bool CanAssociateRelease, string? AssociatedReleaseId = null, string? AssociatedReleaseTitle = null);

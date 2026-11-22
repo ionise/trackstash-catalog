@@ -2,6 +2,8 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using TrackStash.Catalog.Api;
 
 namespace TrackStash.Catalog.Tests;
@@ -17,6 +19,47 @@ public sealed partial class LabelApiTests
         {"id":8,"name":"Bravo tune","mix_name":"Extended Mix","bpm":126,
          "artists":[{"id":71,"name":"Alpha Other"}]}
         """;
+    [Fact]
+    public async Task EnrichmentBatch_SonoVaultUsesReleaseTrackMetadataAndSkipsConflictingVersions()
+    {
+        await ImportSql(TrackFixture);
+        var factory = new EnrichmentHttpFactory { ResponseJson = """
+            {"id":10,"title":"New release","artist":{"id":70,"name":"Zed Primary"},"edition":null,"editions":[],
+             "tracks":[
+               {"id":7,"title":"Shared tune (Original Mix)","isrc":"GBTRK0000001","bpm":124,"key_alphanumeric":"11A",
+                "genre":["House"],"artists":[{"id":70,"name":"Zed Primary","is_primary":true}]},
+               {"id":8,"title":"Bravo tune (Dub)","bpm":126,"artists":[{"id":71,"name":"Alpha Other","is_primary":true}]}
+             ]}
+            """ };
+        await using var app = Build(builder =>
+        {
+            builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?> { ["CatalogApi:SonoVaultApiKey"] = "test-key" });
+            builder.Services.AddSingleton<IHttpClientFactory>(factory);
+        });
+        await app.StartAsync();
+        using var client = app.GetTestClient();
+        client.DefaultRequestHeaders.Authorization = _client.DefaultRequestHeaders.Authorization;
+        var release = await client.GetFromJsonAsync<JsonElement>("/api/v1/releases/t-new");
+        var (releaseReview, releaseTag) = await EnrichmentReviewAsync(client, "releases", "t-new", "10");
+        var response = await client.PostAsJsonAsync("/api/v1/releases/t-new/enrichment/sonovault/track-reviews",
+            new { candidateId = "10", catalogVersion = release.GetProperty("version").GetString() });
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var batch = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(releaseReview.GetProperty("candidate").GetProperty("metadata").GetProperty("releaseDetails").GetProperty("tracks")[0]
+            .GetProperty("recordingCandidate").GetProperty("metadata").GetRawText(),
+            batch.GetProperty("candidate").GetProperty("metadata").GetProperty("releaseDetails").GetProperty("tracks")[0]
+            .GetProperty("recordingCandidate").GetProperty("metadata").GetRawText());
+        var tracks = batch.GetProperty("tracks").EnumerateArray().ToArray();
+        Assert.Single(tracks, t => t.GetProperty("status").GetString() == "Confident");
+        Assert.All(tracks.Where(t => t.GetProperty("candidateId").GetString() == "8"),
+            t => Assert.Equal(JsonValueKind.Null, t.GetProperty("review").ValueKind));
+        Assert.Equal(2, factory.Count);
+        var applied = await ApplyTrackBatch(client, batch, response.Headers.ETag!.ToString(), BatchIntent(batch, "Bpm", "MusicalKey"));
+        Assert.Equal(HttpStatusCode.OK, applied.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await EnrichmentApplyAsync(client, releaseReview, releaseTag, ["Name", "SonoVaultIdentity"])).StatusCode);
+        Assert.Equal(124, (await client.GetFromJsonAsync<RecordingResponse>("/api/v1/recordings/t-shared"))!.MusicalMetadata!.Bpm);
+        Assert.Null((await client.GetFromJsonAsync<RecordingResponse>("/api/v1/recordings/t-second"))!.MusicalMetadata?.Bpm);
+    }
     private static async Task<(JsonElement Review, string Tag)> PrepareTrackBatch(HttpClient client)
     {
         var release = await client.GetFromJsonAsync<JsonElement>("/api/v1/releases/t-new");
@@ -42,6 +85,117 @@ public sealed partial class LabelApiTests
         if (tag is not null) request.Headers.TryAddWithoutValidation("If-Match", tag);
         return await client.SendAsync(request);
     }
+    [Theory]
+    [InlineData("beatport")]
+    [InlineData("sonovault")]
+    public async Task EnrichmentBatch_SameTitleDifferentMixesSaveBpmAndKey(string provider)
+    {
+        await CreatePurchaseSource();
+        await ImportSql(TrackFixture);
+        await ImportSql("""
+            UPDATE recording SET title='Shared tune', isrc='GBTRK0000002' WHERE recording_id='t-second';
+            UPDATE recording_artist_credit SET artist_id='t-primary', credit_name='Zed Primary' WHERE credit_id='t-c2';
+            """);
+        if (provider == "sonovault")
+        {
+            var factory = new EnrichmentHttpFactory { ResponseJson = """
+                {"id":10,"title":"New release","artist":{"id":70,"name":"Zed Primary"},"edition":null,"editions":[],
+                 "tracks":[
+                   {"id":7,"title":"Shared tune (Original Mix)","isrc":"GBTRK0000001","bpm":124,"key_alphanumeric":"11A",
+                    "artists":[{"id":70,"name":"Zed Primary","is_primary":true}]},
+                   {"id":8,"title":"Shared tune (Extended Mix)","isrc":"GBTRK0000002","bpm":126,"key_alphanumeric":"8A",
+                    "artists":[{"id":70,"name":"Zed Primary","is_primary":true}]}
+                 ]}
+                """ };
+            await using var sonoApp = Build(builder =>
+            {
+                builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?> { ["CatalogApi:SonoVaultApiKey"] = "test-key" });
+                builder.Services.AddSingleton<IHttpClientFactory>(factory);
+            });
+            await sonoApp.StartAsync();
+            using var sonoClient = sonoApp.GetTestClient();
+            sonoClient.DefaultRequestHeaders.Authorization = _client.DefaultRequestHeaders.Authorization;
+            await VerifySameTitleBatch(sonoClient, provider, "11A", "8A");
+        }
+        else
+        {
+            var (app, client, broker) = await StartWithBrokerAsync();
+            await using var _ = app;
+            broker.Pages["/v4/catalog/releases/10/"] = BrowseRelease(10, "New release", 42);
+            broker.Pages["/v4/catalog/tracks/?release_id=10&per_page=100"] = $$"""
+                {"count":2,"results":[{{BatchSharedTrack}},
+                 {"id":8,"name":"Shared tune","mix_name":"Extended Mix","isrc":"GBTRK0000002","bpm":126,
+                  "key":{"name":"A Minor"},"artists":[{"id":70,"name":"Zed Primary"}]}]}
+                """;
+            await VerifySameTitleBatch(client, provider, "F# Minor", "A Minor");
+        }
+    }
+
+    private static async Task VerifySameTitleBatch(HttpClient client, string provider, string firstKey, string secondKey)
+    {
+        var release = await client.GetFromJsonAsync<JsonElement>("/api/v1/releases/t-new");
+        var response = await client.PostAsJsonAsync($"/api/v1/releases/t-new/enrichment/{provider}/track-reviews",
+            new { candidateId = "10", catalogVersion = release.GetProperty("version").GetString() });
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var batch = await response.Content.ReadFromJsonAsync<JsonElement>();
+        var rows = batch.GetProperty("tracks").EnumerateArray().ToArray();
+        Assert.Equal(2, rows.Length);
+        Assert.All(rows, row => Assert.Equal("Confident", row.GetProperty("status").GetString()));
+        Assert.Equal(HttpStatusCode.OK, (await ApplyTrackBatch(client, batch, response.Headers.ETag!.ToString(),
+            BatchIntent(batch, "Bpm", "MusicalKey"))).StatusCode);
+        var first = (await client.GetFromJsonAsync<RecordingResponse>("/api/v1/recordings/t-shared"))!.MusicalMetadata!;
+        var second = (await client.GetFromJsonAsync<RecordingResponse>("/api/v1/recordings/t-second"))!.MusicalMetadata!;
+        Assert.Equal(124, first.Bpm);
+        Assert.Equal(firstKey, first.KeyValue);
+        Assert.Equal(126, second.Bpm);
+        Assert.Equal(secondKey, second.KeyValue);
+        var tracks = (await client.GetFromJsonAsync<TrackListResponse>("/api/v1/tracks?releaseId=t-new"))!.Items;
+        Assert.Equal(firstKey, Assert.Single(tracks, t => t.RecordingId == "t-shared").MusicalMetadata!.KeyValue);
+        Assert.Equal(126, Assert.Single(tracks, t => t.RecordingId == "t-second").MusicalMetadata!.Bpm);
+    }
+
+    [Fact]
+    public async Task EnrichmentBatch_SameTitleAndMixWithTwoValidMatchesRemainsAmbiguous()
+    {
+        await CreatePurchaseSource();
+        await ImportSql(TrackFixture);
+        await ImportSql("""
+            UPDATE recording SET title='Shared tune', mix_name='Original Mix', isrc='GBTRK0000001' WHERE recording_id='t-second';
+            UPDATE recording_artist_credit SET artist_id='t-primary', credit_name='Zed Primary' WHERE credit_id='t-c2';
+            """);
+        var (app, client, broker) = await StartWithBrokerAsync();
+        await using var _ = app;
+        broker.Pages["/v4/catalog/releases/10/"] = BrowseRelease(10, "New release", 42);
+        broker.Pages["/v4/catalog/tracks/?release_id=10&per_page=100"] = $$"""{"count":1,"results":[{{BatchSharedTrack}}]}""";
+        var (batch, tag) = await PrepareTrackBatch(client);
+        var row = Assert.Single(batch.GetProperty("tracks").EnumerateArray());
+        Assert.Equal("Ambiguous", row.GetProperty("status").GetString());
+        Assert.Equal(JsonValueKind.Null, row.GetProperty("review").ValueKind);
+        await ProblemAsync(await ApplyTrackBatch(client, batch, tag, [new { reviewId = "invented", fields = new[] { "Bpm" } }]),
+            400, "enrichment_field_unavailable");
+        Assert.Equal(0, await ImportCount("enrichment_apply_revision"));
+    }
+
+    [Fact]
+    public async Task EnrichmentBatch_DistinctProviderTracksTargetingOneRecordingRemainAmbiguous()
+    {
+        await CreatePurchaseSource();
+        await ImportSql(TrackFixture);
+        var (app, client, broker) = await StartWithBrokerAsync();
+        await using var _ = app;
+        var another = BatchSharedTrack.Replace("\"id\":7", "\"id\":9");
+        broker.Pages["/v4/catalog/releases/10/"] = BrowseRelease(10, "New release", 42);
+        broker.Pages["/v4/catalog/tracks/?release_id=10&per_page=100"] = $$"""{"count":2,"results":[{{BatchSharedTrack}},{{another}}]}""";
+        var (batch, _) = await PrepareTrackBatch(client);
+        var candidates = batch.GetProperty("tracks").EnumerateArray().Where(t => t.GetProperty("candidateId").GetString() is "7" or "9").ToArray();
+        Assert.Equal(2, candidates.Length);
+        Assert.All(candidates, row =>
+        {
+            Assert.Equal("Ambiguous", row.GetProperty("status").GetString());
+            Assert.Equal(JsonValueKind.Null, row.GetProperty("review").ValueKind);
+        });
+    }
+
     [Fact]
     public async Task EnrichmentBatch_MatchesFreezesAppliesAtomicallyAndReplaysWithoutProviderCalls()
     {
@@ -85,6 +239,27 @@ public sealed partial class LabelApiTests
         var saved = await client.GetFromJsonAsync<JsonElement>("/api/v1/enrichment-track-reviews/" + review.GetProperty("id").GetString());
         Assert.Equal(2, saved.GetProperty("outcome").GetProperty("recordings").GetArrayLength());
         Assert.Equal(review.GetProperty("candidate").GetRawText(), saved.GetProperty("candidate").GetRawText());
+    }
+
+    [Fact]
+    public async Task EnrichmentBatch_TrackUpdatesCanBeFollowedByTheFrozenBeatportReleaseUpdate()
+    {
+        await CreatePurchaseSource();
+        await ImportSql(TrackFixture);
+        var (app, client, broker) = await StartWithBrokerAsync();
+        await using var _ = app;
+        broker.Pages["/v4/catalog/releases/10/"] = BrowseRelease(10, "New release", 42);
+        broker.Pages["/v4/catalog/tracks/?release_id=10&per_page=100"] = $$"""{"count":1,"results":[{{BatchSharedTrack}}]}""";
+        var (releaseReview, releaseTag) = await EnrichmentReviewAsync(client, "releases", "t-new", "10", provider: "beatport");
+        var (batch, batchTag) = await PrepareTrackBatch(client);
+        Assert.Equal(releaseReview.GetProperty("candidate").GetProperty("metadata").GetProperty("releaseDetails").GetProperty("tracks")[0]
+            .GetProperty("recordingCandidate").GetProperty("metadata").GetRawText(),
+            batch.GetProperty("candidate").GetProperty("metadata").GetProperty("releaseDetails").GetProperty("tracks")[0]
+            .GetProperty("recordingCandidate").GetProperty("metadata").GetRawText());
+        Assert.Equal(HttpStatusCode.OK, (await ApplyTrackBatch(client, batch, batchTag, BatchIntent(batch, "Bpm"))).StatusCode);
+        Assert.Equal(HttpStatusCode.OK,
+            (await EnrichmentApplyAsync(client, releaseReview, releaseTag, ["Name", "BeatportIdentity"])).StatusCode);
+        Assert.Equal(124, (await client.GetFromJsonAsync<RecordingResponse>("/api/v1/recordings/t-shared"))!.MusicalMetadata!.Bpm);
     }
     [Theory]
     [InlineData("stale")]

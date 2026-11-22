@@ -20,6 +20,45 @@ internal static class MediaEndpoints
     public static void MapMedia(this WebApplication app)
     {
         app.MapMediaMatches();
+        app.MapPost("/api/v1/media/pseudo-releases", async (HttpContext context, IMediaService service, CancellationToken ct) =>
+        {
+            var fields = await LabelRequests.FieldsAsync(context.Request, "application/json", ct,
+                ["operationId", "planVersion", "title", "catalogNumber", "items"]);
+            string Required(string name) => fields.TryGetValue(name, out var value) && value.ValueKind == JsonValueKind.String &&
+                value.GetString() is { } text ? text :
+                throw new ApiRequestException(400, "validation_failed", $"A {name} is required.");
+            string? Optional(JsonElement value, string name) =>
+                value.TryGetProperty(name, out var field) ? LabelRequests.NullableString(field, name) : null;
+            if (!fields.TryGetValue("items", out var items) || items.ValueKind != JsonValueKind.Array ||
+                items.GetArrayLength() is < 1 or > 100)
+                throw new ApiRequestException(400, "validation_failed", "Choose between 1 and 100 media files.");
+            var choices = new List<PseudoMediaChoice>();
+            foreach (var item in items.EnumerateArray())
+            {
+                var keys = new HashSet<string>(StringComparer.Ordinal);
+                if (item.ValueKind != JsonValueKind.Object || item.EnumerateObject().Any(p => !keys.Add(p.Name) ||
+                    p.Name is not ("mediaId" or "recordingId" or "copyOfMediaId" or "title" or "mix" or "artistId" or "newArtist")) ||
+                    !item.TryGetProperty("mediaId", out var id) || id.ValueKind != JsonValueKind.Number || !id.TryGetInt64(out var mediaId))
+                    throw new ApiRequestException(400, "validation_failed", "Invalid pseudo-release track selection.");
+                long? copy = null;
+                if (item.TryGetProperty("copyOfMediaId", out var source) && source.ValueKind != JsonValueKind.Null)
+                {
+                    if (source.ValueKind != JsonValueKind.Number || !source.TryGetInt64(out var number))
+                        throw new ApiRequestException(400, "validation_failed", "Copy source must be a media identity.");
+                    copy = number;
+                }
+                choices.Add(new(mediaId, Optional(item, "recordingId"), copy, Optional(item, "title"),
+                    Optional(item, "mix"), Optional(item, "artistId"), Optional(item, "newArtist")));
+            }
+            var request = new CreatePseudoReleaseRequest(Required("operationId"), Required("planVersion"), Required("title"),
+                fields.TryGetValue("catalogNumber", out var numberValue) ? LabelRequests.NullableString(numberValue, "catalogNumber") : null, choices);
+            var result = await service.CreatePseudoReleaseAsync(request, ct);
+            context.Response.Headers.CacheControl = "no-store";
+            return TypedResults.Created($"/api/v1/releases/{result.ReleaseId}", result);
+        }).WithName("CreatePseudoRelease").WithTags("Media")
+          .WithSummary("Create a pseudo release and link explicitly chosen local media atomically")
+          .Accepts<CreatePseudoReleaseRequest>("application/json").Produces<PseudoReleaseOutcome>(201)
+          .ProducesProblem(400).ProducesProblem(404).ProducesProblem(409).ProducesProblem(412);
         app.MapPost("/api/v1/manual-media-reviews", async (HttpContext context, IMediaService service, CancellationToken ct) =>
         {
             var fields = await LabelRequests.FieldsAsync(context.Request, "application/json", ct, ["mediaId", "recordingId"]);
@@ -162,7 +201,7 @@ internal static class MediaEndpoints
         app.MapGet("/api/v1/media", async (HttpContext context, IMediaService service, CancellationToken ct) =>
         {
             foreach (var field in context.Request.Query)
-                if (field.Value.Count != 1 || field.Key is not ("library" or "q" or "page" or "pageSize" or "label" or "release" or "artist" or "track" or "sort" or "direction" or "groupBy" or "groupKey" or "classification"))
+                if (field.Value.Count != 1 || field.Key is not ("library" or "q" or "page" or "pageSize" or "label" or "release" or "artist" or "track" or "sort" or "direction" or "groupBy" or "groupKey" or "classification" or "match"))
                     throw new ApiRequestException(400, "validation_failed", "Unknown or repeated media query field.");
             var page = !context.Request.Query.TryGetValue("page", out var text) ? 1 : int.TryParse(text, out var value) ? value :
                 throw new ApiRequestException(400, "validation_failed", "Invalid media page.");
@@ -175,7 +214,7 @@ internal static class MediaEndpoints
                     context.Request.Query["artist"].FirstOrDefault(), context.Request.Query["track"].FirstOrDefault(),
                     context.Request.Query["sort"].FirstOrDefault() ?? "title", context.Request.Query["direction"].FirstOrDefault() ?? "asc",
                     context.Request.Query["groupBy"].FirstOrDefault() ?? "none", context.Request.Query["groupKey"].FirstOrDefault(),
-                    context.Request.Query["classification"].FirstOrDefault(), pageSize)));
+                    context.Request.Query["classification"].FirstOrDefault(), pageSize, context.Request.Query["match"].FirstOrDefault())));
         }).WithName("ListMediaInventory").WithTags("Media")
           .WithSummary("Browse historical scanner tags in named approved libraries without reading audio")
           .Produces<MediaInventoryPage>().ProducesProblem(400).ProducesProblem(409);

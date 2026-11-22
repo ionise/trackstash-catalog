@@ -166,7 +166,11 @@ export function TrackList({ filter, context, view, onChange, label, groupByRecor
       <TextField select label="Sort tracks" value={view.sort} onChange={e => onChange({ ...view, sort: e.target.value, page: 1 })} sx={{ flex: { sm: '0 0 240px' } }}>
         {sorts.map(sort => <MenuItem key={sort.value} value={sort.value}>{sort.label}</MenuItem>)}
       </TextField>
+      <TextField select label="Media coverage" value={view.media ?? ''} onChange={e => onChange({ ...view, media: e.target.value, page: 1 })} sx={{ flex: { sm: '0 0 220px' } }}>
+        <MenuItem value="">All tracks</MenuItem><MenuItem value="none">No linked media</MenuItem><MenuItem value="linked">Has linked media</MenuItem>
+      </TextField>
     </Stack>
+    <Typography variant="caption" color="text.secondary">Linked copies include historical scanner records and do not verify current file availability.</Typography>
     <TrackRows filter={filter} view={view} context={context} grouped={groupByRecording} label={label} onPage={page => onChange({ ...view, page })} />
   </Stack>
 }

@@ -6,6 +6,89 @@ async function login(page: import('@playwright/test').Page) {
   await page.getByRole('button', { name: 'Connect', exact: true }).click()
 }
 
+test('Unmatched local media can search provider tracks and open their existing Release', async ({ page }) => {
+  const calls: unknown[] = []
+  await page.route('**/api/v1/media/300/provider-lookup/*', route => {
+    calls.push(route.request().postDataJSON())
+    return route.fulfill({ json: { providerId: 'beatport', query: { isrc: 'GBABC2600001' },
+      candidates: [{ candidateId: '9301', match: { conflicts: [] }, metadata: { name: 'Media admission tune',
+        mixName: 'Original Mix', isrc: 'GBABC2600001', bpm: 125, musicalKey: { value: 'Am' }, credits: [] } }],
+      warnings: [] } })
+  })
+  await page.route('**/api/v1/beatport/tracks/9301/release', route => route.fulfill({ json: {
+    release: { id: 930, name: 'Media Admission Release', label: { name: 'Test label' }, catalogReleaseIds: ['t-new'] },
+    tracks: [{ id: 9301, name: 'Media admission tune', mixName: 'Original Mix', artists: [], isrc: 'GBABC2600001' }], trackTotal: 1,
+  } }))
+  await login(page)
+  await page.getByLabel('Filter track', { exact: true }).fill('Media admission tune')
+  await page.getByRole('button', { name: 'Search', exact: true }).click()
+  await page.getByRole('checkbox', { name: 'Select media 300' }).check()
+  await page.getByRole('button', { name: 'Find Release for selected media' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Find Release, admit and link media' })
+  await dialog.getByRole('button', { name: 'Search Beatport', exact: true }).click()
+  await expect(dialog.getByText('GBABC2600001; 125 BPM; Am')).toBeVisible()
+  await dialog.getByRole('button', { name: 'Find Release for Media admission tune' }).click()
+  await expect(dialog).toContainText('Release is in the Catalog.')
+  expect(calls).toEqual([{ searchByMetadata: false }])
+})
+
+test('Unmatched local media can create a pseudo release without a typed reason', async ({ page }) => {
+  let submitted: Record<string, unknown> | undefined
+  await page.route('**/api/v1/media/pseudo-releases', route => {
+    submitted = route.request().postDataJSON()
+    return route.fulfill({ status: 201, json: { operationId: submitted!.operationId, releaseId: 'pseudo-release', recordings: 1, mediaFiles: 1 } })
+  })
+  await login(page)
+  await page.getByLabel('Filter track', { exact: true }).fill('Media admission tune')
+  await page.getByRole('button', { name: 'Search', exact: true }).click()
+  await page.getByRole('button', { name: 'Find Release and admit for media 300' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Find Release, admit and link media' })
+  await dialog.getByRole('button', { name: 'Create a pseudo release instead' }).click()
+  await expect(dialog.getByLabel('Catalog number')).toHaveValue('NO CAT')
+  await dialog.getByLabel('Pseudo release title').fill('My bootlegs')
+  await dialog.getByRole('button', { name: 'Create pseudo release and link media' }).click()
+  await expect(dialog.getByRole('link', { name: 'View pseudo release' })).toBeVisible()
+  expect(submitted).toMatchObject({ title: 'My bootlegs', catalogNumber: 'NO CAT', items: [{ mediaId: 300 }] })
+})
+
+test('SonoVault admission reviews incomplete evidence and links media separately', async ({ page }) => {
+  const candidate = { candidateId: '800', editionId: '12', metadata: { name: 'Sono album', labelName: 'Sono label',
+    releaseDetails: { editions: [{ id: '12', title: 'Sono edition', labelName: 'Sono label', catalogNumber: 'CAT1',
+      releaseDate: null, source: 'discogs' }], tracks: [{ id: '707', title: 'Sono track', isrc: null, discNumber: 1, trackNumber: 1 }] } } }
+  await page.route('**/api/v1/media/300/provider-lookup/sonovault', route => route.fulfill({ json: {
+    providerId: 'sonovault', query: { isrc: null }, warnings: [], candidates: [{ candidateId: '707',
+      match: { conflicts: [] }, metadata: { name: 'Sono track', credits: [] },
+      reportedRelease: { source: 'sonovault', id: '800', title: 'Sono album' } }],
+  } }))
+  await page.route('**/api/v1/media/provider-release/sonovault/800*', route => route.fulfill({ json: {
+    providerId: 'sonovault', sourceVersion: 'a'.repeat(64), warnings: [], candidates: [candidate],
+  } }))
+  await page.route('**/api/v1/sonovault-imports', route => route.fulfill({ status: 201, headers: { ETag: '"review"' }, json: {
+    id: 'review', candidate, labels: [], artists: [{ id: '701', name: 'Sono artist', ownerId: null, candidates: [] }],
+    recordings: [{ id: '707', name: 'Sono track', ownerId: null, candidates: [] }], existingReleaseId: null,
+    releaseCandidates: [], blockers: [], warnings: ['The tracklist may be incomplete.'],
+  } }))
+  let submitted: Record<string, unknown> | undefined
+  await page.route('**/api/v1/sonovault-imports/review/apply', route => {
+    submitted = route.request().postDataJSON()
+    return route.fulfill({ json: { releaseId: 't-new', reviewId: 'review', recordings: 1, placements: 1 } })
+  })
+  await login(page)
+  await page.getByLabel('Filter track', { exact: true }).fill('Media admission tune')
+  await page.getByRole('button', { name: 'Search', exact: true }).click()
+  await page.getByRole('button', { name: 'Find Release and admit for media 300' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Find Release, admit and link media' })
+  await dialog.getByRole('button', { name: 'Search SonoVault', exact: true }).click()
+  await dialog.getByRole('button', { name: 'Inspect SonoVault Release Sono album' }).click()
+  await dialog.getByRole('button', { name: 'Review SonoVault admission' }).click()
+  await expect(dialog.getByRole('button', { name: 'Create reviewed SonoVault Release' })).toBeDisabled()
+  await dialog.getByRole('checkbox', { name: 'I accept that this tracklist may be incomplete or group-level' }).check()
+  await dialog.getByRole('button', { name: 'Create reviewed SonoVault Release' }).click()
+  await expect(dialog).toContainText('Now review the media proposals below.')
+  expect(submitted).toMatchObject({ allowIncomplete: true, artists: [{ providerId: '701', canonicalId: null }],
+    recordings: [{ providerId: '707', canonicalId: null }] })
+})
+
 test('A mismatched file can be manually assigned and later reassigned with explicit review', async ({ page }) => {
   await login(page)
   await page.getByLabel('Filter track', { exact: true }).fill('Manual worklist unrelated')
@@ -95,7 +178,9 @@ test('Blocked Recording choices explain their reasons without opening evidence',
   await expect(warning).toContainText('Tagged ISRC conflicts.')
   await expect(warning).toContainText('Duration differs by 5000 ms')
   await expect(worklist).toContainText('No existing Catalog match found using tagged ISRC, title or exact-fingerprint copies.')
-  await expect(worklist.getByRole('checkbox', { name: 'Select media 43', exact: true })).toBeDisabled()
+  await worklist.getByRole('checkbox', { name: 'Select media 43', exact: true }).check()
+  await expect(worklist.getByRole('button', { name: 'Accept selected (1)', exact: true })).toBeDisabled()
+  await worklist.getByRole('checkbox', { name: 'Select media 43', exact: true }).uncheck()
   await worklist.getByLabel('Recording for media 42', { exact: true }).click()
   await expect(page.getByRole('option', { name: /Track Original Mix/ })).toHaveAttribute('aria-disabled', 'true')
   await page.getByRole('option', { name: /Track Radio Edit/ }).click()
@@ -194,7 +279,7 @@ test('Media worklist ticks supported cross-copy proposals and accepts once witho
   await expect(accept).toBeDisabled()
   await worklist.getByRole('button', { name: 'Select supported proposals on this page', exact: true }).click()
   await expect(worklist).toContainText('2 selected files on this page')
-  await expect(worklist.getByRole('checkbox', { name: 'Select media 202', exact: true })).toBeDisabled()
+  await expect(worklist.getByRole('checkbox', { name: 'Select media 202', exact: true })).toBeEnabled()
   await expect(page.getByLabel(/reason/i)).toHaveCount(0)
   const preparation = page.waitForRequest(request => request.url().endsWith('/media-match-reviews') && request.method() === 'POST')
   await worklist.getByRole('button', { name: 'Accept selected (2)', exact: true }).click()
@@ -213,7 +298,7 @@ test('Unmatched bootleg classification is independent of Label and remains filte
   await page.getByLabel('Filter track', { exact: true }).fill('Worklist private bootleg')
   await page.getByRole('button', { name: 'Search', exact: true }).click()
   const worklist = page.getByRole('region', { name: 'Bulk media matching', exact: true })
-  await expect(worklist.getByRole('checkbox', { name: 'Select media 202', exact: true })).toBeDisabled()
+  await expect(worklist.getByRole('checkbox', { name: 'Select media 202', exact: true })).toBeEnabled()
   await worklist.getByLabel('Classify selected media', { exact: true }).click()
   await page.getByRole('option', { name: 'Unofficial / self-released', exact: true }).click()
   await worklist.getByRole('checkbox', { name: 'Select media 202', exact: true }).check()

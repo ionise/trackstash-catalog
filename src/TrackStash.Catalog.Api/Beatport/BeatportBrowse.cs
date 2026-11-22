@@ -33,12 +33,14 @@ public sealed record BeatportLabelItem(long Id, string Name, string? ImageUrl, s
 public sealed record BeatportLabelPage(IReadOnlyList<BeatportLabelItem> Items, int Total, int Page, int PageSize);
 
 /// <summary>Release list filters; all are optional, and with none Beatport lists every release in the chosen order.</summary>
-public sealed record BeatportReleaseSearch(string? Query, long? LabelId, long? ArtistId, string Sort, int Page, int PageSize);
+public sealed record BeatportReleaseSearch(string? Query, long? LabelId, long? ArtistId, string Sort, int Page, int PageSize,
+    string? CatalogNumber = null, DateOnly? DateFrom = null, DateOnly? DateTo = null, string? TrackName = null);
 
 public interface IBeatportBrowseService
 {
     Task<BeatportReleasePage> SearchReleasesAsync(BeatportReleaseSearch search, CancellationToken ct);
     Task<BeatportReleaseDetail> GetReleaseAsync(long id, CancellationToken ct, bool requireEnrichmentEvidence = false);
+    Task<BeatportReleaseDetail> GetTrackReleaseAsync(long id, CancellationToken ct);
     Task<BeatportLabelPage> SearchLabelsAsync(string query, int page, int pageSize, CancellationToken ct);
     Task<BeatportLabelItem> GetLabelAsync(long id, CancellationToken ct);
 }
@@ -63,10 +65,69 @@ public sealed class BeatportBrowseService(IBeatportBrokerClient broker, IStorage
         if (!string.IsNullOrWhiteSpace(search.Query)) query.Add(new("name", search.Query.Trim()));
         if (search.LabelId is { } label) query.Add(new("label_id", label.ToString(CultureInfo.InvariantCulture)));
         if (search.ArtistId is { } artist) query.Add(new("artist_id", artist.ToString(CultureInfo.InvariantCulture)));
+        if (search.CatalogNumber is { } catalogNumber) query.Add(new("catalog_number", catalogNumber));
+        if (search.DateFrom is not null || search.DateTo is not null)
+            query.Add(new("publish_date", $"{search.DateFrom?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}:{search.DateTo?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}"));
+        if (search.TrackName is not null)
+            return await SearchByTrackAsync(search, query, ct);
         var list = await broker.GetCatalogAsync("/v4/catalog/releases/", query, ct) ?? throw NotFound("Beatport release search");
         var results = Results(list);
         var items = await AnnotateAsync(results, ct);
         return new(items, Count(list, items.Count), search.Page, search.PageSize);
+    }
+
+    private async Task<BeatportReleasePage> SearchByTrackAsync(BeatportReleaseSearch search, List<KeyValuePair<string, string>> query, CancellationToken ct)
+    {
+        query[0] = new("page", "1");
+        query[1] = new("per_page", "100");
+        var releases = await CompleteSearchAsync("/v4/catalog/releases/", query, "releases", ct);
+        if (releases.Count == 0) return new([], 0, search.Page, search.PageSize);
+        var tracks = await CompleteSearchAsync("/v4/catalog/tracks/", [
+            new("page", "1"), new("per_page", "100"), new("name", search.TrackName!),
+        ], "matching tracks", ct);
+        var releaseIds = new HashSet<long>();
+        foreach (var track in tracks)
+        {
+            if (Ref(track, "release") is not { } release)
+                throw new ApiRequestException(502, "beatport_invalid_response", "Beatport returned a matching track without a release ID.");
+            releaseIds.Add(release.Id);
+        }
+        var matches = releases.Where(release => releaseIds.Contains(Long(release, "id")!.Value)).ToList();
+        var selected = matches.Skip((search.Page - 1) * search.PageSize).Take(search.PageSize).ToList();
+        return new(await AnnotateAsync(selected, ct), matches.Count, search.Page, search.PageSize);
+    }
+
+    private async Task<IReadOnlyList<JsonElement>> CompleteSearchAsync(string path, List<KeyValuePair<string, string>> query, string description, CancellationToken ct)
+    {
+        const int limit = 1000;
+        const int pageSize = 100;
+        var results = new List<JsonElement>();
+        var ids = new HashSet<long>();
+        int? total = null;
+        for (var page = 1; total is null || results.Count < total; page++)
+        {
+            query[0] = new("page", page.ToString(CultureInfo.InvariantCulture));
+            var response = await broker.GetCatalogAsync(path, query, ct) ?? throw NotFound($"Beatport {description} search");
+            if (response.ValueKind != JsonValueKind.Object || !response.TryGetProperty("count", out var countValue)
+                || countValue.ValueKind != JsonValueKind.Number || !countValue.TryGetInt32(out var count) || count < 0
+                || !response.TryGetProperty("results", out var entries) || entries.ValueKind != JsonValueKind.Array)
+                throw new ApiRequestException(502, "beatport_invalid_response", $"Beatport returned an invalid {description} page.");
+            if (count > limit)
+                throw new ApiRequestException(409, "beatport_search_too_broad", $"Track-title search exceeds {limit} {description}. Narrow the release filters or use a more specific track title.");
+            if (total is not null && count != total)
+                throw new ApiRequestException(409, "beatport_search_changed", $"Beatport {description} changed during the search. Please retry.");
+            total = count;
+            var expected = Math.Min(pageSize, count - results.Count);
+            if (entries.GetArrayLength() != expected)
+                throw new ApiRequestException(502, "beatport_invalid_response", $"Beatport returned an incomplete {description} page. Please retry.");
+            foreach (var entry in entries.EnumerateArray())
+            {
+                if (Long(entry, "id") is not ({ } id and > 0) || !ids.Add(id))
+                    throw new ApiRequestException(502, "beatport_invalid_response", $"Beatport returned missing or duplicate {description} IDs. Please retry.");
+                results.Add(entry);
+            }
+        }
+        return results;
     }
 
     public async Task<BeatportReleaseDetail> GetReleaseAsync(long id, CancellationToken ct, bool requireEnrichmentEvidence = false)
@@ -98,6 +159,18 @@ public sealed class BeatportBrowseService(IBeatportBrokerClient broker, IStorage
             }).OfType<BeatportTrackItem>()
             .OrderBy(track => track.Number ?? int.MaxValue).ThenBy(track => track.Id).ToList() : [];
         return new(item, trackItems, tracks is { } all ? Count(all, trackItems.Count) : 0);
+    }
+
+    public async Task<BeatportReleaseDetail> GetTrackReleaseAsync(long id, CancellationToken ct)
+    {
+        var track = await broker.GetCatalogAsync($"/v4/catalog/tracks/{id}/", [], ct)
+            ?? throw new ApiRequestException(404, "beatport_track_not_found", "Beatport has no track with that ID.");
+        if (Long(track, "id") != id || Ref(track, "release") is not { Id: > 0 } release)
+            throw new ApiRequestException(502, "beatport_invalid_response", "Beatport returned a track without a valid matching identity and Release.");
+        var detail = await GetReleaseAsync(release.Id, ct, requireEnrichmentEvidence: true);
+        if (detail.Release.Id != release.Id)
+            throw new ApiRequestException(502, "beatport_invalid_response", "Beatport returned a different Release than requested.");
+        return detail;
     }
 
     public async Task<BeatportLabelPage> SearchLabelsAsync(string query, int page, int pageSize, CancellationToken ct)

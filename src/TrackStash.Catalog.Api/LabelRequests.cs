@@ -8,7 +8,7 @@ namespace TrackStash.Catalog.Api;
 
 internal static class LabelRequests
 {
-    private static readonly HashSet<string> QueryFields = ["q", "page", "pageSize", "sort", "order", "normalizedName", "source", "externalId"];
+    private static readonly HashSet<string> QueryFields = ["q", "page", "pageSize", "sort", "order", "normalizedName", "source", "externalId", "media"];
 
     public static LabelQuery Query(HttpRequest request)
     {
@@ -17,8 +17,8 @@ internal static class LabelRequests
                 throw Invalid("Unknown or repeated query parameter.", field.Key);
         var sort = Value("sort") switch
         {
-            null or "name" => LabelSortField.Name, "sortName" => LabelSortField.SortName, "id" => LabelSortField.Id,
-            _ => throw Invalid("Use name, sortName, or id.", "sort"),
+            null or "name" => LabelSortField.Name, "sortName" => LabelSortField.SortName, "id" => LabelSortField.Id, "missing" => LabelSortField.Missing,
+            _ => throw Invalid("Use name, sortName, id, or missing.", "sort"),
         };
         var descending = Value("order") switch
         {
@@ -29,7 +29,7 @@ internal static class LabelRequests
         {
             Search = Value("q"), Page = Number("page", 1), PageSize = Number("pageSize", 25),
             NormalizedName = Value("normalizedName"), Source = Value("source"), ExternalId = Value("externalId"),
-            SortBy = sort, Descending = descending,
+            SortBy = sort, Descending = descending, Media = Value("media"),
         };
         query.Validate();
         return query;

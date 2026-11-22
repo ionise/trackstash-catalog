@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using TrackStash.Catalog.Api.Middleware;
+using TrackStash.Core.Sqlite;
 
 namespace TrackStash.Catalog.Api.Beatport;
 
@@ -134,6 +135,25 @@ public sealed class BeatportBrokerClient : IBeatportBrokerClient
             return BrokerFetchOutcome.NotFound;
         if (!response.IsSuccessStatusCode) throw await ErrorAsync(response, ct);
         return BrokerFetchOutcome.Fetched;
+    }
+
+    public async Task<SqlitePurchaseReleaseSource.CachedEntity?> GetCachedEntityAsync(string entityType, long id, CancellationToken ct)
+    {
+        if (entityType is not ("tracks" or "releases") || id <= 0) throw new ArgumentOutOfRangeException(nameof(entityType));
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"/v4/catalog/{entityType}/{id}/");
+        request.Headers.Add("X-Broker-Cache-Only", "1");
+        using var response = await SendAsync(request, ct);
+        if (response.StatusCode == HttpStatusCode.NotFound && response.Content.Headers.ContentType?.MediaType != "application/problem+json")
+            return null;
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await ErrorAsync(response, ct);
+            if (response.StatusCode == HttpStatusCode.GatewayTimeout && error is ApiRequestException { Code: "not_cached" }) return null;
+            throw error;
+        }
+        if (!response.Headers.TryGetValues("X-Broker-Fetched-Utc", out var values) || values.ToArray() is not [var fetched])
+            throw new ApiRequestException(502, "beatport_cache_invalid", "The Beatport broker did not provide the cached observation time.");
+        return new(await response.Content.ReadAsStringAsync(ct), fetched);
     }
 
     public async Task<JsonElement?> GetCatalogAsync(string path, IEnumerable<KeyValuePair<string, string>> query, CancellationToken ct)

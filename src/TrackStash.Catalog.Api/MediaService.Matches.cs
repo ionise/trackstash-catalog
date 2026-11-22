@@ -344,8 +344,8 @@ public sealed partial class MediaService
         await unit.Enrichment.SaveAuditAsync(new(id, Json(new[] { "MediaMatches" }), MatchReason, Json(payload), Json(outcome), outcome.AppliedAt), ct);
         await CheckDependencies(payload.Dependencies, modified, ct);
         var current = await Inventory(ct);
-        if (payload.Review.Plan.Files.Any(f => Json(current.SingleOrDefault(m => m.Id == f.Media.Id)) != Json(f.Media)) ||
-            payload.Dependencies.Any(d => Json(current.SingleOrDefault(m => m.Id == d.Media.Id)) != Json(d.Media)))
+        if (payload.Review.Plan.Files.Any(f => EvidenceJson(current.SingleOrDefault(m => m.Id == f.Media.Id)) != EvidenceJson(f.Media)) ||
+            payload.Dependencies.Any(d => EvidenceJson(current.SingleOrDefault(m => m.Id == d.Media.Id)) != EvidenceJson(d.Media)))
             throw Error(412, "enrichment_state_changed", "Scanner evidence changed during acceptance; nothing was saved.");
         await unit.CommitAsync(ct);
         return outcome;

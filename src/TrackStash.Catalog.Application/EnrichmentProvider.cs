@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace TrackStash.Catalog.Application;
 
 /// <summary>Canonical entity types a metadata provider can look up.</summary>
@@ -110,6 +112,9 @@ public sealed record EnrichmentFieldEvidence(
     EnrichmentField Field, string Source, string? SourceRecordId,
     Uri? SourceUrl, DateTimeOffset RetrievedAt, string? Attribution);
 
+/// <summary>A provider-reported Release, not an accepted edition or canonical identity.</summary>
+public sealed record EnrichmentReportedRelease(string Source, string Id, string? Title);
+
 /// <summary>A provider-scoped candidate and optional edition identity, ready for comparison but not application.</summary>
 /// <remarks>
 /// CandidateId and EditionId are opaque provider IDs, never canonical IDs.
@@ -124,7 +129,8 @@ public sealed record EnrichmentCandidate(
     EnrichmentEntityKind EntityKind,
     EnrichmentMatchEvidence Match,
     EnrichmentMetadata Metadata,
-    IReadOnlyList<EnrichmentFieldEvidence> Evidence);
+    IReadOnlyList<EnrichmentFieldEvidence> Evidence,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] EnrichmentReportedRelease? ReportedRelease = null);
 
 /// <summary>Successful lookup results for the input snapshot, including explicit coverage warnings.</summary>
 /// <remarks>
@@ -135,7 +141,8 @@ public sealed record EnrichmentCandidate(
 /// </remarks>
 public sealed record EnrichmentLookup(
     string ProviderId, EnrichmentQuery Query, DateTimeOffset RetrievedAt,
-    IReadOnlyList<EnrichmentCandidate> Candidates, IReadOnlyList<string> Warnings);
+    IReadOnlyList<EnrichmentCandidate> Candidates, IReadOnlyList<string> Warnings,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? SourceVersion = null);
 
 /// <summary>Server-configured, read-only metadata adapter; catalog review/apply owns all canonical writes.</summary>
 /// <remarks>

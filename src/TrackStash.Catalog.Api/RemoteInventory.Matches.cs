@@ -70,6 +70,15 @@ internal sealed partial class RemoteInventoryService
         catch { await connection.DisposeAsync(); throw; }
     }
 
+    public async Task<(RemoteInventoryRecord Record, string Version)> LookupItemAsync(RemoteInventoryKey key, CancellationToken ct)
+    {
+        ValidateKeys([key]);
+        await using var connection = await OpenMatchStore(ct);
+        await using var transaction = connection.BeginTransaction(deferred: true);
+        await CheckStore(connection, transaction, false, ct);
+        return await ReadRemote(connection, transaction, key, ct);
+    }
+
     public async Task<IReadOnlyList<RemoteMatchProposal>> ProposalsAsync(RemoteMatchProposalsRequest request, CancellationToken ct)
     {
         ValidateKeys(request.Items);

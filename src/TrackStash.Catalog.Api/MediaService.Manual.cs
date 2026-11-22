@@ -37,7 +37,7 @@ public sealed partial class MediaService
         var sidecar = await ReadSidecar(media, ct);
         if (await unit.MediaFiles.HasConflictingRecordingMatchExceptAsync(verified.Hash, recordingId, mediaId, ct))
             throw Error(409, "media_identity_conflict", "Another copy with identical verified bytes is linked to a different Recording.");
-        if (Json(await Item(id, ct)) != Json(media))
+        if (EvidenceJson(await Item(id, ct)) != EvidenceJson(media))
             throw Error(412, "enrichment_state_changed", "Scanner metadata changed during preparation.");
         var candidate = Compare(WithExplicitTitleMix(media, recording), recording, sidecar);
         var review = new ManualMediaReview(Guid.NewGuid().ToString("N"), "", media, candidate,
@@ -88,7 +88,7 @@ public sealed partial class MediaService
             throw Error(410, "enrichment_review_expired", "Manual review expired; prepare a new review.");
         if (payload.SourceId != SourceId) throw Error(412, "enrichment_state_changed", "Scanner identity changed.");
         var media = await Item(payload.Review.Media.Id, ct);
-        if (Json(media) != Json(payload.Review.Media)) throw Error(412, "enrichment_state_changed", "Scanner evidence changed.");
+        if (EvidenceJson(media) != EvidenceJson(payload.Review.Media)) throw Error(412, "enrichment_state_changed", "Scanner evidence changed.");
         var verified = await Verify(media, ct, payload.Review.VerifiedSha256);
         if ((await ReadSidecar(media, ct))?.Hash != payload.SidecarHash)
             throw Error(412, "enrichment_state_changed", "Sidecar changed.");
@@ -116,7 +116,7 @@ public sealed partial class MediaService
         var outcome = new MediaLinkOutcome(id, mediaId, payload.Recording.Recording.Id, now);
         await unit.Enrichment!.SaveAuditAsync(new(id, Json(new[] { "ManualMediaLink" }), ManualMediaReason, Json(payload), Json(outcome), now), ct);
         CheckVerifiedFile(media, verified.Modified);
-        if ((await ReadSidecar(media, ct))?.Hash != payload.SidecarHash || Json(await Item(media.Id, ct)) != Json(media) || payload.SourceId != SourceId)
+        if ((await ReadSidecar(media, ct))?.Hash != payload.SidecarHash || EvidenceJson(await Item(media.Id, ct)) != EvidenceJson(media) || payload.SourceId != SourceId)
             throw Error(412, "enrichment_state_changed", "File, sidecar or scanner evidence changed; nothing was saved.");
         await unit.CommitAsync(ct);
         return outcome;

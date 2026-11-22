@@ -18,8 +18,8 @@ describe('release artwork transport', () => {
     expect(new Headers(requests[0].init?.headers).get('If-Match')).toBe('"original"')
     await client.releaseArtworkClient.attach('release/a', '"original"', {
       provider: 'provider', candidateId: 'opaque-id', revision: 'r1', title: 'Cover', sourceUrl: 'https://example.test/cover', attribution: 'Owner',
-    }, 'Explicit permission', true)
-    expect(JSON.parse(String(requests[1].init?.body))).toEqual({ provider: 'provider', candidateId: 'opaque-id', revision: 'r1', usageRights: 'Explicit permission', confirmed: true })
+    }, false)
+    expect(JSON.parse(String(requests[1].init?.body))).toEqual({ provider: 'provider', candidateId: 'opaque-id', revision: 'r1', isPreferred: false })
     expect(requests[1].url).toContain('/releases/release%2Fa/artwork-candidates/attach')
     expect(new Headers(requests[1].init?.headers).get('If-Match')).toBe('"original"')
     expect(fetcher).toHaveBeenCalledTimes(2)

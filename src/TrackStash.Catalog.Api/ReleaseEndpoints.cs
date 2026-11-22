@@ -7,7 +7,8 @@ namespace TrackStash.Catalog.Api;
 
 /// <summary>A canonical catalog release listing, independent of purchases and media files.</summary>
 public sealed record ReleaseSummaryResponse(string Id, string? Title, string? CatalogNumber, string? PublishDate,
-    string? LabelId, string? LabelName, int PlacementCount, IReadOnlyList<ReleaseCreditResponse> PrimaryArtists, string? CoverAssetId);
+    string? LabelId, string? LabelName, int PlacementCount, IReadOnlyList<ReleaseCreditResponse> PrimaryArtists, string? CoverAssetId,
+    int CoveredPlacementCount = 0);
 /// <summary>A stable title/ID ordered release page, optionally restricted to a linked Label.</summary>
 public sealed record ReleaseListResponse(IReadOnlyList<ReleaseSummaryResponse> Items, int Total, int Page, int PageSize);
 /// <summary>A canonical label linked to a release.</summary>
@@ -46,14 +47,18 @@ internal static class ReleaseEndpoints
     private static ReleaseQuery Query(HttpRequest request, bool tracks = false)
     {
         foreach (var field in request.Query)
-            if (field.Value.Count != 1 || !(field.Key is "page" or "pageSize" || !tracks && (field.Key is "q" or "labelId")))
+            if (field.Value.Count != 1 || !(field.Key is "page" or "pageSize" || !tracks && (field.Key is "q" or "labelId" or "media" or "sort" or "order")))
                 throw new ApiRequestException(400, "validation_failed", "Unknown or repeated release query field.");
         int Number(string field, int fallback) => !request.Query.TryGetValue(field, out var value) ? fallback :
             int.TryParse(value[0], NumberStyles.None, CultureInfo.InvariantCulture, out var number) ? number :
             throw new ApiRequestException(400, "validation_failed", "Invalid release pagination.");
+        var order = request.Query["order"].FirstOrDefault();
+        if (order is not (null or "asc" or "desc"))
+            throw new ApiRequestException(400, "validation_failed", "Release order must be asc or desc.");
         var query = new ReleaseQuery(Number("page", 1), Number("pageSize", 25),
             request.Query.TryGetValue("q", out var search) ? search[0] : null,
-            request.Query.TryGetValue("labelId", out var label) ? label[0] : null);
+            request.Query.TryGetValue("labelId", out var label) ? label[0] : null,
+            request.Query["media"].FirstOrDefault(), request.Query["sort"].FirstOrDefault(), order == "desc");
         query.Validate(); return query;
     }
     private static void Headers(HttpContext context) => context.Response.Headers.CacheControl = "no-store";
@@ -63,7 +68,7 @@ internal static class ReleaseEndpoints
         return TypedResults.Ok(new ReleaseListResponse(result.Items.Select(item =>
             new ReleaseSummaryResponse(item.Release.Id, item.Release.Title, item.Release.CatalogNumber, item.Release.PublishDate,
                 item.Release.LabelId, item.Release.LabelName, item.Release.PlacementCount,
-                item.PrimaryArtists.Select(Credit).ToArray(), item.CoverAssetId)).ToArray(),
+                item.PrimaryArtists.Select(Credit).ToArray(), item.CoverAssetId, item.Release.CoveredPlacementCount)).ToArray(),
             result.Total, result.Page, result.PageSize));
     }
     private static ReleaseCreditResponse Credit(ReleaseContributorDetail c) => new(c.ArtistId, c.ArtistName, c.CreditedName, c.Role, c.Position, c.IdentityStatus);

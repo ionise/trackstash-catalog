@@ -8,6 +8,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using TrackStash.Catalog.Api;
+using TrackStash.Catalog.Api.Beatport;
 
 namespace TrackStash.Catalog.Tests;
 
@@ -32,7 +33,7 @@ public sealed partial class LabelApiTests
         public DateTimeOffset Now { get; set; } = DateTimeOffset.Parse("2026-11-07T00:00:00Z");
         public override DateTimeOffset GetUtcNow() => Now;
     }
-    private async Task<MediaFixture> StartMedia(MediaClock? clock = null)
+    private async Task<MediaFixture> StartMedia(MediaClock? clock = null, IBeatportBrokerClient? broker = null)
     {
         await ImportSql(TrackFixture);
         await ImportSql("UPDATE recording SET duration_ms=400000 WHERE recording_id='t-shared'");
@@ -65,6 +66,7 @@ public sealed partial class LabelApiTests
                 ["CatalogApi:MediaLibraries:Test"] = Path.Combine(root, "Library")
             });
             if (clock is not null) builder.Services.AddSingleton<TimeProvider>(clock);
+            if (broker is not null) builder.Services.AddSingleton(broker);
         });
         await app.StartAsync();
         var client = app.GetTestClient();

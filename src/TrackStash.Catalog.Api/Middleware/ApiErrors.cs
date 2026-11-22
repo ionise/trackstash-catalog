@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 using TrackStash.Core.Storage;
 using TrackStash.Catalog.Application;
+using TrackStash.Catalog.Api.Beatport;
 
 namespace TrackStash.Catalog.Api.Middleware;
 
@@ -57,6 +58,7 @@ internal sealed class ApiExceptionHandler(ILogger<ApiExceptionHandler> logger) :
             ArtistProfileUnavailableException => (409, "artist_profile_schema_required", "Artist profile unavailable", (string?)"Artist profiles and artwork require schema 12. Migrate only a separately approved catalog.", (string?)null),
             ArtistBrowseUnavailableException => (409, "artist_schema_required", "Artist browsing unavailable", (string?)"Artist browsing requires schema 9 or later. Migrate only a separately approved catalog.", (string?)null),
             ReleaseArtworkNotFoundException => (404, "release_not_found", "Release not found", (string?)"Catalog release was not found.", (string?)null),
+            NamedArtworkNotFoundException => (404, "entity_not_found", "Catalog entity not found", (string?)"Artist or label was not found.", (string?)null),
             ReleaseArtworkUnavailableException artwork => (409, "release_artwork_unavailable", "Release artwork unavailable", (string?)artwork.Message, (string?)null),
             ReleaseQueryValidationException query => (400, "validation_failed", "Invalid release query", (string?)query.Message, (string?)null),
             TrackBrowseUnavailableException => (409, "track_schema_required", "Track browsing unavailable",

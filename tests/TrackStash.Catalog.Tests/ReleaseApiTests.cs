@@ -112,6 +112,9 @@ public sealed partial class LabelApiTests
     [InlineData("page=1&page=2")]
     [InlineData("unknown=x")]
     [InlineData("labelId=")]
+    [InlineData("media=unknown")]
+    [InlineData("sort=unknown")]
+    [InlineData("order=up")]
     public async Task ReleaseBrowse_InvalidQueriesFailExplicitly(string query)
         => await ProblemAsync(await _client.GetAsync("/api/v1/releases?" + query), 400, "validation_failed");
 

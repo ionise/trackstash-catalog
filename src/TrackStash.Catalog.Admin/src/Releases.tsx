@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, ButtonBase, Chip, Divider, IconButton, SvgIcon, Tooltip, LinearProgress, Stack, Tab, Tabs, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material'
+import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, ButtonBase, Chip, Divider, IconButton, SvgIcon, Tooltip, LinearProgress, MenuItem, Stack, Tab, Tabs, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material'
 import type { ReactNode } from 'react'
 import AlbumIcon from '@mui/icons-material/Album'
 import CameraAltIcon from '@mui/icons-material/CameraAlt'
@@ -16,6 +16,7 @@ import { releaseLinks, linkPresentation } from './labelPresentation'
 import { LocalTrackList } from './TrackList'
 import { NamedEntityEnrichment } from './RecordingEnrichment'
 import { MusicalMetadata } from './MusicalMetadata'
+import { ReleaseMediaSearch } from './ReleaseMediaSearch'
 
 function Pager({ page, total, onPage }: { page: number; total: number; onPage: (page: number) => void }) {
   return <Stack direction="row" spacing={2} useFlexGap sx={{ alignItems: 'center', my: 2, flexWrap: 'wrap' }}>
@@ -24,7 +25,7 @@ function Pager({ page, total, onPage }: { page: number; total: number; onPage: (
     <Button disabled={page * 25 >= total} onClick={() => onPage(page + 1)}>Next page</Button>
   </Stack>
 }
-function ReleasePage({ page, search, labelId, onPage }: { page: number; search: string; labelId?: string; onPage: (page: number) => void }) {
+function ReleasePage({ page, search, labelId, media, sort, onPage }: { page: number; search: string; labelId?: string; media: string; sort: string; onPage: (page: number) => void }) {
   const [data, setData] = useState<GroupPage<CatalogRelease>>()
   const [error, setError] = useState('')
   const logout = useLogoutIfAccessDenied()
@@ -32,20 +33,24 @@ function ReleasePage({ page, search, labelId, onPage }: { page: number; search: 
     const controller = new AbortController()
     const query = new URLSearchParams({ page: String(page), pageSize: '25', q: search })
     if (labelId) query.set('labelId', labelId)
+    if (media) query.set('media', media)
+    const [sortField, order] = sort.split('_')
+    if (sortField) query.set('sort', sortField)
+    if (order) query.set('order', order)
     void releaseClient.list(query, controller.signal).then(result => {
       if (!controller.signal.aborted) setData(result)
     }).catch(failure => {
       if (!controller.signal.aborted) { setError(failure instanceof Error ? failure.message : 'Releases could not be loaded.'); void logout(failure) }
     })
     return () => controller.abort()
-  }, [page, search, labelId, logout])
+  }, [page, search, labelId, media, sort, logout])
   if (error) return <Alert severity="error">{error}</Alert>
   if (!data) return <LinearProgress aria-label="Loading catalog releases" />
   return <>
     {!data.total && <Typography>No catalog releases match this view.</Typography>}
     <Box sx={{ overflowX: 'auto', width: '100%', minWidth: 0, contain: 'inline-size' }}>
       <Table aria-label={labelId ? 'Label releases' : 'Catalog releases'}>
-        <TableHead><TableRow><TableCell>Release</TableCell><TableCell>{labelId ? 'Primary artist' : 'Label'}</TableCell><TableCell>Catalog number</TableCell><TableCell>Publish date</TableCell><TableCell>Tracks</TableCell></TableRow></TableHead>
+        <TableHead><TableRow><TableCell>Release</TableCell><TableCell>{labelId ? 'Primary artist' : 'Label'}</TableCell><TableCell>Catalog number</TableCell><TableCell>Publish date</TableCell><TableCell>Linked tracks</TableCell></TableRow></TableHead>
         <TableBody>{data.items.map(release => <TableRow key={release.id} hover>
           <TableCell><Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
             {release.coverAssetId
@@ -59,7 +64,7 @@ function ReleasePage({ page, search, labelId, onPage }: { page: number; search: 
             ? release.primaryArtists.length ? release.primaryArtists.map((credit, index) =>
               <span key={`${credit.artistId}:${index}`}>{index > 0 && ', '}<ArtistCreditName credit={credit} /></span>) : 'Not recorded'
             : release.labelId ? <Link to={`/labels/${encodeURIComponent(release.labelId)}/show`}>{release.labelName ?? release.labelId}</Link> : 'Not recorded'}</TableCell>
-          <TableCell>{release.catalogNumber ?? 'Not recorded'}</TableCell><TableCell>{release.publishDate ?? 'Unknown'}</TableCell><TableCell>{release.placementCount}</TableCell>
+          <TableCell>{release.catalogNumber ?? 'Not recorded'}</TableCell><TableCell>{release.publishDate ?? 'Unknown'}</TableCell><TableCell>{release.placementCount ? `${release.coveredPlacementCount} / ${release.placementCount}` : 'No tracks'}</TableCell>
         </TableRow>)}</TableBody>
       </Table>
     </Box>
@@ -69,17 +74,42 @@ function ReleasePage({ page, search, labelId, onPage }: { page: number; search: 
 export function LabelReleases({ labelId }: { labelId: string }) {
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
+  const [media, setMedia] = useState('')
+  const [sort, setSort] = useState('title')
   return <Stack spacing={2}>
     <TextField label="Search label releases" value={search} onChange={e => { setSearch(e.target.value); setPage(1) }}
       slotProps={{ htmlInput: { maxLength: 200 } }} />
-    <ReleasePage key={`${labelId}:${page}:${search}`} page={page} search={search} labelId={labelId} onPage={setPage} />
+    <ReleaseControls media={media} sort={sort} onMedia={value => { setMedia(value); setPage(1) }} onSort={value => { setSort(value); setPage(1) }} />
+    <ReleasePage key={`${labelId}:${page}:${search}:${media}:${sort}`} page={page} search={search} labelId={labelId} media={media} sort={sort} onPage={setPage} />
   </Stack>
+}
+function ReleaseControls({ media, sort, onMedia, onSort }: { media: string; sort: string; onMedia: (value: string) => void; onSort: (value: string) => void }) {
+  return <>
+    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+      <TextField select label="Media coverage" value={media} onChange={e => onMedia(e.target.value)}>
+        <MenuItem value="">All releases</MenuItem><MenuItem value="none">No tracks linked</MenuItem>
+        <MenuItem value="partial">Some tracks linked</MenuItem><MenuItem value="complete">All tracks linked</MenuItem>
+        <MenuItem value="no-tracks">No catalog tracks</MenuItem>
+      </TextField>
+      <TextField select label="Sort releases" value={sort} onChange={e => onSort(e.target.value)}>
+        <MenuItem value="title">Title A–Z</MenuItem><MenuItem value="title_desc">Title Z–A</MenuItem>
+        <MenuItem value="date_desc">Newest first</MenuItem><MenuItem value="date_asc">Oldest first</MenuItem>
+        <MenuItem value="catalog">Catalog number</MenuItem><MenuItem value="missing_desc">Most missing tracks first</MenuItem>
+        <MenuItem value="missing_asc">Fewest missing tracks first</MenuItem>
+      </TextField>
+    </Stack>
+    <Typography variant="caption" color="text.secondary">Coverage counts catalog track placements with linked media. Historical scanner links do not verify current file availability.</Typography>
+  </>
 }
 export function ReleaseList() {
   const { isPending } = useAuthenticated()
   const [params, setParams] = useSearchParams()
   const search = params.get('q') ?? ''
   const labelId = params.get('labelId') ?? undefined
+  const mediaValue = params.get('media') ?? ''
+  const media = ['', 'none', 'partial', 'complete', 'no-tracks'].includes(mediaValue) ? mediaValue : ''
+  const sortValue = params.get('sort') ?? 'title'
+  const sort = ['title', 'title_desc', 'date_desc', 'date_asc', 'catalog', 'missing_desc', 'missing_asc'].includes(sortValue) ? sortValue : 'title'
   const value = Number(params.get('page') ?? 1)
   const page = Number.isSafeInteger(value) && value > 0 ? value : 1
   function change(field: string, value: string) {
@@ -91,8 +121,9 @@ export function ReleaseList() {
     <Title title="Releases" /><Typography component="h1" variant="h4">Releases</Typography>
     <Typography>Canonical releases and track placements, independent of purchased tracks or media files.</Typography>
     <TextField label="Search releases" value={search} onChange={e => change('q', e.target.value)} slotProps={{ htmlInput: { maxLength: 200 } }} />
+    <ReleaseControls media={media} sort={sort} onMedia={value => change('media', value)} onSort={value => change('sort', value)} />
     {labelId && <Alert severity="info" action={<Button onClick={() => { const next = new URLSearchParams(params); next.delete('labelId'); next.set('page', '1'); setParams(next) }}>Clear label filter</Button>}>Filtered to label {labelId}</Alert>}
-    {!isPending && <ReleasePage key={`${page}:${search}:${labelId}`} page={page} search={search} labelId={labelId} onPage={p => change('page', String(p))} />}
+    {!isPending && <ReleasePage key={`${page}:${search}:${labelId}:${media}:${sort}`} page={page} search={search} labelId={labelId} media={media} sort={sort} onPage={p => change('page', String(p))} />}
   </Stack>
 }
 function Credits({ items }: { items: ReleaseCredit[] }) {
@@ -102,7 +133,7 @@ function Credits({ items }: { items: ReleaseCredit[] }) {
     {credit.identityStatus === 'unresolved_compound' && ' [unresolved compound]'}
   </li>)}</ul> : <Typography color="text.secondary">No credits recorded in this scope.</Typography>
 }
-function ReleaseTabs({ id, children, revision }: { id: string; children: ReactNode; revision: number }) {
+function ReleaseTabs({ id, title, children, revision, onMediaSaved }: { id: string; title: string | null; children: ReactNode; revision: number; onMediaSaved: () => void }) {
   const [params, setParams] = useSearchParams()
   const tab = params.get('tab') === 'Details' ? 'Details' : 'Tracks'
   const [visited, setVisited] = useState([tab])
@@ -118,7 +149,10 @@ function ReleaseTabs({ id, children, revision }: { id: string; children: ReactNo
     {['Tracks', 'Details'].map(name => <Box key={name} role="tabpanel" hidden={tab !== name}
       id={`release-panel-${name}`} aria-labelledby={`release-tab-${name}`} sx={{ py: 3, minWidth: 0 }}>
       {(tab === name || visited.includes(name)) && (name === 'Tracks'
-        ? <LocalTrackList key={`${id}:${revision}`} filter={{ releaseId: id }} context="release" label="Catalog release tracks" />
+        ? <Stack spacing={2}>
+          <ReleaseMediaSearch id={id} title={title} onSaved={onMediaSaved} />
+          <LocalTrackList key={`${id}:${revision}`} filter={{ releaseId: id }} context="release" label="Catalog release tracks" />
+        </Stack>
         : children)}
     </Box>)}
   </Box>
@@ -179,7 +213,7 @@ function Detail({ id }: { id: string }) {
       </Stack>
     </Stack>
     <Divider />
-    <ReleaseTabs key={data.id} id={data.id} revision={revision}>
+    <ReleaseTabs key={data.id} id={data.id} title={data.title} revision={revision} onMediaSaved={() => setRevision(value => value + 1)}>
     <Stack spacing={3} sx={{ minWidth: 0 }}>
     {gallery}
     <ReleaseMediaGroups key={`media:${data.id}:${revision}`} id={data.id} />

@@ -8,6 +8,7 @@ import { MediaReleaseLink } from './MediaReleaseLink'
 import { MediaReconciliation } from './MediaReconciliation'
 import { MediaMatches } from './MediaMatches'
 import { MediaReleaseAdmission } from './MediaReleaseAdmission'
+import { MediaMetadata } from './MediaMetadata'
 
 export function MediaInventory({ matching = false }: { matching?: boolean }) {
   const { isPending } = useAuthenticated()
@@ -35,6 +36,7 @@ export function MediaInventory({ matching = false }: { matching?: boolean }) {
   const [revision, setRevision] = useState(0)
   const [individualFiles, setIndividualFiles] = useState(false)
   const [classification, setClassification] = useState('')
+  const [match, setMatch] = useState('')
   const [admissionItems, setAdmissionItems] = useState<MediaInventoryItem[]>()
   const pending = useRef<AbortController | undefined>(undefined)
   const names = data?.libraryNames ?? {}
@@ -50,13 +52,14 @@ export function MediaInventory({ matching = false }: { matching?: boolean }) {
     if (library) params.set('library', library)
     if (query) params.set('q', query)
     if (classification) params.set('classification', classification)
+    if (match) params.set('match', match)
     void mediaClient.list(params, controller.signal).then(result => {
       if (!controller.signal.aborted) setData(result)
     }).catch(failure => { if (!controller.signal.aborted) {
       setError(failure instanceof Error ? failure.message : 'Media inventory failed.'); void logout(failure)
     } })
     return () => controller.abort()
-  }, [library, query, page, pageSize, matching, groupBy, group, sort, direction, appliedFilters, isPending, logout, revision, classification])
+  }, [library, query, page, pageSize, matching, groupBy, group, sort, direction, appliedFilters, isPending, logout, revision, classification, match])
   function resetView() {
     setData(undefined); setError(''); setCandidates(undefined); setReview(undefined)
   }
@@ -98,6 +101,10 @@ export function MediaInventory({ matching = false }: { matching?: boolean }) {
         }}>Search</Button>
       </Stack>
       <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+        <TextField select label="Media match status" value={match} disabled={locked} onChange={event => {
+          resetView(); setMatch(event.target.value); setGroup(undefined); setPage(1)
+        }}><MenuItem value="">All files</MenuItem><MenuItem value="unmatched">Unmatched</MenuItem>
+          <MenuItem value="matched">Matched</MenuItem></TextField>
         {matching && <TextField select label="Media classification" value={classification} disabled={locked} onChange={event => {
           resetView(); setClassification(event.target.value); setGroup(undefined); setPage(1)
         }}><MenuItem value="">All classifications</MenuItem><MenuItem value="unofficial">Unofficial / self-released</MenuItem>
@@ -162,7 +169,8 @@ export function MediaInventory({ matching = false }: { matching?: boolean }) {
             setReview(undefined); setCandidates(undefined)
             const result = await mediaClient.candidates(item.id, signal)
             if (!signal.aborted) setCandidates(result)
-          })}>Review media {item.id}</Button></TableCell>
+          })}>Review media {item.id}</Button><Accordion><AccordionSummary>File metadata {item.id}</AccordionSummary>
+            <AccordionDetails><MediaMetadata item={item} /></AccordionDetails></Accordion></TableCell>
         </TableRow>)}</TableBody></Table>}
       </Box>
       {matching && (group || groupBy === 'none') && <MediaMatches items={data.items} libraryNames={names} onBusy={setMatchingLocked}

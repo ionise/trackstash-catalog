@@ -8,7 +8,7 @@ import { useLogoutIfAccessDenied, useRecordContext, useRefresh } from 'react-adm
 import { artworkClient, releaseArtworkClient, artistArtworkClient } from './catalog'
 import type { ArtworkCandidate, ArtworkCandidates, ArtworkGallery, ArtworkItem, LabelRecord } from './catalog'
 
-function CandidatePreview({ id, candidate }: { id: string; candidate: ArtworkCandidate }) {
+function CandidatePreview({ id, candidate, client }: { id: string; candidate: ArtworkCandidate; client: typeof releaseArtworkClient }) {
   const [requested, setRequested] = useState(false)
   const [url, setUrl] = useState('')
   const [error, setError] = useState('')
@@ -17,7 +17,7 @@ function CandidatePreview({ id, candidate }: { id: string; candidate: ArtworkCan
     if (!requested) return
     const abort = new AbortController()
     let objectUrl: string | undefined
-    void releaseArtworkClient.preview(id, candidate, abort.signal).then(blob => {
+    void client.preview(id, candidate, abort.signal).then(blob => {
       if (abort.signal.aborted) return
       objectUrl = URL.createObjectURL(blob); setUrl(objectUrl)
     }).catch(failure => {
@@ -26,7 +26,7 @@ function CandidatePreview({ id, candidate }: { id: string; candidate: ArtworkCan
       void logout(failure)
     })
     return () => { abort.abort(); if (objectUrl) URL.revokeObjectURL(objectUrl) }
-  }, [id, candidate, requested, logout])
+  }, [id, candidate, requested, logout, client])
   return <Stack spacing={1}>
     {!requested && <Button sx={{ alignSelf: 'flex-start' }} onClick={() => setRequested(true)}>Preview artwork</Button>}
     {error && <Alert severity="error">{error}</Alert>}
@@ -99,8 +99,6 @@ export function ArtworkPanel({ id, name, version, children, release = false, art
   const [preferred, setPreferred] = useState(false)
   const [replacement, setReplacement] = useState<string>()
   const [candidates, setCandidates] = useState<ArtworkCandidates>()
-  const [candidateRights, setCandidateRights] = useState('')
-  const [candidateConfirmed, setCandidateConfirmed] = useState(false)
   const [candidatePreferred, setCandidatePreferred] = useState(false)
   const uploadSection = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -234,33 +232,30 @@ export function ArtworkPanel({ id, name, version, children, release = false, art
               <Button type="submit" variant="contained" disabled={busy || dirty || !file || !rights.trim() || !gallery}>Upload image</Button>
             </Stack>
           </Box>
-          {release && <Box component="section" aria-label="External artwork candidates">
+          <Box component="section" aria-label="External artwork candidates">
             <Typography component="h3" variant="h6">External artwork candidates</Typography>
-            <Typography>No third-party image is loaded automatically. Beatport artwork requires one linked Beatport Release ID. Preview explicitly downloads a validated thumbnail; attachment stores a managed copy with your rights statement. Embedded Library artwork awaits linked-media integration.</Typography>
+            <Typography>No third-party image is loaded automatically. Beatport artwork requires one linked Beatport {artist ? 'Artist' : release ? 'Release' : 'Label'} ID. Preview downloads a validated thumbnail; attachment stores a managed copy. Usage rights are not verified or recorded by attachment.{release ? ' Embedded Library artwork awaits linked-media integration.' : ''}</Typography>
             <Button disabled={busy || dirty} onClick={() => void execute(async () => {
-              setCandidates(await releaseArtworkClient.candidates(id)); setCandidateConfirmed(false)
+              setCandidates(await client.candidates(id))
             })}>Look up artwork candidates</Button>
-            {candidates && !candidates.providers.length && <Alert severity="info">No external artwork providers are configured. Beatport, MusicBrainz/Cover Art Archive and Discogs adapters can be connected separately.</Alert>}
-            {candidates && candidates.providers.length > 0 && !candidates.items.length && <Typography>No artwork candidates returned. Beatport needs one linked Release identity with available artwork; metadata search does not accept that link automatically.</Typography>}
+            {candidates && !candidates.providers.length && <Alert severity="info">No external artwork providers are configured.{release ? ' Beatport, MusicBrainz/Cover Art Archive and Discogs adapters can be connected separately.' : ' Configure the Beatport broker to look up artwork.'}</Alert>}
+            {candidates && candidates.providers.length > 0 && !candidates.items.length && <Typography>No artwork candidates returned. Beatport needs one linked {artist ? 'Artist' : release ? 'Release' : 'Label'} identity with available artwork; metadata search does not accept that link automatically.</Typography>}
             {!!candidates?.items.length && <>
-              <TextField label="Candidate usage rights" value={candidateRights} onChange={e => { setCandidateRights(e.target.value); setCandidateConfirmed(false) }}
-                slotProps={{ htmlInput: { maxLength: 2000 } }} />
-              <FormControlLabel control={<Checkbox checked={candidateConfirmed} disabled={busy} onChange={e => setCandidateConfirmed(e.target.checked)} />}
-                label="I confirm the release match and usage rights and request a managed copy" />
               <FormControlLabel control={<Checkbox checked={candidatePreferred} disabled={busy} onChange={e => setCandidatePreferred(e.target.checked)} />}
-                label="Prefer the attached candidate (otherwise preserve the current preferred cover)" />
+                label={`Prefer the attached candidate (otherwise preserve the current preferred ${release ? 'cover' : 'image'})`} />
+              {!release && !gallery?.items.some(item => item.isPreferred) && <Typography>The candidate will become preferred when there is no preferred image.</Typography>}
               {candidates.items.map(candidate => <Box key={`${candidate.provider}:${candidate.candidateId}:${candidate.revision}`} sx={{ my: 2 }}>
                 <Typography>{candidate.title} ({candidate.provider})</Typography>
                 <Typography sx={{ overflowWrap: 'anywhere' }}>Source: {candidate.sourceUrl}; attribution: {candidate.attribution ?? 'not supplied'}</Typography>
-                <CandidatePreview id={id} candidate={candidate} />
-                <Button disabled={busy || dirty || !gallery || !candidateRights.trim() || !candidateConfirmed}
+                <CandidatePreview id={id} candidate={candidate} client={client} />
+                <Button disabled={busy || dirty || !gallery}
                   onClick={() => void execute(async () => {
-                    accept(await releaseArtworkClient.attach(id, gallery!.etag, candidate, candidateRights, candidateConfirmed, candidatePreferred))
-                    setCandidateConfirmed(false); setCandidateRights('')
+                    accept(await client.attach(id, gallery!.etag, candidate,
+                      candidatePreferred || (!release && !gallery!.items.some(item => item.isPreferred))))
                   })}>Attach candidate</Button>
               </Box>)}
             </>}
-          </Box>}
+          </Box>
         </Stack>
       </DialogContent>
       <DialogActions><Button disabled={busy} onClick={() => setOpen(false)}>Close artwork</Button></DialogActions>
